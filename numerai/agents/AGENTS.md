@@ -4,12 +4,12 @@ Goal: play the Numerai Tournament by running experiments and implementing new
 research ideas to find models with strong BMC (Benchmark Model Contribution). The end goal
 is a stable of relatively unique, high-performing models for submission.
 
-Always check the agents/skills/ folder for skills that match the user request.
+Always check the `.claude/skills/` folder at the repo root for skills that match the user request.
 Run commands from `numerai/` (so `agents` is importable), or from repo root with `PYTHONPATH=numerai`.
 Data is expected to live under `numerai/<data_version>/` (e.g. `numerai/v5.3/`), which is often gitignored locally.
 
-To make these repo skills available to Codex CLI, symlink them into `~/.codex/skills/`:
-`ln -s $PWD/numerai/agents/skills/* ~/.codex/skills/`
+Claude Code discovers these skills automatically. To also use them from Codex CLI, symlink them
+into `~/.codex/skills/`: `ln -s $PWD/.claude/skills/* ~/.codex/skills/`
 
 ## Python Environment Setup
 
@@ -69,4 +69,4 @@ To upload a pkl file, your agent will need network access. If the PUT call to th
 - `agents/code/data/` holds dataset builders (full + downsampled parquet).
 - `agents/baselines/` stores baseline configs plus their predictions/results.
 - `agents/experiments/<name>/` contains experiment-specific configs, logs, predictions, results, and `experiment.md`.
-- `agents/skills/` contains Codex skills for this repo (each skill has a `SKILL.md`).
+- `.claude/skills/` (repo root) contains the agent skills for this repo (each skill has a `SKILL.md`).

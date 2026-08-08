@@ -33,6 +33,8 @@ This repository contains example scripts and an agentic research framework for t
 
 ```
 numerai-agentic-research/
+├── .claude/
+│   └── skills/                    # Agent workflows (auto-discovered)
 ├── numerai/
 │   ├── agents/                    # Agentic research framework
 │   │   ├── AGENTS.md              # Detailed agent instructions
@@ -43,7 +45,6 @@ numerai-agentic-research/
 │   │   │   ├── metrics/           # BMC/corr scoring utilities
 │   │   │   └── modeling/          # Training pipeline & model wrappers
 │   │   ├── experiments/           # Experiment results (not in git)
-│   │   ├── skills/                # Codex skills for agent workflows
 │   │   └── tests/                 # Pipeline + transform tests
 │   └── v5.3/                      # Dataset files (not in git)
 ```
@@ -52,7 +53,7 @@ numerai-agentic-research/
 
 ## Skills Overview
 
-The `numerai/agents/skills/` folder contains structured workflows for common tasks. Each skill has a `SKILL.md` file with detailed instructions.
+The `.claude/skills/` folder contains structured workflows for common tasks. Each skill has a `SKILL.md` file with detailed instructions. Claude Code discovers them automatically; other agents may need them symlinked into their own skills directory.
 
 ### 1. `numerai-experiment-design`
 
@@ -272,7 +273,7 @@ Build datasets with `python -m agents.code.data.build_full_datasets`:
 ### For Research Tasks
 
 1. Read `numerai/agents/AGENTS.md` for detailed instructions
-2. Check relevant skills in `numerai/agents/skills/`
+2. Check relevant skills in `.claude/skills/`
 3. Look for existing experiments in `numerai/agents/experiments/`
 4. Use downsampled data for iteration, full data for final runs
 
@@ -295,7 +296,7 @@ Build datasets with `python -m agents.code.data.build_full_datasets`:
 
 - **Run commands from `numerai/`** (so `agents` is importable), or from repo root with `PYTHONPATH=numerai`
 - **Data lives under `numerai/<data_version>/`** (e.g. `numerai/v5.3/`), which is often gitignored locally
-- **Register repo skills**: `ln -s $PWD/numerai/agents/skills/* ~/.codex/skills/`
+- **Skills live in `.claude/skills/`** and are auto-discovered by Claude Code; for Codex CLI run `ln -s $PWD/.claude/skills/* ~/.codex/skills/`
 - **Network access required** for MCP operations (Codex CLI may need `--yolo` flag)
 - **Always query Python version** before creating pkl files
 - **BMC (Benchmark Model Contribution)** is the key experiment metric (proxy for MMC), computed vs official `v53_lgbm_ender20` benchmark predictions in `*_benchmark_models.parquet`

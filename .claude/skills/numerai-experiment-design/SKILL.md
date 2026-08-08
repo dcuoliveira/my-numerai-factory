@@ -1,6 +1,6 @@
 ---
 name: numerai-experiment-design
-description: Design and manage Numerai experiments in this repo for any model idea.
+description: "Plan, run, and iterate Numerai experiments in rounds against a baseline, optimizing BMC (Benchmark Model Contribution). Use when asked to run an experiment, sweep hyperparameters or targets, compare model variants, tune a config, scout on downsampled data then scale a winner, or decide what to try next after a run finished."
 ---
 
 # Numerai Experiment Design

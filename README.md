@@ -11,9 +11,11 @@ down to the agentic framework. Need help? [Find us on Discord.](https://discord.
 
 ```bash
 pip install numerapi numerai-tools pandas pyarrow lightgbm matplotlib cloudpickle
-curl -sL https://numer.ai/install-mcp.sh | bash          # Numerai MCP server (optional)
-ln -s $PWD/numerai/agents/skills/* ~/.codex/skills/      # register skills with Codex CLI
+curl -sL https://numer.ai/install-mcp.sh | bash     # Numerai MCP server (optional)
 ```
+
+Skills live in `.claude/skills/` and Claude Code picks them up automatically. For Codex CLI,
+symlink them in: `ln -s $PWD/.claude/skills/* ~/.codex/skills/`
 
 Build the datasets (downloads ~v5.3 train + validation, then writes full and every-4th-era
 downsampled parquets under `numerai/v5.3/`):
@@ -40,6 +42,7 @@ codex exec --yolo "find the best neural network architecture to predict target e
 ## Layout
 
 ```
+.claude/skills/            # agent workflows, one SKILL.md each
 numerai/
 ├── agents/
 │   ├── AGENTS.md          # modeling philosophy and conventions
@@ -50,7 +53,6 @@ numerai/
 │   │   ├── metrics/       # BMC / corr scoring
 │   │   └── modeling/      # training pipeline (models/ + model-agnostic utils/)
 │   ├── experiments/       # one folder per line of inquiry (gitignored)
-│   ├── skills/            # agent workflows, one SKILL.md each
 │   └── tests/
 └── v5.3/                  # dataset files (gitignored)
 ```
