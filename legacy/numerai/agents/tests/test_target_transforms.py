@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from agents.code.modeling.utils.target_transforms import apply_target_transform
+from legacy.numerai.agents.code.modeling.utils.target_transforms import apply_target_transform
 
 
 class TestTargetTransforms(unittest.TestCase):

@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from numerapi import NumerAPI
 
-from agents.code.metrics import numerai_metrics
+from legacy.numerai.agents.code.metrics import numerai_metrics
 from .constants import NUMERAI_DIR, REPO_DIR
 
 

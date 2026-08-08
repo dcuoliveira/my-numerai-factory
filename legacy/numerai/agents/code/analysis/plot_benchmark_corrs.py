@@ -18,8 +18,8 @@ except ImportError as exc:  # pragma: no cover
         "matplotlib is required. Install with `.venv/bin/pip install matplotlib`."
     ) from exc
 
-from agents.code.metrics import numerai_metrics
-from agents.code.modeling.utils.constants import NUMERAI_DIR
+from legacy.numerai.agents.code.metrics import numerai_metrics
+from legacy.numerai.agents.code.modeling.utils.constants import NUMERAI_DIR
 
 AGENTS_DIR = Path(__file__).resolve().parents[2]
 

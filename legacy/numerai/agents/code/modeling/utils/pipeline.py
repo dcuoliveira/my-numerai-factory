@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from numerapi import NumerAPI
 
-from agents.code.metrics import numerai_metrics
+from legacy.numerai.agents.code.metrics import numerai_metrics
 from .config import (
     load_config,
     resolve_predictions_path,

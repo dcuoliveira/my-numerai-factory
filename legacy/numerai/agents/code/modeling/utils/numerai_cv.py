@@ -7,8 +7,8 @@ from typing import Iterable, List, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from agents.code.modeling.utils.model_factory import build_model
-from agents.code.modeling.utils.model_data import ModelDataBatch
+from legacy.numerai.agents.code.modeling.utils.model_factory import build_model
+from legacy.numerai.agents.code.modeling.utils.model_data import ModelDataBatch
 
 
 def _era_sort_key(era):

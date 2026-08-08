@@ -11,7 +11,7 @@ import pyarrow.parquet as pq
 from numerapi import NumerAPI
 from numerai_tools.scoring import correlation_contribution, numerai_corr
 
-from agents.code.modeling.utils.constants import NUMERAI_DIR, REPO_DIR
+from legacy.numerai.agents.code.modeling.utils.constants import NUMERAI_DIR, REPO_DIR
 
 
 def _resolve_data_path(path: str | Path) -> Path:

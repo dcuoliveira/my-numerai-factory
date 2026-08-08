@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 from numerapi import NumerAPI
 
-from agents.code.modeling.utils.constants import NUMERAI_DIR
+from legacy.numerai.agents.code.modeling.utils.constants import NUMERAI_DIR
 
 
 def parse_args() -> argparse.Namespace:
