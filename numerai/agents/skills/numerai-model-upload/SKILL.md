@@ -131,7 +131,30 @@ Common error descriptions:
 - `"No currently open rounds!"` → Model validated successfully but no round is open for submission
 
 ## Reference
-- Use `numerai/example_model.ipynb` for the expected `predict` signature and output format.
+
+Minimal shape of a submission pickle. `predict` must return a DataFrame with a single
+`prediction` column indexed exactly like `live_features`:
+
+```python
+import cloudpickle
+import pandas as pd
+
+# `model` and `features` are captured from the training scope by cloudpickle,
+# so the pickle carries them; it must not import anything from `agents.*`.
+def predict(
+    live_features: pd.DataFrame,
+    live_benchmark_models: pd.DataFrame,
+) -> pd.DataFrame:
+    live_predictions = model.predict(live_features[features])
+    submission = pd.Series(live_predictions, index=live_features.index)
+    return submission.to_frame("prediction")
+
+with open("model.pkl", "wb") as f:
+    f.write(cloudpickle.dumps(predict))
+```
+
+Extend this as the model requires: rank per era via `live_features["era"]`, or reindex
+`live_benchmark_models` onto `live_features` by id before using benchmark columns.
 
 ---
 

@@ -1,10 +1,9 @@
 # Numerai Tournament
-This folder contains examples on how to participate in the Numerai Tournament.
+This folder holds the agentic research framework and the datasets it trains on.
 
 ## Directory Guide:
 - `agents/`: agentic research framework + training/analysis pipeline (`python -m agents.code.modeling`)
 - `v5.3/` (and other `v*/`): Numerai dataset files (often gitignored locally)
-- `*.ipynb`: tutorial notebooks for learning the tournament workflows
 
 ## Benchmark model coverage note
 The `*_benchmark_models.parquet` files do **not necessarily cover every era** that appears in `full.parquet`.

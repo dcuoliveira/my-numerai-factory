@@ -32,7 +32,7 @@ This repository contains example scripts and an agentic research framework for t
 ## Repository Structure
 
 ```
-example-scripts/
+numerai-agentic-research/
 ├── numerai/
 │   ├── agents/                    # Agentic research framework
 │   │   ├── AGENTS.md              # Detailed agent instructions
@@ -43,11 +43,9 @@ example-scripts/
 │   │   │   ├── metrics/           # BMC/corr scoring utilities
 │   │   │   └── modeling/          # Training pipeline & model wrappers
 │   │   ├── experiments/           # Experiment results (not in git)
-│   │   └── skills/                # Codex skills for agent workflows
-│   └── *.ipynb                    # Tournament-specific notebooks
-├── signals/                       # Signals tournament examples
-├── crypto/                        # Crypto tournament examples
-├── cached-pickles/                # Pre-built model pickles
+│   │   ├── skills/                # Codex skills for agent workflows
+│   │   └── tests/                 # Pipeline + transform tests
+│   └── v5.3/                      # Dataset files (not in git)
 ```
 
 ---
@@ -287,10 +285,9 @@ Build datasets with `python -m agents.code.data.build_full_datasets`:
 
 ### For Understanding the Tournament
 
-1. Start with `hello_numerai.ipynb` for basics
-2. Review `feature_neutralization.ipynb` for feature risk
-3. Check `target_ensemble.ipynb` for ensemble strategies
-4. Use MCP server to query live tournament data
+1. Read the tournament guide above and `numerai/agents/AGENTS.md`
+2. Use the MCP server to query live tournament data (rounds, leaderboard, model performance)
+3. See https://docs.numer.ai for dataset, scoring, and staking documentation
 
 ---
 
