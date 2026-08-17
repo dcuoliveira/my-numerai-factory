@@ -107,7 +107,12 @@ REQUIRED=(numerapi numerai-tools pandas pyarrow numpy scipy scikit-learn lightgb
 #                      you actually run --model xgb / catboost
 #   scikit-optimize    --search-type bayes (BayesSearchCV). Without it the
 #                      random search still works; the CLI fails early and says so
-OPTIONAL=(xgboost catboost scikit-optimize)
+#   torch              the LSTM pipeline (src/run_nn_forecast.py). Optional and
+#                      lazily imported for the same reason as the boosters: it is
+#                      a large wheel, run_forecast.py never touches it, and a
+#                      machine that only runs ridge/lgb should not have to carry
+#                      it. run_nn_forecast fails early with a clear message.
+OPTIONAL=(xgboost catboost scikit-optimize torch)
 
 if [ "$CHECK_ONLY" = "1" ]; then
     ok "--check: skipping install"
@@ -141,7 +146,8 @@ required = {"numerapi": "numerapi", "numerai_tools": "numerai-tools",
             "pandas": "pandas", "pyarrow": "pyarrow", "numpy": "numpy",
             "scipy": "scipy", "sklearn": "scikit-learn", "lightgbm": "lightgbm",
             "joblib": "joblib", "matplotlib": "matplotlib", "pytest": "pytest"}
-optional = {"xgboost": "xgboost", "catboost": "catboost", "skopt": "scikit-optimize"}
+optional = {"xgboost": "xgboost", "catboost": "catboost", "skopt": "scikit-optimize",
+            "torch": "torch"}
 bad = []
 for module, pkg in required.items():
     try:
