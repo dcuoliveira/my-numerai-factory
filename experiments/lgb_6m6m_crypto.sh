@@ -180,7 +180,7 @@ add_arm volatility "${RAW_DATA}" '^feature_volatility_'
 # Preflight. A silent feature-count drift is the one error that produces a
 # plausible number attached to the wrong experiment, so refuse to run on it.
 # ---------------------------------------------------------------------------
-python3 - "${AFP_DATA}" "${ARM_RE[@]:2}" <<'PY' || exit 1
+TAG="${TAG}" python3 - "${AFP_DATA}" "${ARM_RE[@]:2}" <<'PY' || exit 1
 import os, re, sys
 import pyarrow.parquet as pq
 
@@ -194,8 +194,15 @@ if len(raw) != 22:
 
 afp_path = "data/%s/train.parquet" % afp
 if not os.path.exists(afp_path):
-    sys.exit("%s is missing -- build it first with:\n"
-             "  bash experiments/allfeat_plus_crypto.sh" % afp_path)
+    # setup.sh, NOT allfeat_plus_crypto.sh: that script starts from the
+    # 787-feature union and only appends spread + interact, so on a machine
+    # where the union has never been built it fails too. setup.sh builds the
+    # whole chain from the shipped 22 features.
+    sys.exit("%s is missing -- build the feature chain first:\n"
+             "  bash setup.sh --with-derived        (~3 min)\n"
+             "then re-run this study. To run the other eight arms meanwhile:\n"
+             "  SKIP=allfeatpp bash experiments/lgb_6m6m_%s_crypto.sh"
+             % (afp_path, os.environ.get("TAG", "reg")))
 n_afp = sum(c.startswith("feature_")
             for c in pq.ParquetFile(afp_path).schema.names)
 if n_afp != 812:
