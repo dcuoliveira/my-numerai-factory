@@ -165,6 +165,10 @@ def parse_args():
                         help="numerai only: small | medium | quantum | all")
     parser.add_argument("--data-version", type=str, default=None,
                         help="dataset version, defaults to the tournament's")
+    parser.add_argument("--target", type=str, default=None,
+                        help="target column; default is the tournament's. Crypto "
+                             "also ships target_binned_return_60, whose horizon "
+                             "sets the embargo automatically (60 periods, not 20)")
     parser.add_argument("--feature-include", type=str, default=None,
                         help="regex: keep only feature columns matching it. "
                              "Applied before --feature-exclude. Used for "
@@ -215,10 +219,18 @@ def resolve_refit_every(args):
 
 
 def resolve_embargo(args):
-    """Turn --embargo into an int, deriving it from the target horizon if 'auto'."""
+    """
+    Turn --embargo into an int, deriving it from the target horizon if 'auto'.
+
+    Derived from the target ACTUALLY BEING MODELLED, not the tournament default.
+    Crypto ships both a 20-day and a 60-day label; the 60-day one overlaps 98%
+    between consecutive daily periods against 95% for the 20-day one, so reading
+    the default here would embargo 20 periods where 60 are needed and leak three
+    times over -- silently, and with a better-looking score as the only symptom.
+    """
     if args.embargo == "auto":
         spec = get_spec(args.tournament)
-        return default_embargo(args.tournament, spec["target"])
+        return default_embargo(args.tournament, args.target or spec["target"])
     return int(args.embargo)
 
 
@@ -394,6 +406,7 @@ def main():
         metric=args.metric,
         data_version=args.data_version,
         feature_set=args.feature_set,
+        target=args.target,
         feature_include=args.feature_include,
         feature_exclude=args.feature_exclude,
         era_step=args.era_step,

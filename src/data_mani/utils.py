@@ -281,7 +281,8 @@ def binarize_target(y):
 # --------------------------------------------------------------------------- #
 
 def load_tournament_data(tournament, version=None, feature_set=None,
-                         era_step=1, val_frac=0.3, embargo=None, verbose=True):
+                         era_step=1, val_frac=0.3, embargo=None, verbose=True,
+                         target=None):
     """
     Load one tournament's data, already carrying a train/validation `split` column.
 
@@ -321,9 +322,21 @@ def load_tournament_data(tournament, version=None, feature_set=None,
     if era_step and era_step > 1:
         df = _downsample_periods(df, spec["period_col"], era_step)
 
-    # Rows without a target cannot be trained on or scored. Crypto's 60-day
-    # target is NaN over its last 40 dates, where the window has not resolved.
-    df = df.dropna(subset=[spec["target"]])
+    # Rows without a target cannot be trained on or scored. This must drop on
+    # the target BEING MODELLED, not the tournament default: crypto's 60-day
+    # target is NaN over its last 40 dates (12,000 rows) where the window has
+    # not resolved, while the 20-day target has none. Dropping on the default
+    # would leave those NaNs in and hand them straight to the estimator.
+    target_column = target or spec["target"]
+    if target_column not in df.columns:
+        raise ValueError("target %r is not in the dataset; available: %s"
+                         % (target_column,
+                            sorted(c for c in df.columns if c.startswith("target"))))
+    before = len(df)
+    df = df.dropna(subset=[target_column])
+    if verbose and len(df) < before:
+        print("dropped {:,} rows with no {} ({:.1%} of the panel)".format(
+            before - len(df), target_column, (before - len(df)) / before))
 
     # Missing features get the neutral middle bin rather than being dropped.
     df = fill_missing_features(df, features, spec["neutral_value"], verbose)

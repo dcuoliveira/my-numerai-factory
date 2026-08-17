@@ -838,7 +838,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
              search_jobs=1, metric2=None, metric_weight=1.0,
              bmc_reference="benchmark", proxy_alpha=1.0, min_train=0,
              feature_include=None, feature_exclude=None,
-             search_type="random", bayes_init_points=0):
+             search_type="random", bayes_init_points=0, target=None):
     """
     Run one evaluation: load, walk forward, score.
 
@@ -851,7 +851,11 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     spec = get_spec(tournament)
     period_col = spec["period_col"]
     id_col = spec["id_col"]
-    target_col = spec["target"]
+    # The target is normally the tournament default, but crypto also ships a
+    # 60-day label. Everything downstream keys off this: the embargo is derived
+    # from its horizon suffix, the loader drops rows where it has not resolved,
+    # and the scorer reads it.
+    target_col = target or spec["target"]
 
     # Embargo is derived from the target horizon unless overridden, because a
     # raw period count means different things in the two tournaments.
@@ -864,6 +868,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     df, features = load_tournament_data(
         tournament=tournament, version=data_version, feature_set=feature_set,
         era_step=era_step, val_frac=val_frac, embargo=embargo, verbose=verbose,
+        target=target_col,
     )
 
     # Regex subsetting of the feature list. This is what makes ablation studies
@@ -1010,6 +1015,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     results["skipped_blocks"] = skipped
     results["config"] = {
         "tournament": tournament, "model": model_name, "task": task,
+        "target": target_col,
         "metric": metric, "data_version": data_version or spec["version"],
         "feature_set": feature_set or spec.get("feature_set"),
         "n_features": len(features), "era_step": era_step, "val_frac": val_frac,
