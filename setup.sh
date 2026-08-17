@@ -95,8 +95,12 @@ step "2/6  python packages"
 #   lightgbm        the lgb model wrapper
 #   joblib          model persistence for the live path
 #   matplotlib      the analysis plots
+#   pytest          src/tests/{test_weighting,test_live}.py use pytest.raises and
+#                   pytest.mark.parametrize, so they will not even IMPORT without
+#                   it -- and unittest cannot collect the parametrised ones at all
+#                   (see the verify step)
 #
-REQUIRED=(numerapi numerai-tools pandas pyarrow numpy scipy scikit-learn lightgbm joblib matplotlib)
+REQUIRED=(numerapi numerai-tools pandas pyarrow numpy scipy scikit-learn lightgbm joblib matplotlib pytest)
 
 #   xgboost catboost   two more model wrappers in prediction/models.py; the
 #                      pipeline imports them lazily, so they are only needed if
@@ -136,7 +140,7 @@ import importlib, sys
 required = {"numerapi": "numerapi", "numerai_tools": "numerai-tools",
             "pandas": "pandas", "pyarrow": "pyarrow", "numpy": "numpy",
             "scipy": "scipy", "sklearn": "scikit-learn", "lightgbm": "lightgbm",
-            "joblib": "joblib", "matplotlib": "matplotlib"}
+            "joblib": "joblib", "matplotlib": "matplotlib", "pytest": "pytest"}
 optional = {"xgboost": "xgboost", "catboost": "catboost", "skopt": "scikit-optimize"}
 bad = []
 for module, pkg in required.items():
@@ -308,11 +312,16 @@ step "6/6  verify"
 if [ "$SKIP_TESTS" = "1" ]; then
     ok "tests skipped (SKIP_TESTS=1)"
 else
+    # pytest, not unittest. Two test modules use pytest.mark.parametrize on
+    # plain functions, and unittest only ever collects TestCase subclasses --
+    # so `python -m unittest discover` runs 54 of the 105 tests and reports OK,
+    # silently skipping the other 51. A green run that covered half the suite
+    # is exactly the kind of false assurance this repo is built to refuse.
     echo "  running the test suite (~30 s) ..."
-    if "$PYTHON" -m unittest discover -s src/tests >/tmp/setup_tests.$$ 2>&1; then
-        ok "$(tail -3 /tmp/setup_tests.$$ | head -1)"
+    if "$PYTHON" -m pytest src/tests -q >/tmp/setup_tests.$$ 2>&1; then
+        ok "$(grep -E "passed|failed" /tmp/setup_tests.$$ | tail -1)"
     else
-        tail -20 /tmp/setup_tests.$$
+        tail -25 /tmp/setup_tests.$$
         rm -f /tmp/setup_tests.$$
         fail "test suite failed -- the install is not usable"
     fi
