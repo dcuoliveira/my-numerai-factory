@@ -60,8 +60,14 @@ def render(report):
 
     if report.get("crash"):
         verdict = "CRASHED -- NOTHING SUBMITTED"
+    elif report.get("no_open_round"):
+        # Not a failure: the newest round Numerai knows about has closed and no
+        # newer one has opened. The mail still goes out as proof of life.
+        verdict = "no open round -- nothing to submit"
     elif report.get("submitted_late"):
-        verdict = "LATE -- submissions had already closed"
+        # Set only when Numerai itself reports status "late" for a slot -- never
+        # from local clock arithmetic. See run_round.confirm_statuses.
+        verdict = "LATE -- Numerai flagged the submission"
     elif failed:
         verdict = "FAILED (%d/%d slots)" % (len(failed), len(slots))
     elif fell_back:

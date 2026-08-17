@@ -46,16 +46,34 @@ first and only then refits and resubmits.
 
 > **The submission deadline is `closeStakingTime`, not `closeTime`.**
 > A round exposes four timestamps and only one is the cutoff:
-> `openTime` 12:00 UTC → **`closeStakingTime` ~13:05 UTC (~66 min later)** →
+> `openTime` 12:00 UTC → **`closeStakingTime` ~13:06 UTC (~66 min later)** →
 > `closeTime` 12:00 UTC *the next day*, when the round stops being current →
 > `scoreTime` ~6 days out. Reading `closeTime` as the deadline suggests a
 > 24-hour window that does not exist, and cost two Late submissions
-> (rounds 1332 and 1333). Weekend rounds are longer — round 1329 opened Sat
-> 12:00Z with a Sun 16:00Z cutoff — but never shorter, so the code reads the
-> field per round rather than assuming.
+> (rounds 1332 and 1333). Long rounds exist — round 1334 opened Sat 12:00Z with
+> a Sun 16:00Z cutoff — so the margin is read per round rather than assumed.
 
-Rounds open **daily at 12:00 UTC** (09:00 America/São_Paulo), Saturdays
-included, so the schedule is daily rather than weekday-only.
+> **The published round table lags the submission service.** On 2026-08-17 round
+> 1335 opened at 12:00Z and accepted all six slots at 12:05Z; at 12:49Z
+> `rounds(tournament:12)` still topped out at 1334, `get_current_round()` still
+> said 1334, and `roundDetails(1335)` answered HTTP 500. The pipeline believed
+> the table, concluded the window had shut on the Sunday, and mailed
+> `LATE -- submissions had already closed` about six submissions Numerai had
+> accepted on time.
+>
+> So the round now comes from `model.latestSubmissions`, which is the submission
+> service's own view and sees a round the moment it opens, with the round table
+> only as a fallback. Highest round number wins — a source can lag, never lead.
+> And the *verdict* is read back off the API per slot (`confirm_statuses`)
+> rather than computed here: `on-time`, `queued` or `late` is Numerai's call.
+> `LATE` reaches the subject line only when Numerai says so.
+
+Rounds open at **12:00 UTC** (09:00 America/São_Paulo). Most close staking
+~13:06Z the same day; some run long — the Saturday round has been closing Sunday
+16:00Z, and round 1335 opened on a Monday with a 16:00Z cutoff. The cadence is
+Numerai's to change, so nothing here encodes a weekday: the cron runs daily, the
+window is read per round, and a run that finds nothing open exits 0 with
+`no open round -- nothing to submit` rather than uploading into a closed round.
 
 Installed in `crontab -l`:
 
@@ -87,9 +105,17 @@ outstanding slots and merge their results into the same round report.
 - **A crash before the slot loop still emails.** Anything escaping `run()`
   sends a `CRASHED -- NOTHING SUBMITTED` report with the rerun command. A silent
   miss is the worst outcome available: you find out days later from a Late flag.
-- **Late submissions are labelled.** If the window has closed the report says so
-  and the subject reads `LATE -- submissions had already closed`, rather than
-  `OK`.
+- **A closed window stops the run**, but only on the submission service's word.
+  Nothing is uploaded and the subject reads `no open round -- nothing to
+  submit`; `--allow-late` overrides it for debugging.
+- **Every upload's status is read back** from Numerai and printed per slot
+  (`numerai: on-time` / `queued` / `late`). The round report carries it too. No
+  local clock decides whether a round was made.
+- **The round queries retry** 3× before giving up. They decide whether anything
+  uploads at all, and a bare `KeyError('data')` out of numerapi took the
+  2026-08-17 09:25 pass with it. If they stay unreadable the run proceeds anyway
+  on `get_current_round()`: a broken API is likelier than a closed window, and a
+  missed round cannot be undone.
 
 `cron_round.sh` supplies what cron does not: the absolute conda interpreter
 (`python3` on cron's PATH has none of the dependencies), the working directory,
@@ -188,4 +214,4 @@ otherwise the cached fit is used and the report says so.
 | `run_round.py` | deadline-aware orchestrator |
 | `env.py` | `.env` loader |
 
-Tests: `python3 -m pytest src/tests/test_live.py -q` (25 tests, ~4 s).
+Tests: `python3 -m pytest src/tests/test_live.py -q` (38 tests, ~35 s).

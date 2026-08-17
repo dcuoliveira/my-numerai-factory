@@ -43,6 +43,16 @@ Three mechanisms enforce it:
 from cache immediately, and only then does anything refit and resubmit. It costs
 one extra upload per slot and guarantees that a submission is in the door within
 seconds of starting.
+
+------------------------------------------------------------------------------
+Only Numerai gets to say a submission was late
+------------------------------------------------------------------------------
+
+Which round is open comes from the submission service, not the published round
+table, which can be an hour behind it (open_round). Whether a submission made
+the cutoff is read back off the API afterwards rather than computed from a local
+clock (confirm_statuses). Deciding either locally is how six on-time
+submissions were mailed out as LATE on 2026-08-17.
 """
 
 import argparse
@@ -68,6 +78,10 @@ RESERVE_PER_SLOT = 90
 # GraphQL API. 4 attempts over ~35s.
 DOWNLOAD_ATTEMPTS = 4
 BACKOFF_BASE_SECONDS = 5
+
+# The round list decides whether anything uploads at all, so a transient failure
+# is retried rather than shrugged off.
+ROUND_QUERY_ATTEMPTS = 3
 
 
 class StaleLiveData(Exception):
@@ -139,48 +153,176 @@ def download_live(api, verbose=True):
         print("live data ready in %s" % LIVE_DIR)
 
 
-def round_window(api, round_number):
+def _stamp(value):
+    """A GraphQL timestamp as a naive UTC pandas Timestamp, or None."""
+    if not value:
+        return None
+    return pd.Timestamp(value).tz_localize(None)
+
+
+def _retry_query(api, query, arguments=None, attempts=ROUND_QUERY_ATTEMPTS,
+                 verbose=True, label="query"):
     """
-    (is_open, open_time, deadline, minutes_left) for a round.
+    raw_query with retries, returning None rather than raising.
 
-    THE DEADLINE IS closeStakingTime, NOT closeTime.
+    Retried because these answers decide whether anything is uploaded at all,
+    and numerapi surfaces a transient empty response as a bare KeyError('data').
+    One of those took the whole 2026-08-17 09:25 pass with it.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return api.raw_query(query, arguments, authorization=True)["data"]
+        except Exception as error:
+            if attempt == attempts:
+                if verbose:
+                    print("   %s failed after %d attempts (%s)"
+                          % (label, attempts, error))
+                return None
+            time.sleep(BACKOFF_BASE_SECONDS * attempt)
+    return None
 
-    This cost two late submissions before it was understood. A crypto round
-    carries four timestamps and only one of them is the submission cutoff:
 
-        openTime          12:00 UTC daily
-        closeStakingTime  ~13:05 UTC -- SUBMISSIONS CLOSE HERE, ~66 min later
-        closeTime         12:00 UTC the NEXT day, when the round stops being
-                          "current" and the next one opens. Reading this as the
-                          deadline suggests a 24-hour window that does not exist.
-        scoreTime         ~6 days later, when the 20-day target resolves enough
-                          to score
+def rounds_from_schedule(api, verbose=True):
+    """
+    The published round table: [{number, opened, deadline}], highest first.
 
-    Weekend rounds (isDaily=False) are the exception: round 1329 opened Sat
-    12:00Z with a closeStakingTime of Sun 16:00Z, a 28-hour window. So the
-    margin cannot be assumed either -- it is read per round.
+    Authoritative about the past and LATE about the present -- see open_round.
+    """
+    data = _retry_query(
+        api, "query { rounds(tournament:12) { number openTime closeStakingTime } }",
+        verbose=verbose, label="the round table")
+    if not data:
+        return []
+    entries = [{"number": entry["number"], "opened": _stamp(entry.get("openTime")),
+                "deadline": _stamp(entry.get("closeStakingTime")),
+                "via": "round table"}
+               for entry in data["rounds"]]
+    return sorted(entries, key=lambda entry: entry["number"], reverse=True)
 
-    numerapi's check_round_open() is no help here: it reports False for rounds
+
+def rounds_from_submissions(api, model_id, verbose=True):
+    """
+    The round table as the SUBMISSION service sees it, highest number first.
+
+    This is the source that is current. `latestSubmissions` enumerates rounds
+    whether or not this slot submitted to them (status "none" when it did not),
+    and it knows about a round the moment that round starts accepting uploads.
+    """
+    data = _retry_query(
+        api,
+        "query($modelId: String!) { model(modelId: $modelId) { latestSubmissions "
+        "{ roundNumber roundOpenTime roundCloseStakingTime status } } }",
+        {"modelId": model_id}, verbose=verbose, label="the submission history")
+    if not data or not (data.get("model") or {}).get("latestSubmissions"):
+        return []
+    entries = [{"number": entry["roundNumber"],
+                "opened": _stamp(entry.get("roundOpenTime")),
+                "deadline": _stamp(entry.get("roundCloseStakingTime")),
+                "via": "submission history"}
+               for entry in data["model"]["latestSubmissions"]]
+    return sorted(entries, key=lambda entry: entry["number"], reverse=True)
+
+
+def open_round(api, model_id=None, now=None, verbose=True):
+    """
+    The round accepting submissions right now.
+
+    :return: (number, opened, deadline, minutes_left, state, via) where state is
+             "open", "closed" (the newest round's window has passed) or
+             "unknown" (nothing could be read).
+
+    ------------------------------------------------------------------------
+    TWO WAYS TO GET THIS WRONG, AND THIS PIPELINE HAS MANAGED BOTH
+    ------------------------------------------------------------------------
+
+    1. The deadline is closeStakingTime, not closeTime. A crypto round carries
+       four timestamps and only one is the cutoff:
+
+           openTime          12:00 UTC
+           closeStakingTime  SUBMISSIONS CLOSE HERE -- 13:06 UTC on an ordinary
+                             round, 16:00 UTC on a long one
+           closeTime         when the round stops being "current" -- the next
+                             day, or the following Tuesday for a weekend round
+           scoreTime         ~6 days out, when the 20-day target resolves
+
+       Reading closeTime as the deadline suggests a 24-hour window that does not
+       exist, and cost rounds 1332 and 1333.
+
+    2. THE PUBLISHED ROUND TABLE LAGS THE SUBMISSION SERVICE. On 2026-08-17
+       round 1335 opened at 12:00 UTC and accepted all six slots at 12:05, and
+       yet at 12:49 `rounds(tournament:12)` still topped out at 1334,
+       `get_current_round()` still said 1334, and `roundDetails(1335)` answered
+       500. The pipeline believed the table, decided the window had shut on the
+       Sunday, and mailed `LATE -- submissions had already closed` about six
+       submissions that Numerai had accepted on time.
+
+       So the round is resolved from the submission service first and the
+       published table only as a fallback, and the *reported* verdict comes from
+       reading each submission's status back off the API rather than from any
+       local clock arithmetic. See confirm_statuses().
+
+    Trusting the table the other way round would be worse than a wrong subject
+    line: on 2026-08-17 it would have skipped a round that was open.
+
+    numerapi's check_round_open() is no help either: it reports False for rounds
     that are demonstrably open, answering for a different tournament's schedule.
     """
-    try:
-        rounds = api.raw_query(
-            "query { rounds(tournament:12) { number openTime closeStakingTime } }",
-            authorization=True)["data"]["rounds"]
-    except Exception:
-        return None, None, None, None
+    now = now if now is not None else pd.Timestamp.now("UTC").tz_localize(None)
 
-    for entry in rounds:
-        if entry["number"] != round_number:
+    candidates = rounds_from_schedule(api, verbose=verbose)
+    if model_id:
+        candidates = rounds_from_submissions(api, model_id, verbose=verbose) + candidates
+
+    # Highest number wins, whichever source saw it -- a source can only ever be
+    # behind, never ahead of a round that does not exist.
+    newest = None
+    for entry in candidates:
+        if entry["opened"] is not None and entry["opened"] > now:
             continue
-        opened = pd.Timestamp(entry["openTime"]).tz_localize(None)
-        if not entry.get("closeStakingTime"):
-            return None, opened, None, None
-        deadline = pd.Timestamp(entry["closeStakingTime"]).tz_localize(None)
-        now = pd.Timestamp.now("UTC").tz_localize(None)
-        minutes_left = (deadline - now).total_seconds() / 60.0
-        return (opened <= now < deadline), opened, deadline, minutes_left
-    return None, None, None, None
+        if newest is None or entry["number"] > newest["number"]:
+            newest = entry
+    if newest is None:
+        return None, None, None, None, "unknown", "-"
+
+    deadline = newest["deadline"]
+    # closeStakingTime is published a moment after a round opens. A round that
+    # has opened without one yet is open, not closed.
+    if deadline is None:
+        return newest["number"], newest["opened"], None, None, "open", newest["via"]
+
+    minutes_left = (deadline - now).total_seconds() / 60.0
+    return (newest["number"], newest["opened"], deadline, minutes_left,
+            "open" if now < deadline else "closed", newest["via"])
+
+
+def confirm_statuses(api, model_ids, round_number, verbose=True):
+    """
+    What Numerai says about each slot's submission: the only honest verdict.
+
+    Returns {slot: status} with status one of "on-time", "queued", "late",
+    "none", or None when it could not be read. Local clock arithmetic against a
+    round table that lags by an hour is how a perfectly on-time round came to be
+    mailed out as LATE; this asks the service that actually decided.
+    """
+    statuses = {}
+    for name, model_id in model_ids.items():
+        data = _retry_query(
+            api,
+            "query($modelId: String!) { model(modelId: $modelId) { latestSubmissions "
+            "{ roundNumber status } } }",
+            {"modelId": model_id}, attempts=2, verbose=False, label="status")
+        if not data or not (data.get("model") or {}).get("latestSubmissions"):
+            statuses[name] = None
+            continue
+        submissions = data["model"]["latestSubmissions"]
+        match = ([entry for entry in submissions
+                  if entry["roundNumber"] == round_number] or
+                 sorted(submissions, key=lambda e: e["roundNumber"])[-1:])
+        statuses[name] = match[0]["status"] if match else None
+    if verbose and statuses:
+        print("   Numerai reports: %s" % ", ".join(
+            "%s %s" % (name, status or "?") for name, status in statuses.items()))
+    return statuses
 
 
 def resolve_model_ids(api, names):
@@ -326,7 +468,8 @@ def already_submitted(round_number, names):
 
 
 def run(deadline_minutes=60, dry_run=False, safety_first=False,
-        force_refit=False, models=None, email=True, skip_if_submitted=False):
+        force_refit=False, models=None, email=True, skip_if_submitted=False,
+        allow_late=False):
     load_env()
     api = get_api()
 
@@ -341,7 +484,55 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
         deadline_minutes, "DRY RUN" if dry_run else "LIVE SUBMIT"))
     print("=" * 78)
 
-    round_number = api.get_current_round() or 0
+    # Slots first: the submission service is the only source that sees a round
+    # the moment it opens, and reaching it needs a model id.
+    model_ids, missing, available = resolve_model_ids(api, names)
+    if missing:
+        warnings.append(
+            "these slots do not exist on the account and cannot be submitted: %s. "
+            "Create them at numer.ai (Crypto tournament) with exactly these names. "
+            "Slots currently on the account: %s"
+            % (", ".join(missing), ", ".join(available) or "(none)"))
+
+    probe = next(iter(model_ids.values()), None)
+    round_number, opened, deadline, minutes_left, state, via = open_round(
+        api, model_id=probe)
+
+    if state == "closed" and not allow_late:
+        print("round %s stopped accepting submissions at %s UTC (%.0f min ago) "
+              "and no newer round has opened -- nothing to submit"
+              % (round_number, deadline, -minutes_left))
+        print("   Uploading now would be accepted, flagged Late and scored zero. "
+              "Use --allow-late to override.")
+        report = {"round": round_number, "skipped": True, "no_open_round": True,
+                  "slots": [], "live_date": "-", "started_at": started_at,
+                  "elapsed_minutes": budget.elapsed() / 60.0,
+                  "deadline_minutes": deadline_minutes, "dry_run": dry_run,
+                  "diagnostics": {},
+                  "warnings": warnings + [
+                      "round %s closed at %s UTC and the %s shows nothing newer"
+                      % (round_number, deadline, via)]}
+        # Only the primary pass mails, or a quiet day would send three copies.
+        if email and not skip_if_submitted:
+            send(report)
+        return report
+
+    if state == "closed":
+        warnings.append("round %s closed at %s UTC (%.0f min ago); --allow-late "
+                        "was passed, so this uploads anyway"
+                        % (round_number, deadline, -minutes_left))
+    elif state == "unknown":
+        try:
+            round_number = api.get_current_round() or 0
+        except Exception as error:
+            round_number = 0
+            warnings.append("could not read the current round number either (%s)"
+                            % error)
+        # Proceeding blind is the right call: a broken API is far more likely
+        # than a closed window, and a missed round cannot be undone.
+        warnings.append("could not read the round window; proceeding on round %s "
+                        "without knowing whether it is open" % round_number)
+
     if skip_if_submitted:
         done = already_submitted(round_number, names)
         if done == set(names):
@@ -363,18 +554,7 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     except StaleLiveData as error:
         warnings.append(str(error))
         print("   WARNING: %s" % error)
-    is_open, opened, deadline, minutes_left = round_window(api, round_number)
-    if is_open is None:
-        warnings.append("could not read the round window; proceeding anyway")
-    elif not is_open:
-        # Numerai accepts a late submission but flags it Late, and a late
-        # submission does not score. Say so loudly rather than reporting "OK".
-        warnings.append(
-            "round %s SUBMISSIONS CLOSED at %s UTC (%.0f min ago) -- anything "
-            "uploaded now is accepted but flagged Late and will not score"
-            % (round_number, deadline, -minutes_left))
-        report_late = True
-    else:
+    if state == "open" and minutes_left is not None:
         print("round %s: submissions close %s UTC (%.0f min left)"
               % (round_number, deadline, minutes_left))
         # The budget must never outlive the window it is submitting into.
@@ -385,6 +565,9 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
                             "submission deadline" % (deadline_minutes, minutes_left))
         elif minutes_left < 15:
             warnings.append("only %.0f min of margin left" % minutes_left)
+    elif state == "open":
+        print("round %s: opened %s UTC, no closeStakingTime published yet"
+              % (round_number, opened))
 
     live_raw = pd.read_parquet(os.path.join(LIVE_DIR, "live.parquet"))
     append_live_history(live_raw)
@@ -395,14 +578,6 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     if gap_days > 45:
         warnings.append("train.parquet lags live by %d days; CURUPIRA_03's rolling "
                         "features are computed across that gap" % gap_days)
-
-    model_ids, missing, available = resolve_model_ids(api, names)
-    if missing:
-        warnings.append(
-            "these slots do not exist on the account and cannot be submitted: %s. "
-            "Create them at numer.ai (Crypto tournament) with exactly these names. "
-            "Slots currently on the account: %s"
-            % (", ".join(missing), ", ".join(available) or "(none)"))
 
     context = {"estimators": {}, "live_date": live_date,
                "round_number": round_number, "live_symbols": live_symbols}
@@ -490,12 +665,33 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             except Exception:
                 pass
 
+    # Ask Numerai what it made of the uploads rather than deciding from a local
+    # clock and a round table that can be an hour behind. This is the only thing
+    # entitled to put LATE in the subject line.
+    if not dry_run and model_ids and any(s["status"] == "submitted" for s in slots):
+        confirmed = confirm_statuses(api, model_ids, round_number)
+        for slot in slots:
+            status = confirmed.get(slot["name"])
+            if status:
+                slot["numerai_status"] = status
+                slot["detail"] = "%s | numerai: %s" % (
+                    slot.get("detail") or "-", status)
+        late = sorted(name for name, status in confirmed.items() if status == "late")
+        if late:
+            report_late = True
+            warnings.append("Numerai flagged these submissions Late, so they will "
+                            "not score: %s" % ", ".join(late))
+        elif not any(confirmed.values()):
+            warnings.append("could not read back the submission status from "
+                            "Numerai; the uploads themselves succeeded")
+
     report = {
         "round": round_number, "live_date": str(live_date.date()),
         "started_at": started_at, "elapsed_minutes": budget.elapsed() / 60.0,
         "deadline_minutes": deadline_minutes, "dry_run": dry_run,
         "slots": slots, "diagnostics": diagnostics, "warnings": warnings,
         "train_live_gap_days": gap_days, "submitted_late": report_late,
+        "round_window_via": via,
     }
 
     os.makedirs(os.path.join(REPORT_DIR, str(round_number)), exist_ok=True)
@@ -532,13 +728,18 @@ def main():
     parser.add_argument("--skip-if-submitted", action="store_true",
                         help="no-op for slots that already submitted this round; "
                              "use on the retry runs inside the submission window")
+    parser.add_argument("--allow-late", action="store_true",
+                        help="upload even when the round has stopped accepting "
+                             "submissions; the result is flagged Late and scores "
+                             "zero, so this is for debugging only")
     args = parser.parse_args()
 
     try:
         report = run(deadline_minutes=args.deadline_minutes, dry_run=args.dry_run,
                      safety_first=args.safety_first, force_refit=args.force_refit,
                      models=args.models, email=not args.no_email,
-                     skip_if_submitted=args.skip_if_submitted)
+                     skip_if_submitted=args.skip_if_submitted,
+                     allow_late=args.allow_late)
     except Exception as error:
         # Anything that escapes run() -- a DNS failure on the dataset host, a
         # corrupt parquet, an API outage -- happens BEFORE the per-slot handling

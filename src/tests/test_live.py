@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.live import registry, submit
+from src.live import registry, run_round, submit
 from src.live.features import (ONEHOT_MIN_DATES, ROLL_WINDOWS, TENC_LAG,
                                add_derived,
                                add_onehot, add_rolling, add_tenc, build_features)
@@ -194,6 +194,126 @@ def test_dry_run_never_touches_the_api():
             raise AssertionError("dry run must not upload")
 
     assert submit.upload(Exploding(), "x", "mid", "T", dry_run=True) == ("DRY_RUN", 0)
+
+
+# --------------------------------------------------------------------------
+# Which round is open -- and which source is allowed to say so
+# --------------------------------------------------------------------------
+
+# The published round table on 2026-08-17, verbatim. It tops out at 1334, the
+# weekend round: open Saturday, staking closed Sunday 16:00Z, still "current" by
+# closeTime until Tuesday.
+SCHEDULE = [
+    {"number": 1333, "openTime": "2026-08-14T12:00:00Z",
+     "closeStakingTime": "2026-08-14T13:06:14Z"},
+    {"number": 1334, "openTime": "2026-08-15T12:00:00Z",
+     "closeStakingTime": "2026-08-16T16:00:00Z"},
+]
+
+# What the submission service saw at the same moment: round 1335, open since
+# 12:00Z, accepting until 16:00Z. The table had not heard of it 49 minutes later.
+SUBMISSIONS = [
+    {"roundNumber": 1335, "roundOpenTime": "2026-08-17T12:00:00.000000Z",
+     "roundCloseStakingTime": "2026-08-17T16:00:00.000000Z", "status": "none"},
+    {"roundNumber": 1334, "roundOpenTime": "2026-08-15T12:00:00Z",
+     "roundCloseStakingTime": "2026-08-16T16:00:00Z", "status": "on-time"},
+]
+
+
+class FakeApi(object):
+    """Answers the round table and the submission history."""
+
+    def __init__(self, schedule=SCHEDULE, submissions=SUBMISSIONS, failures=0):
+        self.schedule, self.submissions = schedule, submissions
+        self.failures, self.calls = failures, 0
+
+    def raw_query(self, query, arguments=None, authorization=True):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise KeyError("data")          # how numerapi surfaces a blip
+        if "latestSubmissions" in query:
+            if self.submissions is None:
+                raise KeyError("data")
+            return {"data": {"model": {"latestSubmissions": list(self.submissions)}}}
+        return {"data": {"rounds": list(self.schedule)}}
+
+    def get_current_round(self):
+        raise AssertionError(
+            "get_current_round answers with closeTime, which is not the "
+            "submission cutoff -- it must not decide the target round")
+
+
+def at(when):
+    return pd.Timestamp(when)
+
+
+def test_open_round_finds_the_round_inside_its_staking_window():
+    number, _, deadline, minutes_left, state, _ = run_round.open_round(
+        FakeApi(submissions=None), now=at("2026-08-15 12:05:00"), verbose=False)
+    assert (number, state) == (1334, "open")
+    assert deadline == at("2026-08-16 16:00:00")
+    assert minutes_left == pytest.approx(28 * 60 - 5, abs=1)
+
+
+def test_a_long_round_is_still_open_the_next_day():
+    number, _, _, _, state, _ = run_round.open_round(
+        FakeApi(submissions=None), now=at("2026-08-16 12:05:00"), verbose=False)
+    assert (number, state) == (1334, "open")
+
+
+def test_the_submission_service_outranks_the_lagging_round_table():
+    """
+    The regression, and it cuts the opposite way to how it looked.
+
+    At 12:05Z on 2026-08-17 round 1335 was open and took all six slots on time.
+    The published table still topped out at 1334 -- and still did 44 minutes
+    later -- so the pipeline decided the window had shut on the Sunday and
+    mailed LATE about six submissions Numerai had accepted. Believing the table
+    and skipping would have been worse still: a missed round.
+    """
+    number, _, deadline, minutes_left, state, via = run_round.open_round(
+        FakeApi(), model_id="mid", now=at("2026-08-17 12:05:00"), verbose=False)
+    assert (number, state) == (1335, "open")
+    assert deadline == at("2026-08-17 16:00:00")
+    assert minutes_left == pytest.approx(235, abs=1)
+    assert via == "submission history"
+
+
+def test_a_genuinely_closed_window_is_reported_closed():
+    number, _, _, minutes_left, state, _ = run_round.open_round(
+        FakeApi(), model_id="mid", now=at("2026-08-17 16:30:00"), verbose=False)
+    assert (number, state) == (1335, "closed")
+    assert minutes_left < 0
+
+
+def test_a_round_that_has_not_published_its_deadline_yet_counts_as_open():
+    schedule = [dict(SCHEDULE[1], closeStakingTime=None)]
+    number, _, deadline, _, state, _ = run_round.open_round(
+        FakeApi(schedule, submissions=None), now=at("2026-08-15 12:00:30"),
+        verbose=False)
+    assert (number, deadline, state) == (1334, None, "open")
+
+
+def test_an_unreadable_api_is_unknown_rather_than_closed():
+    """Never infer "closed" from an API failure -- that would skip a live round."""
+    api = FakeApi(failures=99)
+    assert run_round.open_round(api, model_id="mid", verbose=False)[4] == "unknown"
+
+
+def test_the_round_queries_are_retried_before_giving_up():
+    api = FakeApi(submissions=None, failures=run_round.ROUND_QUERY_ATTEMPTS - 1)
+    number, _, _, _, state, _ = run_round.open_round(
+        api, now=at("2026-08-15 12:05:00"), verbose=False)
+    assert (number, state) == (1334, "open")
+
+
+def test_the_late_verdict_comes_from_numerai_not_from_the_clock():
+    api = FakeApi(submissions=[
+        {"roundNumber": 1335, "roundOpenTime": "2026-08-17T12:00:00Z",
+         "roundCloseStakingTime": "2026-08-17T16:00:00Z", "status": "queued"}])
+    statuses = run_round.confirm_statuses(
+        api, {"CURUPIRA_01": "mid"}, 1335, verbose=False)
+    assert statuses == {"CURUPIRA_01": "queued"}
 
 
 # --------------------------------------------------------------------------
