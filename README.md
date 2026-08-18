@@ -57,6 +57,32 @@ numerai/
 └── v5.3/                  # dataset files (gitignored)
 ```
 
+## Runners
+
+One shell script per study, in `experiments/`. Each documents in its own header
+what it runs, what it is measured against, and what would count as a result.
+All take `DRY_RUN=1` to print the commands without running them.
+
+| Runner | What it measures |
+|---|---|
+| `lgb_6m6m_reg_crypto.sh` | LightGBM regression, 9 arms: raw 22 -> allfeat++ 812 -> the 7 raw feature groups alone |
+| `lgb_6m6m_clf_crypto.sh` | The same 9 arms as classification |
+| `ridge_comparison_crypto.sh` | Fixed-grid ridge vs the glmnet lambda path, across tasks and objectives |
+| `refit_cadence_crypto.sh` | How often to refit, and over how long a training window |
+| `feature_groups_crypto.sh` | Each of the 7 raw feature groups fitted alone, both ridge variants |
+| `group_blends_crypto.sh` | Best trio and quintet of groups: blend of models vs one model on the union |
+| `feature_engineering_crypto.sh` | Target encoding, one-hot, rolling means, spreads, interactions |
+| `all_features_crypto.sh` | Ceiling check: 788 features at once |
+| `allfeat_plus_crypto.sh` | The genuine union, 812 features (needs the chain from `setup.sh --with-derived`) |
+| `ablation_crypto.sh` | Feature importance by leave-one-block-out against allfeat++ |
+| `weighting_crypto.sh` | How to weight CURUPIRA_05's five members |
+| `weighting_sweep_crypto.sh` | Tunes the four surviving weighting schemes; read with `analysis.weighting_report` |
+| `target60_crypto.sh` | Every deployed model refit from scratch on the 60-day target |
+
+`lgb_6m6m_crypto.sh` is the shared implementation behind the two `lgb_6m6m_*`
+runners; invoke those, not it. Knobs common to the LightGBM runners:
+`ONLY=`, `SKIP=`, `SHARD=/OF=`, `SMOKE=1`, `LGB_N_ITER=`, `LGB_SEARCH_TYPE=`.
+
 ## Skills
 
 | Skill | Use it for |
