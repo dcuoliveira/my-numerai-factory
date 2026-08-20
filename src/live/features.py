@@ -85,7 +85,8 @@ ROLL_WINDOWS = [5, 20, 60]
 # coefficient, and the column would be noise with a name.
 ONEHOT_MIN_DATES = 130
 
-FEATURE_SETS = ("raw", "tenc", "interact", "onehot_roll", "allfeat", "allfeat_pp")
+FEATURE_SETS = ("raw", "tenc", "interact", "tenc_onehot", "onehot_roll",
+                "allfeat", "allfeat_pp")
 
 
 def raw_features(frame):
@@ -315,6 +316,17 @@ def build_features(panel, feature_set, verbose=True):
         panel, added = add_interact(panel)
         columns += added
         diagnostics["n_interact"] = len(added)
+
+    elif feature_set == "tenc_onehot":
+        # raw + the target encoding + the 740 identity columns; no rolling means
+        # and no derived block. 763 columns.
+        panel, added = add_tenc(panel)
+        columns += added
+        panel, dummies, cold, vocab = add_onehot(panel, ~panel["is_live"])
+        columns += dummies
+        live_support = panel.loc[panel["is_live"], "_tenc_support"]
+        diagnostics.update(onehot_vocabulary=vocab, live_cold_start=cold,
+                           tenc_median_support=float(live_support.median()))
 
     elif feature_set == "onehot_roll":
         panel, rolled = add_rolling(panel)

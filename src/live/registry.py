@@ -216,6 +216,94 @@ MODELS = {
             "reaches the book (CURUPIRA_07 is the other).",
         ],
     },
+    "SACI_03": {
+        "wrapper": "lgb",
+        "feature_set": "tenc_onehot",
+        "n_features": 763,
+        "backtest_run": "e01_tenc_onehot_m50",
+        "why": (
+            "A 60-DAY model, and the reason it exists is decorrelation, not its "
+            "own score. From experiment E01: on the 60-day label the wide "
+            "leaf-50 arms are the only ones that beat raw, and this one ranks "
+            "0.63 against CURUPIRA_05_60 and 0.49-0.72 against the 20-day book "
+            "-- a different label and a different model class from anything "
+            "deployed.\n\n"
+            "DO NOT STAKE IT ALONE. Its own payout sharpe is 0.7170 with a "
+            "10.9473 payout drawdown, the worst risk profile of any slot here. "
+            "It exists as a member of CURUPIRA_SACI_02, where blending tames it: "
+            "that blend lands at sharpe 1.3941 and drawdown 1.0523."
+        ),
+        "backtest": {
+            "corr": 0.142699, "corr_sharpe": 1.0926, "corr_max_dd": 7.7020,
+            "mmc": 0.078748, "mmc_sharpe": 0.6709,
+            "payout": 0.093018, "payout_sharpe": 0.7170, "payout_max_dd": 10.9473,
+            "n_periods": 470,
+        },
+        "fit_override": {
+            # Both must move together, exactly as CURUPIRA_05_60 does: the
+            # 60-day label resolves 60 periods out and is NaN over the panel's
+            # last 40 dates, so a 20-day embargo would leak three times over and
+            # feed NaN targets in.
+            "target": "target_binned_return_60",
+            "embargo": 60,
+            "fixed_params": {
+                "n_estimators": 4327, "learning_rate": 0.002572,
+                "max_depth": 8, "num_leaves": 255,
+                "colsample_bytree": 0.070213, "subsample": 0.816153,
+                "subsample_freq": 1,
+                # 50, so the 740 one-hot columns this arm carries are usable.
+                "min_child_samples": 50,
+                "reg_lambda": 1.757511,
+            },
+        },
+        "fallback_feature_set": "tenc",
+    },
+    "CURUPIRA_SACI_02": {
+        "wrapper": None,
+        "feature_set": "allfeat_pp",   # superset of all three members' columns
+        "n_features": 812,
+        "backtest_run": "x3_int_e60tenc_c05",
+        "why": (
+            "Highest payout of anything in the project at 0.099528, and the "
+            "first slot spanning BOTH labels and two model classes: a 20-day "
+            "LightGBM on 36 columns, a 60-day LightGBM on 763, and a five-member "
+            "ridge blend.\n\n"
+            "The members are chosen for disagreement. On predictions "
+            "SACI_01 ranks 0.60 against SACI_03 and 0.46 against CURUPIRA_05, "
+            "and SACI_03 ranks 0.49 against CURUPIRA_05 -- against 0.91 for "
+            "CURUPIRA_01 vs _03, which is what a redundant pair looks like."
+        ),
+        "backtest": {
+            "corr": 0.153321, "corr_sharpe": 1.9278, "corr_max_dd": 0.5894,
+            "mmc": 0.084196, "mmc_sharpe": 1.2950,
+            "payout": 0.099528, "payout_sharpe": 1.3941, "payout_max_dd": 1.0523,
+            "n_periods": 470,
+        },
+        "slot_members": [
+            {"name": "SACI_01", "weight": 0.3333},
+            {"name": "SACI_03", "weight": 0.3333},
+            {"name": "CURUPIRA_05", "weight": 0.3334},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "THE MARGIN IS NOT SIGNIFICANT: +0.006510 over its best member at "
+            "t = +0.31, paired Newey-West lag 20 over 470 periods (~24 effective "
+            "independent windows). A sibling blend swapping SACI_03 for the "
+            "60-day RAW arm scored 0.097764 at t = +1.31 -- lower payout, but "
+            "four times the t and a better sharpe (1.4754 vs 1.3941). This slot "
+            "was chosen on payout; that one is the stronger evidence.",
+            "Its payout advantage rests on SACI_03, whose standalone payout "
+            "drawdown is 10.9473. The blend's own drawdown is 1.0523, so the "
+            "combination is doing the work -- but a member that volatile is a "
+            "reason to size this slot conservatively.",
+            "Scored on 470 periods, not 510: the 60-day label is NaN over the "
+            "panel's last 40 dates, so this is not directly comparable to the "
+            "510-period slots.",
+            "SACI_03 is NOT submitted on its own -- it exists only as a member "
+            "here. Staking it directly would put money on the worst risk profile "
+            "in the registry.",
+        ],
+    },
     "CURUPIRA_01": {
         "wrapper": "ridge_glmnet",
         "feature_set": "tenc",
@@ -593,14 +681,14 @@ MODELS = {
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
 ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_01", "CURUPIRA_03",
-         "CURUPIRA_04", "SACI_02",
+         "CURUPIRA_04", "SACI_03", "SACI_02",
          "CURUPIRA_05", "CURUPIRA_05_60", "CURUPIRA_06", "CURUPIRA_07",
-         "CURUPIRA_08", "CURUPIRA_SACI_01"]
+         "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
 # the worst-scoring arm in the study.
-NOT_SUBMITTED = {"CURUPIRA_05_60"}
+NOT_SUBMITTED = {"CURUPIRA_05_60", "SACI_03"}
 
 
 def is_blend(spec):
