@@ -88,10 +88,17 @@ class StaleLiveData(Exception):
     """Raised when live.parquet could not be refreshed but an old copy exists."""
 
 # Used only until a slot has been fit once and has a real measurement.
+# SACI_01/02 pin their estimator, so a refit is one configuration through the
+# inner CV rather than 50 -- cheap despite LightGBM being a heavier learner than
+# ridge. 36 features costs about what CURUPIRA_03 does; 788 costs a little more.
 DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
+                       "SACI_01": 90,
                        "CURUPIRA_03": 90, "CURUPIRA_04": 95,
+                       "SACI_02": 120,
                        "CURUPIRA_05": 440,
-                       "CURUPIRA_06": 1}
+                       "CURUPIRA_05_60": 440,
+                       "CURUPIRA_06": 1, "CURUPIRA_07": 1,
+                       "CURUPIRA_08": 1}
 
 REPORT_DIR = "results/live"
 
@@ -273,14 +280,26 @@ def open_round(api, model_id=None, now=None, verbose=True):
     if model_id:
         candidates = rounds_from_submissions(api, model_id, verbose=verbose) + candidates
 
-    # Highest number wins, whichever source saw it -- a source can only ever be
-    # behind, never ahead of a round that does not exist.
-    newest = None
-    for entry in candidates:
-        if entry["opened"] is not None and entry["opened"] > now:
-            continue
-        if newest is None or entry["number"] > newest["number"]:
-            newest = entry
+    # An OPEN window beats everything, and it is chosen before any comparison of
+    # round numbers -- because round numbers are not unique. On 2026-08-18 the
+    # API served two different rounds both numbered 1335: yesterday's, which had
+    # closed at 16:00Z, and today's, open 12:00Z-13:04Z. Ranking by number alone
+    # picked the stale one and skipped a live round with 38 minutes left on it.
+    started = [entry for entry in candidates
+               if entry["opened"] is None or entry["opened"] <= now]
+    live = [entry for entry in started
+            if entry["deadline"] is None or now < entry["deadline"]]
+    if live:
+        # Latest to have opened, so a reissued number resolves to the current one.
+        newest = max(live, key=lambda entry: (entry["opened"] or now,
+                                              entry["number"]))
+    elif started:
+        # Nothing open: report the most recently closed round, again by time
+        # rather than by number.
+        newest = max(started, key=lambda entry: (entry["deadline"] or entry["opened"],
+                                                 entry["number"]))
+    else:
+        newest = None
     if newest is None:
         return None, None, None, None, "unknown", "-"
 
@@ -295,7 +314,7 @@ def open_round(api, model_id=None, now=None, verbose=True):
             "open" if now < deadline else "closed", newest["via"])
 
 
-def confirm_statuses(api, model_ids, round_number, verbose=True):
+def confirm_statuses(api, model_ids, round_number, opened=None, verbose=True):
     """
     What Numerai says about each slot's submission: the only honest verdict.
 
@@ -303,21 +322,30 @@ def confirm_statuses(api, model_ids, round_number, verbose=True):
     "none", or None when it could not be read. Local clock arithmetic against a
     round table that lags by an hour is how a perfectly on-time round came to be
     mailed out as LATE; this asks the service that actually decided.
+
+    `opened` disambiguates the round, and is not optional in practice. Round
+    NUMBERS REPEAT: on 2026-08-18 the API served two rounds both numbered 1335,
+    one opened the 17th and one the 18th, and matching on the number alone
+    returned the previous day's verdict for six of seven slots.
     """
     statuses = {}
     for name, model_id in model_ids.items():
         data = _retry_query(
             api,
             "query($modelId: String!) { model(modelId: $modelId) { latestSubmissions "
-            "{ roundNumber status } } }",
+            "{ roundNumber roundOpenTime status } } }",
             {"modelId": model_id}, attempts=2, verbose=False, label="status")
         if not data or not (data.get("model") or {}).get("latestSubmissions"):
             statuses[name] = None
             continue
         submissions = data["model"]["latestSubmissions"]
-        match = ([entry for entry in submissions
-                  if entry["roundNumber"] == round_number] or
-                 sorted(submissions, key=lambda e: e["roundNumber"])[-1:])
+        match = [entry for entry in submissions
+                 if entry["roundNumber"] == round_number
+                 and (opened is None or _stamp(entry.get("roundOpenTime")) == opened)]
+        if not match:
+            match = sorted(submissions,
+                           key=lambda e: (_stamp(e.get("roundOpenTime"))
+                                          or pd.Timestamp.min))[-1:]
         statuses[name] = match[0]["status"] if match else None
     if verbose and statuses:
         print("   Numerai reports: %s" % ", ".join(
@@ -627,7 +655,14 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             if note:
                 record["note"] = "; ".join(filter(None, [record["note"], note]))
 
-            if name not in model_ids:
+            if name in registry.NOT_SUBMITTED:
+                # Fitted and cached so CURUPIRA_07 can use it, deliberately not
+                # uploaded: standalone it is the worst arm in the study.
+                record["status"] = "submitted"
+                record["source"] = "not-submitted"
+                record["detail"] = "%s | component only, never uploaded" % (
+                    record["detail"] or "-")
+            elif name not in model_ids:
                 record["status"] = "failed"
                 record["error"] = ("no such model slot on the account; CSV written "
                                    "to %s but not uploaded" % path)
@@ -669,13 +704,16 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     # clock and a round table that can be an hour behind. This is the only thing
     # entitled to put LATE in the subject line.
     if not dry_run and model_ids and any(s["status"] == "submitted" for s in slots):
-        confirmed = confirm_statuses(api, model_ids, round_number)
+        confirmed = confirm_statuses(api, model_ids, round_number, opened=opened)
         for slot in slots:
             status = confirmed.get(slot["name"])
             if status:
                 slot["numerai_status"] = status
-                slot["detail"] = "%s | numerai: %s" % (
-                    slot.get("detail") or "-", status)
+                # Idempotent: a retry pass merges slots from the earlier report,
+                # which already carry a verdict. Appending blindly gave lines
+                # reading "numerai: queued | numerai: on-time".
+                base = (slot.get("detail") or "-").split(" | numerai: ")[0]
+                slot["detail"] = "%s | numerai: %s" % (base, status)
         late = sorted(name for name, status in confirmed.items() if status == "late")
         if late:
             report_late = True

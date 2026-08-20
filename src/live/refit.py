@@ -67,16 +67,27 @@ SEARCH_JOBS = 8
 ESTIMATOR_JOBS = 1
 
 
-def training_block(panel, columns, train_window, embargo, live_date):
+def training_block(panel, columns, train_window, embargo, live_date,
+                   target_col=TARGET):
     """
     The last `train_window` target-resolved periods, as (X, y, meta).
+
+    `target_col` is a parameter because crypto ships two labels and a slot may
+    be fitted on either. It has to move together with `embargo`: the 60-day
+    label resolves 60 periods out and is NaN over the panel's last 40 dates, so
+    fitting it under the 20-day embargo would both leak and hand NaN targets to
+    the estimator.
 
     X is deliberately left as a DataFrame: the CV scorer recovers each row's
     period through meta.loc[X.index], which only works because sklearn's iloc
     slicing preserves the index. Passing .values here would break the scorer in
     a way that still runs and silently scores garbage.
     """
-    resolved = panel[~panel["is_live"] & panel[TARGET].notna()].copy()
+    if target_col not in panel.columns:
+        raise ValueError("target %r is not in the panel; available: %s"
+                         % (target_col,
+                            sorted(c for c in panel.columns if c.startswith("target"))))
+    resolved = panel[~panel["is_live"] & panel[target_col].notna()].copy()
     if resolved.empty:
         raise ValueError("no target-resolved rows in the panel")
 
@@ -94,7 +105,7 @@ def training_block(panel, columns, train_window, embargo, live_date):
             % (gap, pd.Timestamp(kept[-1]).date(), live_date.date(), embargo, embargo))
 
     X = block[columns]
-    y = block[TARGET]
+    y = block[target_col]
     meta = block[[PERIOD]].copy()
     return X, y, meta, kept, gap
 
@@ -204,6 +215,11 @@ def fit_one(wrapper_name, X, y, meta, fit, verbose=False):
         X=X, y=y, wrapper=wrapper, meta=meta,
         metric=fit["metric"], period_col=PERIOD, reference_col=None,
         task=fit["task"], n_iter=fit["n_iter"], n_splits=fit["n_splits"],
+        # A slot may pin its estimator instead of searching. Without this the
+        # live refit would run the 50-draw search and fit a DIFFERENT model than
+        # the arm that justified the slot -- the exact drift registry.py's
+        # "fidelity to the backtest" note exists to prevent.
+        fixed_params=fit.get("fixed_params"),
         embargo=fit["embargo"], scheme=fit["cv_scheme"],
         train_window=fit["train_window"], n_jobs=ESTIMATOR_JOBS,
         seed=fit["seed"], verbose=verbose, search_jobs=SEARCH_JOBS)
@@ -225,7 +241,8 @@ def refit_blend(name, panel, columns, live_date, verbose=True):
     started = time.time()
 
     X_all, y, meta, periods, gap = training_block(
-        panel, columns, fit["train_window"], fit["embargo"], live_date)
+        panel, columns, fit["train_window"], fit["embargo"], live_date,
+        target_col=fit["target"])
     if verbose:
         print("   training block: %d rows, %d periods %s..%s (%d days before live)"
               % (len(X_all), len(periods), pd.Timestamp(periods[0]).date(),
@@ -329,7 +346,8 @@ def refit(name, panel, columns, live_date, verbose=True):
     started = time.time()
 
     X, y, meta, periods, gap = training_block(
-        panel, columns, fit["train_window"], fit["embargo"], live_date)
+        panel, columns, fit["train_window"], fit["embargo"], live_date,
+        target_col=fit["target"])
 
     if verbose:
         print("   training block: %d rows x %d features, %d periods %s..%s "
@@ -346,6 +364,7 @@ def refit(name, panel, columns, live_date, verbose=True):
         reference_col=None,               # no benchmark series in the live block
         task=fit["task"],
         n_iter=fit["n_iter"], n_splits=fit["n_splits"], embargo=fit["embargo"],
+        fixed_params=fit.get("fixed_params"),
         scheme=fit["cv_scheme"], train_window=fit["train_window"],
         n_jobs=ESTIMATOR_JOBS, seed=fit["seed"], verbose=False,
         search_jobs=SEARCH_JOBS,

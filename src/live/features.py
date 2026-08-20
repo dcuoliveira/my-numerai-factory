@@ -85,7 +85,7 @@ ROLL_WINDOWS = [5, 20, 60]
 # coefficient, and the column would be noise with a name.
 ONEHOT_MIN_DATES = 130
 
-FEATURE_SETS = ("raw", "tenc", "onehot_roll", "allfeat_pp")
+FEATURE_SETS = ("raw", "tenc", "interact", "onehot_roll", "allfeat", "allfeat_pp")
 
 
 def raw_features(frame):
@@ -270,6 +270,25 @@ def add_derived(panel):
     return pd.concat([panel, derived], axis=1), list(derived.columns)
 
 
+def add_interact(panel):
+    """
+    Add only the 14 products and acceleration gaps -- no spreads.
+
+    add_derived() builds spreads AND interactions together, which is what
+    allfeat_pp wants. The interact arm is raw + interactions only (36 columns),
+    so it needs the narrower call; sharing add_derived() here would silently
+    ship 11 extra spread columns and stop reproducing the backtest.
+
+    Same delegation argument as add_derived(): build_interactions() is the exact
+    function the offline dataset was built with, and these are pure same-row
+    transforms, so there is no history to align and no live/train skew to get
+    wrong.
+    """
+    added = build_interactions(panel)
+    derived = pd.DataFrame(added, index=panel.index).astype("float32")
+    return pd.concat([panel, derived], axis=1), list(derived.columns)
+
+
 def build_features(panel, feature_set, verbose=True):
     """
     Return (panel, feature_columns, diagnostics) for one feature set.
@@ -292,12 +311,33 @@ def build_features(panel, feature_set, verbose=True):
         diagnostics["tenc_median_support"] = float(live_support.median())
         diagnostics["tenc_live_no_history"] = int((live_support == 0).sum())
 
+    elif feature_set == "interact":
+        panel, added = add_interact(panel)
+        columns += added
+        diagnostics["n_interact"] = len(added)
+
     elif feature_set == "onehot_roll":
         panel, rolled = add_rolling(panel)
         panel, dummies, cold, vocab = add_onehot(panel, ~panel["is_live"])
         columns += rolled + dummies
         diagnostics.update(n_rolling=len(rolled), onehot_vocabulary=vocab,
                            live_cold_start=cold)
+
+    elif feature_set == "allfeat":
+        # allfeat_pp MINUS the 24 rolling means: 788 columns, not 812. Same
+        # ordering argument as allfeat_pp -- the spreads and interactions are
+        # built from the RAW features, so they go in before the one-hot block
+        # widens the frame.
+        panel, added = add_tenc(panel)
+        columns += added
+        panel, derived = add_derived(panel)
+        columns += derived
+        panel, dummies, cold, vocab = add_onehot(panel, ~panel["is_live"])
+        columns += dummies
+        live_support = panel.loc[panel["is_live"], "_tenc_support"]
+        diagnostics.update(n_derived=len(derived), onehot_vocabulary=vocab,
+                           live_cold_start=cold,
+                           tenc_median_support=float(live_support.median()))
 
     elif feature_set == "allfeat_pp":
         # Every block at once: the union of the other three plus the derived
