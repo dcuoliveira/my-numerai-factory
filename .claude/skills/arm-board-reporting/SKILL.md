@@ -129,6 +129,44 @@ python3 .claude/skills/arm-board-reporting/scripts/screen_ensembles.py \
   t = +0.36 at leaf 50. It is one result among 38 arms; a Bonferroni-style
   adjustment puts the threshold near |t| = 2.9. Say so next to the number.
 
+## Long jobs: mail at the start too, and carry references
+
+A study that runs for hours needs two mails, not one. `src/live/notify.send_text`
+is already configured from `.env`.
+
+**Mail when it STARTS.** A job that only mails on completion is indistinguishable
+from a job that never started, silently died, or is still going — and that is
+exactly the state you are in at hour three. The start mail is what makes "is it
+running?" answerable without an ssh session.
+
+**Both mails carry references, not just a status.** Name where to look, and give
+the study a HANDLE — one greppable token that every artefact it writes shares:
+
+```
+BOITATA started 2026-08-20 03:58:53 on deepfive
+
+  arms      23  (leaf sizes 313 50)
+  target    target_binned_return_60  --  embargo auto, 60 periods
+  expect    ~60-90 min
+
+Where to look while it runs:
+  runner    experiments/blocks60_lgb_reg_crypto.sh
+  progress  logs/boitata_*.log        (one per arm)
+  results   results/metrics/crypto/lgb/boitata_*.json
+  report    logs/boitata_report.txt   (written at the end)
+  handle    this study is BOITATA; every artefact it writes is boitata_*
+```
+
+**Name the study.** `boitata_*` retrieves 23 runs, four log sets and a report in
+one glob, six months later. `b60_lgb_reg_*` describes the configuration and is
+forgotten by the next study that also runs on 60 days. This repo names slots from
+Brazilian folklore — CURUPIRA, SACI, BOITATA — and studies inherit the same
+convention.
+
+**Mail on failure as well as success**, and never let SMTP break the run: wrap
+the call, print the mail failure, exit on the experiment's own status. Give the
+runner a `NO_MAIL=1` escape hatch so a dry run does not page anyone.
+
 ## Publishing a board
 
 `scripts/build_board.py` renders any set of runs as an HTML artifact: ranked
