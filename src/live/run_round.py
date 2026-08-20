@@ -98,7 +98,10 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        "CURUPIRA_05": 440,
                        "CURUPIRA_05_60": 440,
                        "CURUPIRA_06": 1, "CURUPIRA_07": 1,
-                       "CURUPIRA_08": 1}
+                       "CURUPIRA_08": 1,
+                       # A slot blend: rank-averages members already fitted
+                       # for their own sake, so it adds no fitting cost.
+                       "CURUPIRA_SACI_01": 1}
 
 REPORT_DIR = "results/live"
 

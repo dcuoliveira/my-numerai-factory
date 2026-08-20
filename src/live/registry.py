@@ -165,6 +165,57 @@ MODELS = {
         },
         "fallback_feature_set": "raw",
     },
+    "CURUPIRA_SACI_01": {
+        "wrapper": None,
+        # A blend of SLOTS: it fits nothing of its own and rank-averages three
+        # slots that are already fitted for their own sake, so it costs seconds.
+        "feature_set": "allfeat_pp",   # superset of all three members' columns
+        "n_features": 812,
+        "backtest_run": "saci01_c03_c0560",
+        "why": (
+            "Highest payout of anything in the project at 0.097730, and it beats "
+            "every one of its own members: +0.007769 over SACI_01, +0.008880 "
+            "over CURUPIRA_03, +0.005529 over CURUPIRA_05_60. That is unusual "
+            "here -- most blends dilute the mean -- and it happens because the "
+            "members genuinely disagree. On the payout series SACI_01 and "
+            "CURUPIRA_03 correlate 0.756, while CURUPIRA_05_60 correlates "
+            "NEGATIVELY with both (-0.166 and -0.371). A 60-day label and a "
+            "LightGBM on 36 columns are different bets from a 786-column ridge.\n\n"
+            "It is also the first slot combining two model classes: LightGBM "
+            "ranks 0.705-0.751 against the ridge book where ridge variants sit "
+            "at 0.883-0.926 against each other."
+        ),
+        "backtest": {
+            "corr": 0.157364, "corr_sharpe": 1.8586, "corr_max_dd": 0.8373,
+            "mmc": 0.081993, "mmc_sharpe": 1.3208,
+            "payout": 0.097730, "payout_sharpe": 1.4183, "payout_max_dd": 1.3094,
+            "n_periods": 470,
+        },
+        "slot_members": [
+            {"name": "SACI_01", "weight": 0.3333},
+            {"name": "CURUPIRA_03", "weight": 0.3333},
+            {"name": "CURUPIRA_05_60", "weight": 0.3334},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "NONE OF THE THREE MARGINS IS SIGNIFICANT. Paired Newey-West at lag "
+            "20 over 470 periods gives t = +1.24, +0.72 and +0.23 against the "
+            "members. On ~24 effective independent windows this sample cannot "
+            "separate the blend from simply holding SACI_01.",
+            "ITS DRAWDOWN IS WORSE THAN SACI_01 ALONE: 1.3094 against 1.0856. "
+            "An earlier screen suggested this combination would CUT drawdown to "
+            "0.23 -- that screen averaged the members' payout SERIES, which is "
+            "not what run_ensemble does. The real per-period rank average has "
+            "higher payout and higher drawdown. CURUPIRA_05_60 carries a 10.99 "
+            "payout drawdown of its own and drags it up.",
+            "Scored on 470 periods, not 510: CURUPIRA_05_60's 60-day label is "
+            "NaN over the last 40 dates, so the blend cannot be compared "
+            "directly to the 510-period arms.",
+            "CURUPIRA_05_60 is in NOT_SUBMITTED -- fitted and cached but never "
+            "uploaded on its own. This slot is one of the two ways its signal "
+            "reaches the book (CURUPIRA_07 is the other).",
+        ],
+    },
     "CURUPIRA_01": {
         "wrapper": "ridge_glmnet",
         "feature_set": "tenc",
@@ -544,7 +595,7 @@ MODELS = {
 ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_01", "CURUPIRA_03",
          "CURUPIRA_04", "SACI_02",
          "CURUPIRA_05", "CURUPIRA_05_60", "CURUPIRA_06", "CURUPIRA_07",
-         "CURUPIRA_08"]
+         "CURUPIRA_08", "CURUPIRA_SACI_01"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
