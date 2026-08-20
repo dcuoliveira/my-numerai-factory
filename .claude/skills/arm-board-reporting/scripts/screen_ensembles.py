@@ -4,7 +4,15 @@ Screen equal-weight ensembles of finished runs, on the payout series.
     python3 screen_ensembles.py --model lgb --runs 'fe_lgb_reg_*' --with-registry
 
 Costs seconds: run_ensemble rank-averages FINISHED forecasts, so nothing is
-refitted. Two rules this encodes, both learned the hard way:
+refitted.
+
+THIS IS A SCREEN, NOT A PRICE. It averages the members' payout SERIES, which is
+a cheap proxy for what run_ensemble actually does -- a per-period rank average of
+PREDICTIONS. The two can differ a lot: SACI_01 + CURUPIRA_03 + CURUPIRA_05_60
+screened at payout 0.0903 / drawdown 0.23, and the real blend came out at
+0.0977 / 1.31. Higher payout, and drawdown five times worse. Use this to RANK
+candidates, then run the shortlist through run_ensemble before believing any
+number or deploying anything. Two rules this encodes, both learned the hard way:
 
   * An ensemble is compared to its OWN BEST MEMBER, never to a global baseline.
     "Does combining beat holding the best of these" is the decision; equal-weight

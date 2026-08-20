@@ -97,9 +97,15 @@ seconds, not model fits. Screen on the payout series.
 question is "does combining beat just holding the best of these", and
 equal-weight averaging dilutes the mean by construction.
 
-What that screen returned here, over 3,276 combinations: **zero** beat their best
+**Screening is not pricing.** `screen_ensembles.py` averages the members' payout
+SERIES; `run_ensemble` rank-averages their PREDICTIONS. On the one combination
+carried through to a real run the two disagreed badly -- screened 0.0903 payout /
+0.23 drawdown, actual 0.0977 / 1.31. Screen to rank, then run the shortlist
+through `run_ensemble` before quoting a number or deploying.
+
+What the screen returned here, over 3,276 combinations: **zero** beat their best
 member on payout at |t| > 2, and every point estimate was negative. The case for
-blending was entirely risk — the best pairing cut max drawdown from 1.00 to 0.23
+blending looked entirely like risk — the best pairing cut max drawdown from 1.00 to 0.23
 and lifted sharpe from 1.47 to 1.72, on members correlating rho 0.03-0.08. Report
 blends that way round.
 
