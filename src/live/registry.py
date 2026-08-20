@@ -304,6 +304,84 @@ MODELS = {
             "in the registry.",
         ],
     },
+    "SACI_04": {
+        "wrapper": "lgb",
+        "feature_set": "raw",
+        "n_features": 22,
+        "backtest_run": "fe_lgb_reg_raw",
+        "why": (
+            "LightGBM on the 22 shipped features, nothing added. It exists as "
+            "the non-ridge anchor of CURUPIRA_SACI_03: a booster on the raw set "
+            "ranks 0.705-0.751 against the ridge book, where the ridge variants "
+            "sit at 0.883-0.926 against each other, so it brings a model class "
+            "no fourth ridge arm can.\n\n"
+            "Pinned, not searched. The cadence study showed the pinned config "
+            "matching a 50-draw search at this cadence (payout 0.083272 against "
+            "0.082061) for 1/90th of the compute -- and that matters here, not "
+            "just as economy: a searched refit takes ~159 min against a ~66 min "
+            "submission window, so the searched version is not deployable at all."
+        ),
+        "backtest": {
+            "corr": 0.149754, "corr_sharpe": 1.8080, "corr_max_dd": 0.6806,
+            "mmc": 0.068297, "mmc_sharpe": 1.1741,
+            "payout": 0.083272, "payout_sharpe": 1.2918, "payout_max_dd": 1.1964,
+            "n_periods": 510,
+        },
+        "fit_override": {
+            "fixed_params": {
+                "n_estimators": 4327, "learning_rate": 0.002572,
+                "max_depth": 8, "num_leaves": 255,
+                "colsample_bytree": 0.070213, "subsample": 0.816153,
+                "subsample_freq": 1, "min_child_samples": 313,
+                "reg_lambda": 1.757511,
+            },
+        },
+        "fallback_feature_set": None,   # already the simplest set
+    },
+    "CURUPIRA_SACI_03": {
+        "wrapper": None,
+        "feature_set": "allfeat_pp",
+        "n_features": 812,
+        "backtest_run": "saci04_c05_c08",
+        "why": (
+            "The highest payout in the project at 0.100904, and the best "
+            "evidenced blend here: it beats TWO of its three members at "
+            "|t| > 2 -- +0.017135 over SACI_04 at t = +4.35 and +0.011115 over "
+            "CURUPIRA_05 at t = +2.26. Almost nothing in this study clears that "
+            "bar, and no other blend beats more than one member.\n\n"
+            "It works because the members are strong AND unalike: a LightGBM on "
+            "22 raw features, a five-member ridge feature-block blend, and a "
+            "slot blend carrying the 60-day label. Every previous attempt to "
+            "blend WEAK decorrelated fragments -- the feature groups, at a "
+            "median rho of 0.129 -- landed at or below a single 22-feature "
+            "model. Strong and unalike beats orthogonal and weak."
+        ),
+        "backtest": {
+            "corr": 0.157742, "corr_sharpe": 1.9401, "corr_max_dd": 0.6420,
+            "mmc": 0.085130, "mmc_sharpe": 1.4074,
+            "payout": 0.100904, "payout_sharpe": 1.5053, "payout_max_dd": 1.0301,
+            "n_periods": 470,
+        },
+        "slot_members": [
+            {"name": "SACI_04", "weight": 0.3333},
+            {"name": "CURUPIRA_05", "weight": 0.3333},
+            {"name": "CURUPIRA_08", "weight": 0.3334},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "IT IS NOT DISTINGUISHABLE FROM HOLDING CURUPIRA_08 ALONE: "
+            "+0.001089 at t = +0.28. C08 is the binding member -- the blend's "
+            "edge over the other two does not translate into an edge over the "
+            "best one. Deploy it for the diversification and the sharpe "
+            "(1.5053 against C08's 1.4713), not for expected return.",
+            "CURUPIRA_05 and CURUPIRA_08 already carry 2.18 and 2.46 NMR and "
+            "correlate 0.885 with each other. This slot adds a third position "
+            "on top of that pair, so it concentrates rather than spreads unless "
+            "the stake comes out of their allocation.",
+            "Scored on 470 periods, not 510: CURUPIRA_08 carries the 60-day "
+            "label, which is NaN over the panel's last 40 dates.",
+        ],
+    },
     "CURUPIRA_01": {
         "wrapper": "ridge_glmnet",
         "feature_set": "tenc",
@@ -680,10 +758,11 @@ MODELS = {
 # CURUPIRA_06 fits nothing, so it is cheapest -- but it must run AFTER the
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
-ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_01", "CURUPIRA_03",
+ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_04", "SACI_01", "CURUPIRA_03",
          "CURUPIRA_04", "SACI_03", "SACI_02",
          "CURUPIRA_05", "CURUPIRA_05_60", "CURUPIRA_06", "CURUPIRA_07",
-         "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02"]
+         "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02",
+         "CURUPIRA_SACI_03"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on

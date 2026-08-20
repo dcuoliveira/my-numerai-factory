@@ -92,7 +92,7 @@ class StaleLiveData(Exception):
 # inner CV rather than 50 -- cheap despite LightGBM being a heavier learner than
 # ridge. 36 features costs about what CURUPIRA_03 does; 788 costs a little more.
 DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
-                       "SACI_01": 90, "SACI_03": 95,
+                       "SACI_04": 85, "SACI_01": 90, "SACI_03": 95,
                        "CURUPIRA_03": 90, "CURUPIRA_04": 95,
                        "SACI_02": 120,
                        "CURUPIRA_05": 440,
@@ -102,7 +102,8 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        # A slot blend: rank-averages members already fitted
                        # for their own sake, so it adds no fitting cost.
                        "CURUPIRA_SACI_01": 1,
-                       "CURUPIRA_SACI_02": 1}
+                       "CURUPIRA_SACI_02": 1,
+                       "CURUPIRA_SACI_03": 1}
 
 REPORT_DIR = "results/live"
 
