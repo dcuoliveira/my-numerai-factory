@@ -307,6 +307,65 @@ def test_the_round_queries_are_retried_before_giving_up():
     assert (number, state) == (1334, "open")
 
 
+# Round numbers repeat. On 2026-08-18 the API served two rounds both numbered
+# 1335: the one that opened on the 17th and closed 16:00Z, and the one that
+# opened on the 18th and closed 13:04Z. Both come back in the same list.
+REISSUED = [
+    {"roundNumber": 1335, "roundOpenTime": "2026-08-17T12:00:00Z",
+     "roundCloseStakingTime": "2026-08-17T16:00:00Z", "status": "queued"},
+    {"roundNumber": 1335, "roundOpenTime": "2026-08-18T12:00:00Z",
+     "roundCloseStakingTime": "2026-08-18T13:04:01Z", "status": "none"},
+    {"roundNumber": 1334, "roundOpenTime": "2026-08-15T12:00:00Z",
+     "roundCloseStakingTime": "2026-08-16T16:00:00Z", "status": "on-time"},
+]
+
+
+def test_a_reissued_round_number_resolves_to_the_window_that_is_open():
+    """
+    The second regression, and it cost a live round.
+
+    Ranking candidates by round number picked whichever 1335 came first -- the
+    stale one -- so on 2026-08-18 the 09:05 and 09:25 passes both reported "no
+    open round" while a round sat open with 38 minutes left on it.
+    """
+    api = FakeApi(schedule=[], submissions=REISSUED)
+    number, opened, deadline, minutes_left, state, _ = run_round.open_round(
+        api, model_id="mid", now=at("2026-08-18 12:26:00"), verbose=False)
+    assert (number, state) == (1335, "open")
+    assert opened == at("2026-08-18 12:00:00")
+    assert deadline == at("2026-08-18 13:04:01")
+    assert minutes_left == pytest.approx(38, abs=1)
+
+
+def test_with_both_windows_closed_the_later_one_is_reported():
+    api = FakeApi(schedule=[], submissions=REISSUED)
+    _, opened, _, _, state, _ = run_round.open_round(
+        api, model_id="mid", now=at("2026-08-18 14:00:00"), verbose=False)
+    assert state == "closed" and opened == at("2026-08-18 12:00:00")
+
+
+def test_status_is_read_from_the_right_window_of_a_reissued_number():
+    """Matching on the number alone returned yesterday's verdict for 6 of 7 slots."""
+    api = FakeApi(schedule=[], submissions=REISSUED)
+    stale = run_round.confirm_statuses(api, {"C01": "mid"}, 1335, verbose=False)
+    assert stale == {"C01": "queued"}, "no open time given -- picks the first match"
+
+    api = FakeApi(schedule=[], submissions=REISSUED)
+    fresh = run_round.confirm_statuses(
+        api, {"C01": "mid"}, 1335, opened=at("2026-08-18 12:00:00"), verbose=False)
+    assert fresh == {"C01": "none"}
+
+
+def test_the_numerai_verdict_is_stamped_once_however_many_passes_run():
+    """Three passes inside one window must not stack three verdicts on a line."""
+    slot = {"name": "C01", "detail": "cached fit | C01.csv | 300 rows"}
+    for status in ("queued", "on-time", "on-time"):
+        base = (slot.get("detail") or "-").split(" | numerai: ")[0]
+        slot["detail"] = "%s | numerai: %s" % (base, status)
+    assert slot["detail"] == "cached fit | C01.csv | 300 rows | numerai: on-time"
+    assert slot["detail"].count("numerai:") == 1
+
+
 def test_the_late_verdict_comes_from_numerai_not_from_the_clock():
     api = FakeApi(submissions=[
         {"roundNumber": 1335, "roundOpenTime": "2026-08-17T12:00:00Z",
@@ -328,11 +387,46 @@ def test_registry_protocol_matches_the_backtest_config():
     assert fit["n_iter"] == 50 and fit["seed"] == 42
 
 
+def _touches_the_60_day_label(name, seen=None):
+    """
+    True when a slot is fitted on the 60-day target, or reuses one that is.
+
+    Recursive because slot blends nest: CURUPIRA_07 and _08 are 20-day slots
+    that carry CURUPIRA_05_60, and a slot blend of a slot blend would inherit it
+    one level deeper still.
+    """
+    seen = seen or set()
+    if name in seen:
+        return False
+    seen.add(name)
+
+    spec = registry.get(name)
+    if spec["fit"]["target"].endswith("_60"):
+        return True
+    return any(_touches_the_60_day_label(m["name"], seen)
+               for m in spec.get("slot_members") or [])
+
+
 def test_every_slot_declares_a_backtest_run_and_stats():
+    """
+    The period count is not one number, and hard-coding 510 was wrong.
+
+    The 60-day target is NaN over its last 40 dates, so anything fitted on it --
+    or blended from something that is -- scores 470 periods rather than 510.
+    Asserting 510 for every slot failed the moment CURUPIRA_05_60 was added, and
+    the fix is to assert the count the slot's own label implies, so that a slot
+    silently scored on the wrong panel is still caught.
+    """
     for spec in registry.all_specs():
-        assert spec["backtest_run"], spec["name"]
-        assert spec["backtest"]["n_periods"] == 510
-        assert spec["why"]
+        name = spec["name"]
+        assert spec["backtest_run"], name
+        assert spec["why"], name
+
+        expected = 470 if _touches_the_60_day_label(name) else 510
+        assert spec["backtest"]["n_periods"] == expected, (
+            "%s declares %d periods; a slot %s the 60-day label should have %d"
+            % (name, spec["backtest"]["n_periods"],
+               "touching" if expected == 470 else "clear of", expected))
 
 
 def test_submission_order_is_cheapest_first():
@@ -660,3 +754,70 @@ def test_blend_member_patterns_select_the_widths_the_backtest_fitted():
     assert widths["interact"] == 2
 
     assert abs(sum(m["weight"] for m in spec["members"]) - 1.0) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# staking
+# ---------------------------------------------------------------------------
+
+def test_stake_weights_match_the_solver_they_claim_to_come_from():
+    """
+    The hardcoded WEIGHTS must equal what --solve produces today.
+
+    They are a cache of a solve over the backtested series, and the whole file
+    is written as though they are. If a member run is ever re-scored the cache
+    goes stale silently -- the plan still prints, still looks solved, and
+    allocates real NMR on numbers nobody re-derived. This is that alarm.
+    """
+    from src.live import stake
+
+    assert set(stake.WEIGHTS) == set(stake.STAKED)
+    solved = stake.solve(stake.SCHEME)
+    for name, weight in stake.WEIGHTS.items():
+        assert abs(float(solved[name]) - float(weight)) < 5e-4, (
+            "%s: stored %s, solver now says %s -- re-run "
+            "`python3 -m src.live.stake --solve --scheme %s`"
+            % (name, weight, solved[name], stake.SCHEME))
+
+
+def test_staked_slots_are_actually_submitted():
+    """Staking a slot that never uploads pays fees on nothing."""
+    from src.live import stake
+
+    for name in stake.STAKED:
+        assert name in registry.ORDER, "%s is not in the submission order" % name
+        assert name not in registry.NOT_SUBMITTED, "%s is never uploaded" % name
+        assert registry.per_period_path(name) is not None, (
+            "%s has no scored run, so no scheme can weight it" % name)
+
+
+def test_mmc_budget_beats_equal_weight_on_mmc_and_respects_correlation():
+    """
+    The two properties the scheme is chosen for, asserted separately.
+
+    Tilting toward MMC must actually raise the book's MMC, and the tilt must run
+    through the covariance rather than straight off the means -- otherwise the
+    'while also taking correlation into account' half of the design is decoration.
+    """
+    from src.live import stake
+
+    names = stake.STAKED
+    payout = stake.payout_series(names)
+    mmc = stake.mmc_series(names)[payout.columns]
+    means = mmc.mean().to_numpy()
+
+    equal = {n: 1.0 / len(names) for n in payout.columns}
+    tilted = {n: float(w) for n, w in stake.solve("mmc").items()}
+    assert (stake.describe_weights(tilted)["mmc"]
+            > stake.describe_weights(equal)["mmc"])
+
+    # Risk share, not weight, is what the budget targets: it must be ordered the
+    # same way as mean MMC.
+    share = stake.describe_weights(tilted)["risk_share"]
+    order_by_mmc = [n for _, n in sorted(zip(means, payout.columns))]
+    assert [n for n in sorted(share, key=share.get)] == order_by_mmc
+
+    # And the weights must differ from the naive mean-proportional answer,
+    # because the covariance is not a multiple of the identity.
+    naive = means / means.sum()
+    assert max(abs(tilted[n] - w) for n, w in zip(payout.columns, naive)) > 0.01

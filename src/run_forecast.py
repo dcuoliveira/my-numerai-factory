@@ -91,6 +91,15 @@ def parse_args():
                         help="inner cross-validation folds")
     parser.add_argument("-j", "--n-jobs", type=int, default=-1,
                         help="threads given to the model itself")
+    parser.add_argument("--fixed-params", type=str, default=None,
+                        help="JSON dict of estimator parameters to PIN, e.g. "
+                             "'{\"n_estimators\": 4327, \"max_depth\": 8}'. The "
+                             "hyperparameter search is then a single candidate: "
+                             "nothing is selected, --n-iter is forced to 1, and "
+                             "the wrapper's fit_grid() hook is bypassed so a "
+                             "pinned min_child_samples is not silently rewritten "
+                             "from the block size. Use it to vary one thing (a "
+                             "cadence, a feature set) with the model held fixed")
     parser.add_argument("--search-type", type=str, default="random",
                         choices=["random", "bayes"],
                         help="how the hyperparameter space is explored. 'random' "
@@ -399,6 +408,17 @@ def main():
     )
 
     started = time()
+    fixed_params = None
+    if args.fixed_params:
+        try:
+            fixed_params = json.loads(args.fixed_params)
+        except ValueError as exc:
+            raise SystemExit("--fixed-params is not valid JSON: %s" % exc)
+        if not isinstance(fixed_params, dict) or not fixed_params:
+            raise SystemExit("--fixed-params must be a non-empty JSON object")
+        print("pinned %d parameter(s), search disabled: %s" % (
+            len(fixed_params), ", ".join(sorted(fixed_params))))
+
     predictions, periods_table, results = forecast(
         tournament=args.tournament,
         model_name=args.model,
@@ -423,6 +443,7 @@ def main():
         search_jobs=args.search_jobs,
         search_type=args.search_type,
         bayes_init_points=args.bayes_init_points,
+        fixed_params=fixed_params,
         metric2=args.metric2,
         metric_weight=args.metric_weight,
         bmc_reference=args.bmc_reference,

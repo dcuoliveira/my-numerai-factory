@@ -397,7 +397,7 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
                         n_jobs, seed, verbose, search_jobs=1,
                         metric2=None, metric_weight=1.0, min_train_size=0,
                         score_target_col=None, search_type="random",
-                        bayes_init_points=0):
+                        bayes_init_points=0, fixed_params=None):
     """
     Search hyperparameters on one training block, scoring with the chosen metric.
 
@@ -458,10 +458,18 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
                 search_type)
         )
 
-    # A wrapper may derive its grid from the training data -- currently only
-    # ridge_glmnet, which needs y to locate lambda_max. Doing it here, per refit,
-    # is what keeps that computation off the validation rows.
-    if hasattr(wrapper, "fit_grid"):
+    if fixed_params:
+        # Pinned configuration: one candidate, no selection. This MUST bypass
+        # fit_grid(), not merely pre-empt it -- _BoosterWrapper.fit_grid()
+        # rewrites min_child_samples from the block size on every refit, so a
+        # pinned leaf size would be silently overwritten and the arms would
+        # differ by a parameter the study claims to hold constant.
+        param_grid = {name: [value] for name, value in fixed_params.items()}
+        n_iter = 1
+    elif hasattr(wrapper, "fit_grid"):
+        # A wrapper may derive its grid from the training data -- ridge_glmnet
+        # needs y to locate lambda_max, the boosters rescale the leaf range to
+        # the block. Doing it here, per refit, keeps that off the validation rows.
         param_grid = wrapper.fit_grid(X, y)
     else:
         param_grid = wrapper.param_grid
@@ -564,7 +572,8 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
                                  n_iter, n_splits, n_jobs, seed, verbose,
                                  search_jobs=1, metric2=None, metric_weight=1.0,
                                  extra_cols=(), min_train=0, train_target_col=None,
-                                 search_type="random", bayes_init_points=0):
+                                 search_type="random", bayes_init_points=0,
+                                 fixed_params=None):
     """
     Refit periodically and predict forward over the validation block.
 
@@ -717,7 +726,7 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
             search_jobs=search_jobs, metric2=metric2,
             metric_weight=metric_weight, min_train_size=min_train,
             score_target_col=target_col, search_type=search_type,
-            bayes_init_points=bayes_init_points,
+            bayes_init_points=bayes_init_points, fixed_params=fixed_params,
         )
 
         block_predictions = predict_signal(search.best_estimator_, X_block, task)
@@ -838,7 +847,8 @@ def forecast(tournament, model_name, task="regression", metric="corr",
              search_jobs=1, metric2=None, metric_weight=1.0,
              bmc_reference="benchmark", proxy_alpha=1.0, min_train=0,
              feature_include=None, feature_exclude=None,
-             search_type="random", bayes_init_points=0, target=None):
+             search_type="random", bayes_init_points=0, target=None,
+             fixed_params=None):
     """
     Run one evaluation: load, walk forward, score.
 
@@ -988,6 +998,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         extra_cols=(meta_model_col,), min_train=min_train,
         train_target_col=train_target_col,
         search_type=search_type, bayes_init_points=bayes_init_points,
+        fixed_params=fixed_params,
     )
 
     results = evaluate(
@@ -1029,6 +1040,9 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         # Which optimiser produced these hyperparameters. Without it a bayes run
         # and a random run are indistinguishable in the results tree, and they
         # searched different spaces -- see prediction.search_spaces.
+        # The pinned configuration, if any. Without this a cadence arm is
+        # indistinguishable from a searched one in the results tree.
+        "fixed_params": fixed_params,
         "search_type": search_type,
         "bayes_init_points": bayes_init_points if search_type == "bayes" else None,
         "metric_weight": metric_weight if metric2 else None,

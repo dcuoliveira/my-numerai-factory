@@ -162,6 +162,11 @@ def score_on_payable_target(prediction, extras):
     """
     Score any prediction series against the 20-day target.
 
+    The summary is DERIVED from the per-period table rather than recomputed by
+    summarize_predictions. Calling both costs 45s per arm against 23s, because
+    the second call redoes every per-period correlation the first already did --
+    and with 10 arms plus a pair screen that difference is the whole runtime.
+
     :return: (per-period table, summary dict)
     """
     frame = extras.copy()
@@ -172,9 +177,14 @@ def score_on_payable_target(prediction, extras):
     meta = META_MODEL_COL if META_MODEL_COL in frame else None
     table = per_period_table(frame, "prediction", TARGET_20, PERIOD,
                              reference_col=reference, meta_model_col=meta)
-    summary = summarize_predictions(frame, "prediction", TARGET_20, PERIOD,
-                                    reference_col=reference, meta_model_col=meta)
-    summary["pnl"] = summarize(table["pnl"])
+
+    summary = {"n_periods": int(len(table))}
+    for column in ("corr", "bmc", "mmc", "pnl"):
+        if column in table:
+            series = table[column].dropna()
+            if len(series):
+                summary[column] = summarize(series)
+                summary["%s_n_periods" % column] = int(len(series))
     return table, summary
 
 
@@ -230,6 +240,9 @@ def main():
     parser.add_argument("--discount", type=float, default=0.67,
                         help="haircut on the Sharpe threshold, for estimation "
                              "error on ~25 independent windows")
+    parser.add_argument("--email", action="store_true",
+                        help="mail the results when finished, using the same "
+                             "SMTP settings as the live round notifier")
     parser.add_argument("--poll", type=int, default=120)
     parser.add_argument("--timeout", type=int, default=36000)
     args = parser.parse_args()
@@ -293,7 +306,17 @@ def main():
     print("mean |rho| within 60-day block : %.3f" % _offdiag(within_60))
     print("mean |rho| ACROSS blocks       : %.3f" % np.abs(cross).mean())
 
-    # ---- propose pairs -------------------------------------------------------
+    # ---- screen pairs cheaply, confirm the survivors properly ----------------
+    #
+    # Fully scoring all 45 pairs would cost ~17 minutes, and the screen only has
+    # to RANK them. So pairs are ranked on a 50/50 combination of the members'
+    # PAYOUT SERIES, which is free once each arm is scored, and only the top few
+    # are then built as real prediction-level blends.
+    #
+    # These are genuinely different objects: combining payout series is what
+    # splitting a stake across two model slots does, while blending predictions
+    # is one slot. They agree closely enough to rank on, and the confirmation
+    # step below reports the real thing rather than the proxy.
     proposals = []
     for a, b in itertools.combinations(scored, 2):
         sa, sb = scored[a]["sharpe"], scored[b]["sharpe"]
@@ -301,14 +324,15 @@ def main():
         s_strong, s_weak = max(sa, sb), min(sa, sb)
         if not np.isfinite(s_strong) or s_strong <= 0:
             continue
-        rho = matrix.loc[a, b]
-        threshold = (s_weak / s_strong) * args.discount
-        blended = 0.5 * predictions[a] + 0.5 * predictions[b]
-        table, _ = score_on_payable_target(blended, extras)
-        mean, sharpe, drawdown = stats(payout(table))
+        joined = pd.concat([scored[a]["series"], scored[b]["series"]],
+                           axis=1, join="inner", keys=["a", "b"])
+        combined = 0.5 * joined["a"] + 0.5 * joined["b"]
+        mean, sharpe, drawdown = stats(combined)
         proposals.append({
-            "pair": (strong, weak), "rho": rho, "threshold": threshold,
-            "passes": rho < threshold, "cross_block": (a in names_20) != (b in names_20),
+            "pair": (strong, weak), "rho": matrix.loc[a, b],
+            "threshold": (s_weak / s_strong) * args.discount,
+            "passes": matrix.loc[a, b] < (s_weak / s_strong) * args.discount,
+            "cross_block": (a in names_20) != (b in names_20),
             "payout": mean, "sharpe": sharpe, "maxdd": drawdown,
             "gain": sharpe - s_strong, "s_strong": s_strong,
         })
@@ -329,16 +353,26 @@ def main():
     print("\nbest single arm: %s (payout %.6f, sharpe %.4f)"
           % (best_single_name, best_single["payout"], best_single["sharpe"]))
 
+    lines = _render(scored, matrix, names_20, names_60, proposals,
+                    best_single_name, best_single, len(predictions))
+
     if not args.run:
         print("\n(--run to build the top %d as full ensembles and paired-test them)"
               % args.top)
+        if args.email:
+            _email("\n".join(lines), subject="cross-target report (no ensembles run)")
         return
 
-    # ---- build and score the top proposals ----------------------------------
+    # ---- confirm the top proposals as real prediction-level blends ----------
     print("\n=== full pseudo-OOS ensembles, scored on the 20-day target ===")
     reference = scored[best_single_name]["series"]
-    print("%-26s %10s %10s %10s %8s %8s %11s %7s" % (
-        "ensemble", "CORR", "MMC", "payout", "p.shp", "p.dd", "d vs best", "t"))
+    header = ("%-26s %10s %10s %10s %8s %8s %11s %7s"
+              % ("ensemble", "CORR", "MMC", "payout", "p.shp", "p.dd",
+                 "d vs best", "t"))
+    print(header)
+    lines += ["", "=== full pseudo-OOS ensembles (prediction-level 50/50) ===",
+              "reference: %s" % best_single_name, header]
+
     for p in proposals[:args.top]:
         a, b = p["pair"]
         blended = 0.5 * predictions[a] + 0.5 * predictions[b]
@@ -351,11 +385,78 @@ def main():
 
         run_name = "xt_%s_%s" % (a.lower(), b.lower())
         _write_run(run_name, table, summary, [a, b])
-        print("%-26s %10.6f %10.6f %10.6f %8.4f %8.4f %+11.6f %7.2f" % (
-            run_name, summary["corr"]["mean"],
-            summary["mmc"]["mean"] if summary.get("mmc") else np.nan,
-            mean, sharpe, drawdown, delta, t))
-    print("\nwritten to results/{forecast,per_period,metrics}/crypto/ridge_glmnet/xt_*")
+        row = ("%-26s %10.6f %10.6f %10.6f %8.4f %8.4f %+11.6f %7.2f"
+               % (run_name, summary["corr"]["mean"],
+                  summary["mmc"]["mean"] if summary.get("mmc") else np.nan,
+                  mean, sharpe, drawdown, delta, t))
+        print(row)
+        lines.append(row)
+
+    tail = ("\nwritten to results/{forecast,per_period,metrics}/crypto/"
+            "ridge_glmnet/xt_*")
+    print(tail)
+    lines.append(tail)
+
+    if args.email:
+        _email("\n".join(lines))
+
+
+def _render(scored, matrix, names_20, names_60, proposals,
+            best_name, best, n_rows):
+    """The report, as text, for the email."""
+    lines = [
+        "Cross-target analysis: 20-day block vs 60-day block.",
+        "Every arm re-scored on the PAYABLE 20-day target, inner-joined on "
+        "%d rows." % n_rows,
+        "",
+        "=== every arm, scored on the payable 20-day target ===",
+        "%-10s %10s %10s %10s %8s %8s" % ("arm", "CORR", "MMC", "payout",
+                                          "p.shp", "p.dd"),
+    ]
+    for name in sorted(scored, key=lambda k: -scored[k]["payout"]):
+        s = scored[name]
+        lines.append("%-10s %10.6f %10.6f %10.6f %8.4f %8.4f" % (
+            name, s["corr"], s["mmc"], s["payout"], s["sharpe"], s["maxdd"]))
+
+    lines += ["", "=== prediction correlation, 20-day (rows) x 60-day (cols) ===",
+              matrix.loc[names_20, names_60].round(3).to_string(), ""]
+    cross = matrix.loc[names_20, names_60].to_numpy()
+    lines.append("mean |rho| across blocks: %.3f  (within 20d: %.3f, within 60d: %.3f)"
+                 % (np.abs(cross).mean(),
+                    _offdiag(matrix.loc[names_20, names_20].to_numpy()),
+                    _offdiag(matrix.loc[names_60, names_60].to_numpy())))
+
+    lines += ["", "=== proposed 50/50 pairs (screened on payout series) ===",
+              "%-24s %3s %7s %10s %10s %8s %8s" % (
+                  "pair", "X", "rho", "threshold", "payout", "sharpe", "d.shp")]
+    for p in proposals[:12]:
+        lines.append("%-24s %3s %7.3f %10.3f %10.6f %8.4f %+8.4f" % (
+            "%s + %s" % p["pair"], "X" if p["cross_block"] else "",
+            p["rho"], p["threshold"], p["payout"], p["sharpe"], p["gain"]))
+    lines += ["", "best single arm: %s (payout %.6f, sharpe %.4f)"
+              % (best_name, best["payout"], best["sharpe"])]
+    return lines
+
+
+def _email(body, subject="cross-target ensemble results"):
+    """
+    Mail the report, reusing the live pipeline's notifier.
+
+    Never raises: the analysis has already run and been printed by this point,
+    and a broken mailer must not turn a finished job into a failed one -- the
+    same rule the round notifier follows.
+    """
+    try:
+        from src.live.env import load_env
+        from src.live.notify import send
+        load_env()
+        send({"round": subject, "live_date": "-",
+              "started_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+              "elapsed_minutes": 0.0, "deadline_minutes": "-", "dry_run": False,
+              "slots": [], "diagnostics": {}, "warnings": [],
+              "crash": None, "report_body": body})
+    except Exception as error:
+        print("\n(email failed: %s -- the results above are unaffected)" % error)
 
 
 def _offdiag(matrix):

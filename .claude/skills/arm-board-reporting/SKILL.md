@@ -157,11 +157,27 @@ Where to look while it runs:
   handle    this study is BOITATA; every artefact it writes is boitata_*
 ```
 
-**Name the study.** `boitata_*` retrieves 23 runs, four log sets and a report in
-one glob, six months later. `b60_lgb_reg_*` describes the configuration and is
-forgotten by the next study that also runs on 60 days. This repo names slots from
-Brazilian folklore — CURUPIRA, SACI, BOITATA — and studies inherit the same
-convention.
+**Number the study, do not name it.** Register an ID before it launches, in
+`experiments/EXPERIMENTS.md`:
+
+```
+| ID  | Name                                    | Runner                | Arms |
+| E01 | LightGBM feature blocks, 60-day target  | e01_blocks60_*.sh     | 23   |
+```
+
+`E<NN>` plus a one-line description. Every artefact the study writes carries the
+ID — `e01_*` retrieves 23 runs, 23 logs and a report in one glob, years later.
+
+Two things it beats:
+
+  * A DESCRIPTIVE PREFIX. `b60_lgb_reg_*` names a configuration, so it stops
+    being unique the moment a second 60-day LightGBM study runs, and both match
+    the same glob.
+  * A CODENAME. Folklore names do not sort, do not increment, and do not tell
+    you what ran first. An ID does all three.
+
+Run names inside a study stay descriptive: `e01_<arm>_m<leaf>` reads as "study
+E01, this arm, this leaf size".
 
 **Mail on failure as well as success**, and never let SMTP break the run: wrap
 the call, print the mail failure, exit on the experiment's own status. Give the

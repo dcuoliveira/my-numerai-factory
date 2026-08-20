@@ -42,6 +42,13 @@ def parse_args():
     parser.add_argument("-w", "--weights", type=str, default=None,
                         help="comma-separated weights, one per member. Defaults "
                              "to equal weight. Normalised to sum to 1")
+    parser.add_argument("--target", type=str, default=None,
+                        help="target column carried by the member forecasts. "
+                             "Defaults to the tournament's, which is wrong for "
+                             "members trained on a different label: a 60-day "
+                             "run's forecast file carries "
+                             "target_binned_return_60 and nothing else, so the "
+                             "default lookup raises KeyError")
     parser.add_argument("-n", "--run-name", type=str, default=None,
                         help="output stem, defaults to ens_<member count>")
     parser.add_argument("-q", "--quiet", action="store_true")
@@ -91,7 +98,8 @@ def main():
     args = parse_args()
     verbose = not args.quiet
     spec = get_spec(args.tournament)
-    period_col, id_col, target_col = spec["period_col"], spec["id_col"], spec["target"]
+    period_col, id_col = spec["period_col"], spec["id_col"]
+    target_col = args.target or spec["target"]
 
     weights = [1.0] * len(args.members)
     if args.weights:

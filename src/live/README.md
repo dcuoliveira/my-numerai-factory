@@ -161,6 +161,48 @@ is negative — so the slots are the best risk-adjusted model plus the two least
 correlated with it. Per-period score correlation between them: 01↔02 0.833,
 01↔03 0.808, 02↔03 0.952.
 
+## What is staked
+
+Submitting and staking are different questions and `src/live/stake.py` keeps
+them apart: eight slots upload every round, three carry money.
+
+```bash
+python3 -m src.live.stake            # dry plan
+python3 -m src.live.stake --execute  # place it
+```
+
+| slot | weight | risk share | why it is in |
+|---|---|---|---|
+| CURUPIRA_01 | 0.3184 | 30% | best risk-adjusted single model; fits directly, so a member-cache failure cannot take the whole book |
+| CURUPIRA_05 | 0.3432 | 33% | least correlated with the rest (0.569 with `_01`), so it buys the most diversification per unit of weight |
+| CURUPIRA_08 | 0.3384 | 36% | highest mean MMC, and the only staked route to `CURUPIRA_05_60` — the one series that is *negatively* correlated with the 20-day book |
+
+Weights come from **risk budgeting**: each slot's share of portfolio variance is
+proportional to its mean MMC (`--scheme mmc`, the default). MMC carries weight
+1.0 in the crypto payout against CORR's 0.1, so the tilt sizes on what pays,
+while budgeting in variance rather than in weight is what makes it read the
+correlations at the same time. `--scheme erc` drops the tilt; `--scheme equal`
+drops both. Re-solve with `--solve` after any member run is re-scored — a test
+in `test_live.py` fails if the stored weights drift from the solver.
+
+`02`, `03`, `04` and `07` submit unstaked on purpose: `02/03/04` correlate
+0.938–0.998 with each other, and `07` correlates 0.978 with `08` and has no
+scored run to weight it with. On the 470 shared dates the staked book scores
+payout 0.0917, sharpe **1.527**, max drawdown **0.922**, against 0.0874 / 1.209
+/ 1.446 for the old `01+02+03+04` allocation — sharpe +0.30 with a bootstrap CI
+of +0.02 to +0.63, while the payout gain is *not* significant (P = 0.73). It is
+a risk trade, not a return trade.
+
+> Staking a blend is not a third position. `_08` is a rank average of `_04`,
+> `_05` and `_05_60`, so the three staked slots are really **46% `_05`, 32%
+> `_01`, 11% `_04`, 11% `_05_60`** — the plan prints that expansion every run.
+
+Sizing: the book's cumulative-payout drawdown is 0.92 **in units of stake**, and
+essentially all of it arrives inside one 20-day window. Stake only capital you
+would accept losing in full. (Those series carry no payout factor and no
+per-round clipping, so 0.92 is an upper bound on the real NMR path rather than a
+forecast; the sharpe ranking is unaffected.)
+
 ## Fallback ladder
 
 Per slot, first success wins, recorded in the email:

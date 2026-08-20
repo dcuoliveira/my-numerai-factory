@@ -49,9 +49,19 @@ def render(report):
     """
     Turn a round report into (subject, body).
 
+    A report carrying `report_body` is a free-text analysis rather than a round
+    -- the cross-target study uses this -- and is passed through verbatim under
+    its own subject. Reusing this module means those mails go out through the
+    same configuration, the same failure handling, and the same inbox rules as
+    the round reports, rather than growing a second mailer.
+
     `report` is the dict the orchestrator assembles: round number, live date,
     elapsed time, and one entry per slot.
     """
+    if report.get("report_body"):
+        return ("%s %s" % (SUBJECT_PREFIX, report.get("round", "report")),
+                report["report_body"])
+
     slots = report["slots"]
     failed = [s for s in slots if s["status"] == "failed"]
     fell_back = [s for s in slots if s["status"] == "submitted"
@@ -171,10 +181,31 @@ def send(report, verbose=True):
         return False
 
 
+def send_text(subject, body):
+    """
+    Mail an arbitrary report. Used by the experiment runners so a long job can
+    say how it went without every script growing its own SMTP handling.
+    """
+    from src.live.env import load_env
+    load_env()
+    return send({"round": subject, "report_body": body})
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Send a sample round report.")
+    parser = argparse.ArgumentParser(description="Send a report.")
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--subject", default=None,
+                        help="send free text instead of a sample round report")
+    parser.add_argument("--body-file", default=None,
+                        help="file whose contents become the message body")
     args = parser.parse_args()
+
+    if args.subject:
+        body = ""
+        if args.body_file and os.path.exists(args.body_file):
+            with open(args.body_file) as handle:
+                body = handle.read()
+        raise SystemExit(0 if send_text(args.subject, body or "(no body)") else 1)
 
     from src.live.env import load_env
     load_env()

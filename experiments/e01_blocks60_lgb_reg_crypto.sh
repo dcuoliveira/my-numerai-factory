@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Experiment BOITATA: the LightGBM feature-block table, on the 60-day target
+# Experiment E01: the LightGBM feature-block table, on the 60-day target
 #
-# Named for the reference handle. Everything this study produces is greppable as
-# BOITATA in the logs and mail, and as boitata_* in results/{metrics,forecast,
+# E01 is the reference handle. Everything this study produces is greppable as
+# E01 in the logs and mail, and as e01_* in results/{metrics,forecast,
 # per_period,hyperparams}/crypto/lgb/.
 #
 # Reruns the arm board's main table against target_binned_return_60 instead of
@@ -44,16 +44,16 @@
 # been run, and the first table's cadence cross does not transfer.
 #
 # Usage:
-#   bash experiments/blocks60_lgb_reg_crypto.sh
-#   DRY_RUN=1 bash experiments/blocks60_lgb_reg_crypto.sh
-#   LEAVES="313" bash experiments/blocks60_lgb_reg_crypto.sh
-#   ONLY="raw interact" bash experiments/blocks60_lgb_reg_crypto.sh
-#   NO_MAIL=1 bash experiments/blocks60_lgb_reg_crypto.sh
+#   bash experiments/e01_blocks60_lgb_reg_crypto.sh
+#   DRY_RUN=1 bash experiments/e01_blocks60_lgb_reg_crypto.sh
+#   LEAVES="313" bash experiments/e01_blocks60_lgb_reg_crypto.sh
+#   ONLY="raw interact" bash experiments/e01_blocks60_lgb_reg_crypto.sh
+#   NO_MAIL=1 bash experiments/e01_blocks60_lgb_reg_crypto.sh
 #
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$REPO"; mkdir -p logs
 
-EXPERIMENT="${EXPERIMENT:-BOITATA}"
+EXPERIMENT="${EXPERIMENT:-E01}"
 T60_TARGET="${T60_TARGET:-target_binned_return_60}"
 T60_WINDOW="${T60_WINDOW:-6month}"
 T60_REFIT="${T60_REFIT:-6month}"
@@ -119,11 +119,11 @@ if [ "${NO_MAIL:-0}" != "1" ]; then
   expect    ~60-90 min
 
 Where to look while it runs:
-  runner    experiments/blocks60_lgb_reg_crypto.sh
-  progress  logs/boitata_*.log        (one per arm)
-  results   results/metrics/crypto/lgb/boitata_*.json
-  report    logs/boitata_report.txt   (written at the end)
-  handle    this study is BOITATA; every artefact it writes is boitata_*
+  runner    experiments/e01_blocks60_lgb_reg_crypto.sh
+  progress  logs/e01_*.log        (one per arm)
+  results   results/metrics/crypto/lgb/e01_*.json
+  report    logs/e01_report.txt   (written at the end)
+  handle    this study is E01; every artefact it writes is e01_*
 
 A second mail follows on completion, with the table and SUCCESS or FAILED."
     python3 -c "import sys; from src.live.notify import send_text; \
@@ -144,7 +144,7 @@ for i in "${!NAME[@]}"; do
     arm="${NAME[$i]}"; index=$((index+1))
     [ -n "${ONLY:-}" ] && [[ " ${ONLY} " != *" ${arm} "* ]] && continue
     [ -n "${SKIP:-}" ] && [[ " ${SKIP} " == *" ${arm} "* ]] && continue
-    run_name="boitata_${arm}_m${L}"
+    run_name="e01_${arm}_m${L}"
     params="{${BASE_PARAMS},\"min_child_samples\":${L}}"
     cmd=(python3 -u -m src.run_forecast crypto lgb --task regression --metric corr
          --target "${T60_TARGET}" --embargo auto
@@ -171,12 +171,12 @@ for i in "${!NAME[@]}"; do
 done
 [ "${DRY_RUN:-0}" = "1" ] && exit 0
 
-REPORT="logs/boitata_report.txt"
+REPORT="logs/e01_report.txt"
 {
 echo "${EXPERIMENT} -- lgb feature blocks on ${T60_TARGET}"
-echo "  results  results/metrics/crypto/lgb/boitata_*.json"
-echo "  runner   experiments/blocks60_lgb_reg_crypto.sh"
-echo "  logs     logs/boitata_*.log"
+echo "  results  results/metrics/crypto/lgb/e01_*.json"
+echo "  runner   experiments/e01_blocks60_lgb_reg_crypto.sh"
+echo "  logs     logs/e01_*.log"
 echo "=============================================================="
 echo "ran ${ran} of ${total} arms in $(( ($(date +%s)-started_all)/60 )) min, ${failed} failed"
 [ "${failed}" -gt 0 ] && printf 'failed arms: %s\n' "${FAILED_ARMS[*]}"
@@ -194,9 +194,9 @@ def nw(x,lag=60):                      # lag 60, not 20: a 60-day target
     for k in range(1,min(lag,n-1)+1): v+=2*(1-k/(lag+1))*((e[k:]@e[:-k])/n)
     se=np.sqrt(max(v,0)/n); return m,(m/se if se>0 else float("nan"))
 rows=[]
-for p in sorted(glob.glob("results/metrics/crypto/lgb/boitata_*.json")):
+for p in sorted(glob.glob("results/metrics/crypto/lgb/e01_*.json")):
     d=json.load(open(p)); c=d["config"]; n=os.path.basename(p)[:-5]
-    m=re.match(r"boitata_(.+)_m(\d+)$",n)
+    m=re.match(r"e01_(.+)_m(\d+)$",n)
     rows.append(dict(run=n,arm=m.group(1),leaf=int(m.group(2)),feat=c["n_features"],
         corr=d["corr"]["mean"],mmc=d["mmc"]["mean"],sharpe=d["corr"]["sharpe"],
         maxdd=d["corr"]["max_drawdown"],payout=0.1*d["corr"]["mean"]+d["mmc"]["mean"]))

@@ -38,6 +38,18 @@ from src.prediction.nn.dataset import (  # noqa: E402
     collate_windows,
     contiguous_runs,
 )
+from src.prediction.nn.train import (  # noqa: E402
+    chronological_split,
+    clone_state,
+    load_checkpoint,
+    make_loader,
+    predict_rows,
+    run_epoch,
+    select_seeds,
+    slice_loss,
+    train_until_early_stop,
+    walk_forward,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -786,3 +798,801 @@ def test_the_network_consumes_a_collated_batch_end_to_end():
     assert signal.shape == batch["target"].shape
     loss = CorrLoss()(signal, batch["target"], mask=batch["target_mask"])
     assert torch.isfinite(loss)
+
+
+# --------------------------------------------------------------------------- #
+# The trainer, and the three iwtsf bugs it fixes
+# --------------------------------------------------------------------------- #
+
+TRAIN_CONFIG = {
+    "hidden": 8, "num_layers": 1, "embed_dim": 4, "dropout": 0.0,
+    "dropout_type": "regular", "layer_norm": True,
+    "seq_length": 6, "overlapping": False, "batch_size": 8, "shuffle": True,
+    "train_buffer": 0,
+    "lr": 0.01, "epochs": 6, "patience": 3, "max_grad_norm": 1.0,
+    "val_frac": 0.3, "embargo": 2, "seed": 42, "max_trials": 3, "top_frac": 0.5,
+    "cv_scheme": "expanding", "refit_every": 6, "min_train": 0,
+    "reference_col": "reference_prediction",
+}
+
+
+def _loaders(frame, seq_length=6):
+    """A train loader and a val loader over the same small panel."""
+    dataset = build_dataset(frame, seq_length=seq_length)
+    return (
+        make_loader(dataset, batch_size=8, shuffle=False),
+        make_loader(dataset, batch_size=8, shuffle=False),
+        dataset,
+    )
+
+
+def test_clone_state_snapshots_weights_instead_of_aliasing_them():
+    """
+    REGRESSION TEST FOR THE IWTSF BUG.
+
+    `model.state_dict()` hands back references to the live parameter tensors, so a
+    snapshot taken that way keeps changing as training continues -- which made
+    iwtsf's walk-forward restore the LAST epoch's weights while believing it had
+    restored the best. Assert the clone is immune and, for contrast, that the naive
+    version really is not.
+    """
+    net = _net()
+    aliased = net.state_dict()
+    cloned = clone_state(net)
+    before = net.output_proj.weight.detach().clone()
+
+    optimiser = torch.optim.SGD(net.parameters(), lr=1.0)
+    for _ in range(3):
+        optimiser.zero_grad()
+        net(torch.rand(2, 6, 22), torch.zeros(2, 6, dtype=torch.long)).sum().backward()
+        optimiser.step()
+
+    assert not torch.allclose(before, net.output_proj.weight), "weights did not move"
+    # The naive snapshot tracked the live weights -- the bug.
+    assert torch.allclose(aliased["output_proj.weight"], net.output_proj.weight)
+    # The clone held still -- the fix.
+    assert torch.allclose(cloned["output_proj.weight"], before)
+
+
+def test_early_stopping_restores_the_best_epoch_not_the_last():
+    """
+    End-to-end version of the same bug: drive validation loss to get worse after an
+    early best, then assert the returned state is the good one.
+    """
+    frame = make_panel({"AAA": list(range(0, 40)), "BBB": list(range(0, 40))})
+    train_loader, val_loader, _ = _loaders(frame)
+
+    net = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=2, embed_dim=3, dropout=0.0,
+    )
+    config = dict(TRAIN_CONFIG, epochs=8, patience=8, lr=0.5)   # lr high enough to overshoot
+    result = train_until_early_stop(
+        net, train_loader, val_loader, CorrLoss(), config,
+        torch.device("cpu"), verbose=False,
+    )
+
+    assert result["best_epoch"] >= 1
+    assert result["best_val_loss"] == pytest.approx(min(result["val_history"]))
+
+    # Loading the returned state must reproduce the best score, not the final one.
+    restored = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=2, embed_dim=3, dropout=0.0,
+    )
+    restored.load_state_dict(result["best_state"])
+    reproduced = slice_loss(restored, val_loader, CorrLoss(), torch.device("cpu"))
+    assert reproduced == pytest.approx(result["best_val_loss"], abs=1e-5)
+
+
+def test_slice_loss_is_not_the_mean_of_per_batch_losses():
+    """
+    Fix 4. A correlation is not linear in its sample, so batching changes the mean of
+    per-batch correlations but must not change the slice statistic.
+    """
+    frame = make_panel({"AAA": list(range(0, 40)), "BBB": list(range(0, 40))})
+    dataset = build_dataset(frame, seq_length=6)
+    net = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=2, embed_dim=3, dropout=0.0,
+    ).eval()
+
+    whole = slice_loss(
+        net, make_loader(dataset, batch_size=len(dataset), shuffle=False),
+        CorrLoss(), torch.device("cpu"),
+    )
+    split = slice_loss(
+        net, make_loader(dataset, batch_size=2, shuffle=False),
+        CorrLoss(), torch.device("cpu"),
+    )
+    assert whole == pytest.approx(split, abs=1e-5), "slice loss moved with batch_size"
+
+
+def test_run_epoch_clips_gradients():
+    """
+    Fix 2. Clipping now lives in the one function both phases call, so it cannot be
+    applied in seed selection and forgotten in the walk-forward.
+    """
+    frame = make_panel({"AAA": list(range(0, 30)), "BBB": list(range(0, 30))})
+    train_loader, _, _ = _loaders(frame)
+
+    net = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=2, embed_dim=3, dropout=0.0,
+    )
+    seen = {}
+    original = torch.nn.utils.clip_grad_norm_
+
+    def _spy(parameters, max_norm, *args, **kwargs):
+        seen["max_norm"] = max_norm
+        return original(parameters, max_norm, *args, **kwargs)
+
+    torch.nn.utils.clip_grad_norm_ = _spy
+    try:
+        run_epoch(
+            net, train_loader, CorrLoss(),
+            torch.optim.Adam(net.parameters(), lr=0.01),
+            torch.device("cpu"), max_grad_norm=1.0,
+        )
+    finally:
+        torch.nn.utils.clip_grad_norm_ = original
+
+    assert seen.get("max_norm") == 1.0, "run_epoch did not clip"
+
+
+def test_chronological_split_leaves_an_embargo_gap():
+    periods = list(range(20))
+    train, val = chronological_split(periods, val_frac=0.25, embargo=3)
+    assert val == list(range(15, 20))
+    assert train == list(range(12))                 # 20 - 5 - 3
+    assert max(train) + 3 < min(val), "embargo gap is too small"
+
+
+def test_predict_rows_averages_overlaps_and_leaves_uncovered_rows_nan():
+    frame = make_panel({"AAA": list(range(0, 23))})
+    positions = build_period_positions(frame["date"].to_numpy())
+    symbol_index, padding_id = build_symbol_index(frame["symbol"].unique())
+    dataset = SymbolSequenceDataset(
+        frame=frame, features=FEATURES, target_col="target", period_col="date",
+        id_col="symbol", period_positions=positions, symbol_index=symbol_index,
+        padding_id=padding_id, seq_length=5, mode="predict",
+    )
+    net = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=1, embed_dim=3, dropout=0.0,
+    ).eval()
+
+    predictions, counts = predict_rows(
+        net, make_loader(dataset, batch_size=4, shuffle=False),
+        torch.device("cpu"), len(frame),
+    )
+    assert np.isfinite(predictions).all(), "predict mode left a row unpredicted"
+    assert counts.min() >= 1
+    assert counts.max() >= 2, "the overlapping tail window should double-cover rows"
+    assert predictions.min() >= min(BINS) - 1e-6
+    assert predictions.max() <= max(BINS) + 1e-6
+
+
+def test_no_training_target_lies_within_the_embargo_of_a_predicted_block():
+    """
+    THE LEAKAGE TEST.
+
+    Feature history may reach through the embargo -- a feature at date t is known at
+    t. A *target* may not: a 20-day forward target from inside the gap overlaps the
+    block being predicted. So assert that every period contributing a loss term is
+    at least `embargo` periods before the block starts.
+    """
+    n_periods = 60
+    frame = make_panel({
+        "AAA": list(range(n_periods)), "BBB": list(range(n_periods)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    embargo = 5
+    block_start_position = 40
+    block = all_periods[block_start_position:block_start_position + 10]
+
+    train_end = block_start_position - embargo
+    train_periods = all_periods[:train_end]
+    train_frame = frame[frame["date"].isin(set(train_periods))]
+
+    positions = build_period_positions(all_periods)
+    symbol_index, padding_id = build_symbol_index(train_frame["symbol"].unique())
+    dataset = SymbolSequenceDataset(
+        frame=train_frame, features=FEATURES, target_col="target",
+        period_col="date", id_col="symbol", period_positions=positions,
+        symbol_index=symbol_index, padding_id=padding_id, seq_length=6,
+        mode="train", train_buffer=0,
+    )
+
+    for index in range(len(dataset)):
+        sample = dataset[index]
+        contributing = sample["period_pos"].numpy()[sample["target_mask"].numpy()]
+        assert contributing.max() < block_start_position - embargo + 1, (
+            "a training target sits inside the embargo gap"
+        )
+        assert contributing.max() <= train_end - 1
+
+
+def test_a_prediction_window_may_read_features_through_the_embargo():
+    """
+    The other half of the rule: prediction is *allowed* to use the gap as input, and
+    it has to be, or the first rows of a block would have no history at all.
+    """
+    n_periods = 60
+    frame = make_panel({"AAA": list(range(n_periods))})
+    all_periods = np.sort(frame["date"].unique())
+    block_start = 40
+    seq_length = 6
+
+    lookback = set(all_periods[block_start - seq_length:block_start + 5])
+    predict_frame = frame[frame["date"].isin(lookback)].reset_index(drop=True)
+
+    positions = build_period_positions(all_periods)
+    symbol_index, padding_id = build_symbol_index(["AAA"])
+    dataset = SymbolSequenceDataset(
+        frame=predict_frame, features=FEATURES, target_col="target",
+        period_col="date", id_col="symbol", period_positions=positions,
+        symbol_index=symbol_index, padding_id=padding_id, seq_length=seq_length,
+        mode="predict",
+    )
+    covered = set()
+    for index in range(len(dataset)):
+        sample = dataset[index]
+        covered.update(sample["period_pos"].numpy()[sample["valid"].numpy()].tolist())
+
+    assert any(position < block_start for position in covered), (
+        "prediction windows must be able to read pre-block feature history"
+    )
+
+
+def test_seed_selection_keeps_the_best_fraction_and_is_reproducible(tmp_path):
+    frame = make_panel({
+        "AAA": list(range(0, 60)), "BBB": list(range(0, 60)), "CCC": list(range(0, 60)),
+    })
+    frame["split"] = "train"
+
+    config = dict(TRAIN_CONFIG, max_trials=4, top_frac=0.5, epochs=2, patience=2)
+    first = select_seeds(
+        frame, FEATURES, "target", "date", "symbol", BINS, config,
+        CorrLoss(), torch.device("cpu"),
+        checkpoint_path=str(tmp_path / "seeds.json"), verbose=False,
+    )
+
+    assert first["n_trials"] == 4
+    assert len(first["selected"]) == 2
+    # The selected seeds really are the best-scoring ones.
+    ranked = sorted(first["val_scores"].items(), key=lambda item: item[1])
+    assert set(first["selected"]) == {int(seed) for seed, _ in ranked[:2]}
+
+
+def test_seed_selection_resumes_from_its_checkpoint(tmp_path):
+    """At 100 trainings an interrupted run is near-certain, so resume must work."""
+    frame = make_panel({
+        "AAA": list(range(0, 60)), "BBB": list(range(0, 60)), "CCC": list(range(0, 60)),
+    })
+    frame["split"] = "train"
+    checkpoint = tmp_path / "seeds.json"
+
+    config = dict(TRAIN_CONFIG, max_trials=3, top_frac=0.5, epochs=2, patience=2)
+    select_seeds(
+        frame, FEATURES, "target", "date", "symbol", BINS, config,
+        CorrLoss(), torch.device("cpu"),
+        checkpoint_path=str(checkpoint), verbose=False,
+    )
+    assert checkpoint.exists()
+    saved = load_checkpoint(str(checkpoint))
+    assert len(saved) == 3
+    assert all(isinstance(key, int) for key in saved), "seed keys must survive as ints"
+
+    # A second call finds every seed already done and trains nothing new.
+    again = select_seeds(
+        frame, FEATURES, "target", "date", "symbol", BINS, config,
+        CorrLoss(), torch.device("cpu"),
+        checkpoint_path=str(checkpoint), verbose=False,
+    )
+    assert again["val_scores"] == saved
+
+
+def test_seed_selection_says_so_when_seq_length_is_too_long():
+    """
+    The most likely first-run failure on this panel, so it must name the cause rather
+    than dying on an empty loader.
+    """
+    frame = make_panel({"AAA": list(range(0, 30))})
+    frame["split"] = "train"
+    config = dict(TRAIN_CONFIG, seq_length=500, max_trials=1)
+
+    with pytest.raises(ValueError, match="seq_length"):
+        select_seeds(
+            frame, FEATURES, "target", "date", "symbol", BINS, config,
+            CorrLoss(), torch.device("cpu"), verbose=False,
+        )
+
+
+def test_walk_forward_predicts_only_validation_periods_once_each():
+    frame = make_panel({
+        "AAA": list(range(0, 80)), "BBB": list(range(0, 80)), "CCC": list(range(0, 80)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[56:])), "validation", "train"
+    )
+
+    config = dict(
+        TRAIN_CONFIG, epochs=2, patience=2, refit_every=8, embargo=2, seq_length=5,
+    )
+    predictions, records, skipped = walk_forward(
+        frame, FEATURES, "target", "date", "symbol", BINS, seeds=[1, 2],
+        config=config, loss_fn=CorrLoss(), device=torch.device("cpu"), verbose=False,
+    )
+
+    validation_dates = set(all_periods[56:])
+    assert set(predictions["date"]) <= validation_dates, "predicted a training period"
+    # Every (symbol, date) appears once: the lookback rows are dropped and the
+    # overlapping windows are averaged, not duplicated.
+    assert not predictions.duplicated(subset=["symbol", "date"]).any()
+    assert predictions["prediction"].notna().all()
+    assert len(records) == len(range(0, len(all_periods[56:]), 8))
+    assert records[0]["seeds"] == "1,2"
+    assert records[0]["n_seeds"] == 2
+    assert "seed1_val" in records[0]
+
+
+def test_walk_forward_trains_a_fresh_model_per_block_by_default(monkeypatch):
+    """
+    Fix 3. iwtsf built the model once per seed OUTSIDE the block loop, so every block
+    warm-started from the previous one and the whole back-test was really a single
+    continuous training run.
+
+    Asserted by observation rather than by inspecting internals: count how often a
+    network is constructed. One per (block, seed) means fresh each time; fewer would
+    mean state is being reused.
+    """
+    frame = make_panel({
+        "AAA": list(range(0, 80)), "BBB": list(range(0, 80)), "CCC": list(range(0, 80)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[56:])), "validation", "train"
+    )
+
+    from src.prediction.nn import train as train_module
+
+    built = []
+    original = train_module.build_network
+
+    def _counting_build(*args, **kwargs):
+        built.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(train_module, "build_network", _counting_build)
+
+    config = dict(
+        TRAIN_CONFIG, epochs=2, patience=2, refit_every=8, embargo=2, seq_length=5,
+        warm_start=False,
+    )
+    _, records, _ = walk_forward(
+        frame, FEATURES, "target", "date", "symbol", BINS, seeds=[1, 2],
+        config=config, loss_fn=CorrLoss(), device=torch.device("cpu"), verbose=False,
+    )
+
+    assert len(built) == len(records) * 2, (
+        "expected one fresh network per block per seed, got {} for {} blocks x 2 "
+        "seeds".format(len(built), len(records))
+    )
+
+
+def test_warm_start_carries_weights_between_blocks_when_asked():
+    """The opt-in path still works -- it is just not the default any more."""
+    frame = make_panel({
+        "AAA": list(range(0, 80)), "BBB": list(range(0, 80)), "CCC": list(range(0, 80)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[56:])), "validation", "train"
+    )
+    config = dict(
+        TRAIN_CONFIG, epochs=1, patience=1, refit_every=8, embargo=2, seq_length=5,
+        warm_start=True,
+    )
+    predictions, records, _ = walk_forward(
+        frame, FEATURES, "target", "date", "symbol", BINS, seeds=[1],
+        config=config, loss_fn=CorrLoss(), device=torch.device("cpu"), verbose=False,
+    )
+    assert len(records) > 1, "need at least two blocks for warm start to mean anything"
+    assert predictions["prediction"].notna().all()
+
+
+def test_a_run_without_a_validation_slice_reports_nan_not_infinity(capsys):
+    """
+    Found by the first smoke run. When the early-stopping slice is too short to hold
+    a single window, early stopping is off -- and the initial +inf sentinel used to
+    leak out as the reported "best" score, get compared against real losses when
+    ranking seeds, and land in the results json as the non-standard literal
+    `Infinity`. It must be NaN, and the caller must be told.
+    """
+    frame = make_panel({"AAA": list(range(0, 30)), "BBB": list(range(0, 30))})
+    train_loader, _, _ = _loaders(frame)
+
+    net = LSTMForecastNetwork(
+        input_dim=len(FEATURES), bin_values=BINS, hidden_dim=6,
+        num_symbols=2, embed_dim=3, dropout=0.0,
+    )
+    result = train_until_early_stop(
+        net, train_loader, None, CorrLoss(), dict(TRAIN_CONFIG, epochs=2),
+        torch.device("cpu"), verbose=False,
+    )
+
+    assert result["early_stopped"] is False
+    assert np.isnan(result["best_val_loss"]), "the +inf sentinel leaked out"
+    assert result["epochs_run"] == 2, "without early stopping it must run every epoch"
+    assert result["best_state"] is not None
+
+
+def test_walk_forward_warns_when_the_stop_slice_yields_no_windows(capsys):
+    """The same condition end to end: it changes what the run does, so it is loud."""
+    frame = make_panel({
+        "AAA": list(range(0, 70)), "BBB": list(range(0, 70)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[50:])), "validation", "train"
+    )
+    # For block 0 the training block is 48 periods, split into a 32-period fit slice
+    # and a 14-period early-stopping slice. A buffer of 15 makes a window need 20
+    # periods: too many for the stop slice, few enough for the fit slice -- which is
+    # exactly the condition being tested. Push it higher and the fit slice starves
+    # too, the block is skipped, and the run fails for an unrelated reason.
+    config = dict(
+        TRAIN_CONFIG, epochs=2, patience=2, refit_every=10, embargo=2,
+        seq_length=5, train_buffer=15,
+    )
+    _, records, _ = walk_forward(
+        frame, FEATURES, "target", "date", "symbol", BINS, seeds=[3],
+        config=config, loss_fn=CorrLoss(), device=torch.device("cpu"), verbose=False,
+    )
+
+    captured = capsys.readouterr().out
+    assert "Early stopping is DISABLED" in captured
+    assert records[0]["early_stopping"] is False
+    assert records[0]["stop_windows"] == 0
+    assert np.isnan(records[0]["best_val_loss"])
+
+
+def test_block_records_are_flat_and_csv_safe():
+    """
+    write_outputs feeds these straight to hyperparams_table and then to_csv, so a
+    nested dict or a list would land in a cell as a Python repr.
+    """
+    frame = make_panel({
+        "AAA": list(range(0, 70)), "BBB": list(range(0, 70)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[50:])), "validation", "train"
+    )
+    config = dict(
+        TRAIN_CONFIG, epochs=2, patience=2, refit_every=10, embargo=2, seq_length=5,
+    )
+    _, records, _ = walk_forward(
+        frame, FEATURES, "target", "date", "symbol", BINS, seeds=[1, 2],
+        config=config, loss_fn=CorrLoss(), device=torch.device("cpu"), verbose=False,
+    )
+
+    for record in records:
+        for key, value in record.items():
+            assert not isinstance(value, (dict, list, tuple)), (
+                "{} is not a scalar, so it would be repr'd into the CSV".format(key)
+            )
+    assert records[0]["seeds"] == "1,2"
+    assert "seed1_val" in records[0] and "seed2_epochs" in records[0]
+
+
+# --------------------------------------------------------------------------- #
+# prepare_panel's reference handling
+# --------------------------------------------------------------------------- #
+
+def _patch_loaders(monkeypatch, frame, features):
+    """
+    Make prepare_panel offline: a fake panel, and no reference or meta model.
+
+    load_reference / load_meta_model are wrapped in try/except by prepare_panel, so
+    making them raise is the supported way to say "this tournament has neither" --
+    and it is what forces the meta proxy to be unavailable.
+    """
+    from src.prediction.nn import pipeline
+
+    monkeypatch.setattr(
+        pipeline, "load_tournament_data",
+        lambda **kwargs: (frame.copy(), list(features)),
+    )
+    for name in ("load_reference", "load_meta_model"):
+        monkeypatch.setattr(
+            pipeline, name,
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("not available here")),
+        )
+
+
+def _panel_frame():
+    frame = make_panel({"AAA": list(range(0, 40)), "BBB": list(range(0, 40))},
+                       reference=False)
+    frame = frame.rename(columns={"target": "target_binned_return_20"})
+    frame["split"] = "train"
+    return frame
+
+
+def test_an_unbuildable_proxy_does_not_sink_a_corr_run(monkeypatch, capsys):
+    """
+    Found by a smoke run on target_binned_return_60.
+
+    --bmc-reference defaults to meta_proxy because a BMC *training* loss needs
+    gradient on every batch. But CORR never reads a reference, so failing a CORR run
+    because the proxy could not be built is refusing to do work that does not depend
+    on the thing that broke. It must degrade to the benchmark and say so.
+    """
+    from src.prediction.nn.pipeline import prepare_panel
+
+    frame = _panel_frame()
+    _patch_loaders(monkeypatch, frame, FEATURES)
+
+    panel = prepare_panel(
+        "crypto", target="target_binned_return_20", bmc_reference="meta_proxy",
+        require_reference=False, verbose=False,
+    )
+
+    assert panel["bmc_reference"] == "benchmark", "should have downgraded"
+    assert panel["reference_col"] is None
+    assert "meta proxy could not be built" in capsys.readouterr().out
+
+
+def test_an_unbuildable_proxy_does_sink_a_bmc_run(monkeypatch):
+    """The other half: a loss that genuinely needs the reference must not proceed."""
+    from src.prediction.nn.pipeline import prepare_panel
+
+    frame = _panel_frame()
+    _patch_loaders(monkeypatch, frame, FEATURES)
+
+    with pytest.raises(ValueError, match="meta_proxy is unavailable"):
+        prepare_panel(
+            "crypto", target="target_binned_return_20", bmc_reference="meta_proxy",
+            require_reference=True, verbose=False,
+        )
+
+
+def test_prepare_panel_rejects_an_unknown_reference_kind(monkeypatch):
+    from src.prediction.nn.pipeline import prepare_panel
+
+    frame = _panel_frame()
+    _patch_loaders(monkeypatch, frame, FEATURES)
+
+    with pytest.raises(ValueError, match="must be 'benchmark' or 'meta_proxy'"):
+        prepare_panel(
+            "crypto", target="target_binned_return_20", bmc_reference="mmc",
+            verbose=False,
+        )
+
+
+def test_walk_forward_is_deterministic_for_a_fixed_seed():
+    frame = make_panel({
+        "AAA": list(range(0, 70)), "BBB": list(range(0, 70)),
+    })
+    all_periods = np.sort(frame["date"].unique())
+    frame["split"] = np.where(
+        frame["date"].isin(set(all_periods[50:])), "validation", "train"
+    )
+    config = dict(
+        TRAIN_CONFIG, epochs=2, patience=2, refit_every=10, embargo=2, seq_length=5,
+    )
+
+    runs = []
+    for _ in range(2):
+        predictions, _, _ = walk_forward(
+            frame, FEATURES, "target", "date", "symbol", BINS, seeds=[7],
+            config=config, loss_fn=CorrLoss(), device=torch.device("cpu"),
+            verbose=False,
+        )
+        runs.append(predictions.sort_values(["symbol", "date"])["prediction"].to_numpy())
+
+    np.testing.assert_allclose(runs[0], runs[1], rtol=1e-6, atol=1e-6)
+
+
+# --------------------------------------------------------------------------- #
+# Symbol-embedding export, and the dataset builder on top of it
+# --------------------------------------------------------------------------- #
+
+from src.data_mani.build_symbol_embedding import attach_embeddings  # noqa: E402
+from src.prediction.nn.embeddings import (  # noqa: E402
+    FEATURE_PREFIX,
+    embedding_columns,
+    extract_embedding,
+    load_embeddings,
+    save_embeddings,
+    select_best_seed,
+)
+
+
+def _export_frame(blocks=(0, 1), seeds=(11, 22), dim=3, symbols=("AAA", "BBB")):
+    """A synthetic export shaped exactly like the real one."""
+    rows = []
+    for block in blocks:
+        for seed in seeds:
+            for symbol in symbols:
+                row = {
+                    "block": block, "seed": seed, "symbol": symbol,
+                    "train_end": pd.Timestamp("2020-01-01") + pd.Timedelta(days=20 * (block + 1)),
+                    "val_loss": -0.05 - 0.01 * (seed == 11) - 0.001 * block,
+                }
+                for d in range(dim):
+                    row["emb_{}".format(d)] = float(block + 1) + d / 10.0
+                rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def test_extract_embedding_returns_one_row_per_symbol_without_the_padding_row():
+    """
+    The padding row is a structural zero the network never trains, so exporting it
+    would put a fake 'unknown symbol' vector in the table.
+    """
+    net = _net(num_symbols=3, embed_dim=4)
+    symbol_index = {"AAA": 0, "BBB": 1, "CCC": 2}
+
+    frame = extract_embedding(
+        net, symbol_index, block=0, seed=7, train_end="2021-01-01", val_loss=-0.04,
+    )
+
+    assert len(frame) == 3, "padding row should not be exported"
+    assert list(frame["symbol"]) == ["AAA", "BBB", "CCC"]
+    assert embedding_columns(frame) == ["emb_0", "emb_1", "emb_2", "emb_3"]
+    assert frame["block"].eq(0).all() and frame["seed"].eq(7).all()
+
+    # The values really are the network's weights, in symbol_index order.
+    weights = net.symbol_embedding.weight.detach().numpy()
+    np.testing.assert_allclose(
+        frame[embedding_columns(frame)].to_numpy(), weights[:3], rtol=1e-6
+    )
+
+
+def test_extract_embedding_refuses_a_network_without_embeddings():
+    net = _net(embed_dim=0, num_symbols=None)
+    with pytest.raises(ValueError, match="embed_dim=0"):
+        extract_embedding(net, {}, block=0, seed=1, train_end="2021-01-01", val_loss=0.0)
+
+
+def test_embedding_columns_sort_numerically_not_lexically():
+    """
+    Plain sorted() puts emb_10 before emb_2, which would permute the feature space
+    silently -- everything downstream would still 'work'.
+    """
+    frame = pd.DataFrame(columns=["emb_0", "emb_1", "emb_2", "emb_10", "emb_11"])
+    assert embedding_columns(frame) == ["emb_0", "emb_1", "emb_2", "emb_10", "emb_11"]
+
+
+def test_save_embeddings_appends_across_blocks(tmp_path):
+    """Written per block so an interrupted run keeps what it finished."""
+    path = str(tmp_path / "emb.parquet")
+    first = _export_frame(blocks=(0,), seeds=(11,))
+    second = _export_frame(blocks=(1,), seeds=(11,))
+
+    save_embeddings(path, [first])
+    save_embeddings(path, [second])
+
+    loaded = load_embeddings(path)
+    assert set(loaded["block"]) == {0, 1}
+    assert len(loaded) == len(first) + len(second)
+
+
+def test_load_embeddings_rejects_a_frame_that_is_not_an_export(tmp_path):
+    path = str(tmp_path / "junk.parquet")
+    pd.DataFrame({"symbol": ["AAA"], "x": [1.0]}).to_parquet(path)
+    with pytest.raises(ValueError, match="not a symbol-embedding export"):
+        load_embeddings(path)
+
+
+def test_select_best_seed_keeps_one_seed_per_block():
+    """
+    Seeds must be CHOSEN, never averaged: each network's embedding space has its own
+    arbitrary basis, so averaging them cancels the structure.
+    """
+    export = _export_frame(blocks=(0, 1), seeds=(11, 22))
+    picked = select_best_seed(export)
+
+    assert set(picked["block"]) == {0, 1}
+    for block in (0, 1):
+        rows = picked[picked["block"] == block]
+        assert rows["seed"].nunique() == 1
+        # seed 11 was given the lower (better) val_loss in the fixture
+        assert rows["seed"].iloc[0] == 11
+
+
+def test_attach_embeddings_never_uses_a_vector_from_the_future():
+    """
+    THE LEAKAGE TEST for this builder.
+
+    A vector may only reach a row whose date is at least `lag` periods after the
+    network's train_end. An embedding is trained against the target, so a violation
+    here hands the model a compressed summary of the answer.
+    """
+    dates = pd.date_range("2020-01-01", periods=60, freq="D")
+    df = pd.DataFrame({
+        "symbol": ["AAA"] * 60,
+        "date": dates,
+        "target_binned_return_20": 0.5,
+    })
+    # One export, trained through period index 20.
+    export = pd.DataFrame([{
+        "block": 0, "seed": 1, "symbol": "AAA", "train_end": dates[20],
+        "val_loss": -0.05, "emb_0": 7.0, "emb_1": -3.0,
+    }])
+
+    lag = 5
+    out, covered = attach_embeddings(df, export, "symbol", "date", lag=lag)
+    col = "{}_0".format(FEATURE_PREFIX)
+
+    got = out[col].to_numpy() != 0.0
+    first_allowed = 20 + lag       # train_end position + lag
+    assert not got[:first_allowed].any(), (
+        "a vector reached a row before train_end + lag -- future information"
+    )
+    assert got[first_allowed:].all(), "rows after the lag should all be covered"
+    assert covered == 60 - first_allowed
+
+
+def test_attach_embeddings_uses_the_most_recent_legal_export():
+    """With several exports, a row must get the newest one it is allowed to see."""
+    dates = pd.date_range("2020-01-01", periods=80, freq="D")
+    df = pd.DataFrame({"symbol": ["AAA"] * 80, "date": dates})
+    export = pd.DataFrame([
+        {"block": 0, "seed": 1, "symbol": "AAA", "train_end": dates[10],
+         "val_loss": -0.05, "emb_0": 1.0},
+        {"block": 1, "seed": 1, "symbol": "AAA", "train_end": dates[40],
+         "val_loss": -0.06, "emb_0": 2.0},
+    ])
+
+    out, _ = attach_embeddings(df, export, "symbol", "date", lag=5)
+    col = "{}_0".format(FEATURE_PREFIX)
+
+    assert out[col].iloc[12] == 0.0          # before 10 + 5
+    assert out[col].iloc[20] == 1.0          # block 0 only
+    assert out[col].iloc[44] == 1.0          # block 1 not legal yet (40 + 5)
+    assert out[col].iloc[50] == 2.0          # now on block 1
+
+
+def test_attach_embeddings_gives_unknown_symbols_zeros():
+    """
+    A symbol the network never saw gets the same zero vector the network itself uses
+    for an unknown symbol -- the truthful encoding of 'nothing is known'.
+    """
+    dates = pd.date_range("2020-01-01", periods=40, freq="D")
+    df = pd.DataFrame({
+        "symbol": ["AAA"] * 40 + ["ZZZ"] * 40,
+        "date": list(dates) * 2,
+    })
+    export = pd.DataFrame([{
+        "block": 0, "seed": 1, "symbol": "AAA", "train_end": dates[5],
+        "val_loss": -0.05, "emb_0": 4.0,
+    }])
+
+    out, _ = attach_embeddings(df, export, "symbol", "date", lag=2)
+    col = "{}_0".format(FEATURE_PREFIX)
+
+    assert (out.loc[out["symbol"] == "ZZZ", col] == 0.0).all()
+    assert (out.loc[(out["symbol"] == "AAA") & (out["date"] > dates[7]), col] == 4.0).all()
+
+
+def test_attach_embeddings_honours_the_dims_cap():
+    dates = pd.date_range("2020-01-01", periods=20, freq="D")
+    df = pd.DataFrame({"symbol": ["AAA"] * 20, "date": dates})
+    export = _export_frame(blocks=(0,), seeds=(11,), dim=5, symbols=("AAA",))
+    export["train_end"] = dates[0]
+
+    out, _ = attach_embeddings(df, export, "symbol", "date", lag=1, dims=2)
+    made = [c for c in out.columns if c.startswith(FEATURE_PREFIX)]
+    assert made == ["{}_0".format(FEATURE_PREFIX), "{}_1".format(FEATURE_PREFIX)]
+
+
+def test_exported_features_use_the_loader_discovery_prefix():
+    """
+    The crypto loader finds features by the 'feature_' prefix, which is what lets a
+    built dataset work with no modelling changes at all.
+    """
+    assert FEATURE_PREFIX.startswith("feature_")

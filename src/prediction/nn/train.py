@@ -63,6 +63,7 @@ from src.prediction.nn.dataset import (
     build_symbol_index,
     collate_windows,
 )
+from src.prediction.nn.embeddings import extract_embedding, save_embeddings
 from src.prediction.nn.model import LSTMForecastNetwork
 
 
@@ -407,6 +408,7 @@ def train_until_early_stop(model, train_loader, val_loader, loss_fn, config,
     best_epoch = 0
     patience_left = config["patience"]
     train_history, val_history = [], []
+    validated = False
 
     for epoch in range(1, int(config["epochs"]) + 1):
         train_loss = run_epoch(
@@ -422,6 +424,7 @@ def train_until_early_stop(model, train_loader, val_loader, loss_fn, config,
 
         val_loss = slice_loss(model, val_loader, loss_fn, device)
         val_history.append(val_loss)
+        validated = True
 
         improved = val_loss < best_val_loss
         if improved:
@@ -448,12 +451,16 @@ def train_until_early_stop(model, train_loader, val_loader, loss_fn, config,
             break
 
     return {
-        "best_val_loss": best_val_loss,
+        # NaN, not the initial +inf, when no validation ever ran. +inf would be
+        # reported as a score, compared against real losses when ranking seeds, and
+        # written into the results json as the non-standard literal `Infinity`.
+        "best_val_loss": best_val_loss if validated else float("nan"),
         "best_state": best_state,
         "best_epoch": best_epoch,
         "epochs_run": len(train_history),
         "train_history": train_history,
         "val_history": val_history,
+        "early_stopped": validated,
     }
 
 
@@ -635,6 +642,38 @@ def select_seeds(frame, features, target_col, period_col, id_col, bin_values,
 # Phase 2 -- walk-forward
 # --------------------------------------------------------------------------- #
 
+def _finite_val_losses(seed_records):
+    """
+    The validation losses that actually exist.
+
+    A block with no early-stopping windows records NaN for every seed. Filtering
+    explicitly rather than reaching for np.nanmin avoids the "All-NaN slice"
+    RuntimeWarning on exactly the runs that are already printing a warning.
+
+    :param seed_records: {seed: {"best_val_loss": float, ...}}
+    :type seed_records: dict
+    :return: the finite losses
+    :rtype: [float]
+    """
+    return [
+        values["best_val_loss"]
+        for values in seed_records.values()
+        if np.isfinite(values["best_val_loss"])
+    ]
+
+
+def _best(seed_records):
+    """Lowest validation loss across seeds, or NaN if none was measured."""
+    losses = _finite_val_losses(seed_records)
+    return float(min(losses)) if losses else float("nan")
+
+
+def _mean(seed_records):
+    """Mean validation loss across seeds, or NaN if none was measured."""
+    losses = _finite_val_losses(seed_records)
+    return float(np.mean(losses)) if losses else float("nan")
+
+
 def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
                  seeds, config, loss_fn, device, verbose=True):
     """
@@ -698,6 +737,11 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
     predictions = []
     records = []
     skipped = []
+
+    # Weights carried between blocks when warm_start is on. Local to the call, so two
+    # walk-forwards cannot contaminate each other and nothing has to be reset between
+    # runs -- which a module- or function-level cache would have required.
+    carried = {}
 
     for block_index, start in enumerate(range(0, len(val_periods), refit_every)):
         block = val_periods[start:start + refit_every]
@@ -779,8 +823,26 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
                       block_index, len(fit_dataset), len(fit_periods), len(block),
                       len(predict_dataset)))
 
+        # An early-stopping slice too short to hold a single window turns off early
+        # stopping altogether, and every network then trains for the full --epochs.
+        # That changes what the run does, so it must be said out loud rather than
+        # inferred later from suspiciously round epoch counts.
+        stop_windows = len(stop_dataset) if stop_dataset is not None else 0
+        if not stop_windows:
+            print(
+                "WARNING: block {} has no early-stopping windows ({} periods in the "
+                "slice, but a window needs seq_length + train_buffer = {}). Early "
+                "stopping is DISABLED for this block and every seed will run the "
+                "full {} epochs. Lower --seq-length or --train-buffer, or raise "
+                "--val-frac.".format(
+                    block_index, len(stop_periods),
+                    config["seq_length"] + config["train_buffer"], config["epochs"],
+                )
+            )
+
         block_predictions = []
         seed_records = {}
+        block_embeddings = []
 
         for seed in seeds:
             set_seed(seed)
@@ -790,8 +852,8 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
             model = build_network(
                 len(features), bin_values, config, num_symbols=len(symbol_index)
             )
-            if config.get("warm_start") and seed in getattr(walk_forward, "_carry", {}):
-                model.load_state_dict(walk_forward._carry[seed])
+            if config.get("warm_start") and seed in carried:
+                model.load_state_dict(carried[seed])
 
             generator = torch.Generator()
             generator.manual_seed(int(seed))
@@ -800,7 +862,7 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
                 model,
                 make_loader(fit_dataset, config["batch_size"], config["shuffle"], generator),
                 make_loader(stop_dataset, config["batch_size"], False)
-                if stop_dataset is not None and len(stop_dataset) else None,
+                if stop_windows else None,
                 loss_fn, config, device,
                 verbose=False, tag="seed {}".format(seed),
             )
@@ -811,9 +873,15 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
             model = model.to(device)
 
             if config.get("warm_start"):
-                if not hasattr(walk_forward, "_carry"):
-                    walk_forward._carry = {}
-                walk_forward._carry[seed] = result["best_state"]
+                carried[seed] = result["best_state"]
+
+            # Captured here, after load_state_dict, so the exported vectors are the
+            # ones early stopping actually selected -- not the last epoch's.
+            if config.get("embedding_path") and model.use_symbol_embedding:
+                block_embeddings.append(extract_embedding(
+                    model, symbol_index, block=block_index, seed=seed,
+                    train_end=fit_periods[-1], val_loss=result["best_val_loss"],
+                ))
 
             row_predictions, _ = predict_rows(
                 model,
@@ -828,9 +896,16 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
             }
 
             if verbose:
-                print("  seed {:>5} val {:+.4f} | {} epochs (best @{})".format(
-                    seed, result["best_val_loss"], result["epochs_run"],
-                    result["best_epoch"]))
+                print("  seed {:>5} val {} | {} epochs (best @{}){}".format(
+                    seed,
+                    "{:+.4f}".format(result["best_val_loss"])
+                    if result["early_stopped"] else "  n/a  ",
+                    result["epochs_run"], result["best_epoch"],
+                    "" if result["early_stopped"] else " [no early stopping]"))
+
+        # Written per block, so an interrupted run keeps the blocks it finished.
+        if config.get("embedding_path"):
+            save_embeddings(config["embedding_path"], block_embeddings)
 
         # The seed ensemble: mean across seeds, ignoring rows a seed could not cover.
         stacked = np.vstack(block_predictions)
@@ -850,7 +925,10 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
         out = out[out["prediction"].notna()]
         predictions.append(out)
 
-        records.append({
+        # Flat and scalar-valued on purpose. run_forecast.write_outputs turns these
+        # records straight into the hyperparams CSV via hyperparams_table(), so a
+        # nested dict or a list here would land in a cell as a Python repr.
+        record = {
             "refit": block_index,
             "train_start": str(fit_periods[0]),
             "train_end": str(fit_periods[-1]),
@@ -862,13 +940,20 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
             "stop_periods": int(len(stop_periods)),
             "predicted_periods": int(len(block)),
             "predicted_rows": int(len(out)),
-            "seeds": list(map(int, seeds)),
-            "seed_results": seed_records,
-            "best_val_loss": min(
-                (record["best_val_loss"] for record in seed_records.values()),
-                default=float("nan"),
-            ),
-        })
+            "n_seeds": len(seed_records),
+            "seeds": ",".join(str(seed) for seed in seeds),
+            "early_stopping": bool(stop_windows),
+            "stop_windows": int(stop_windows),
+            "best_val_loss": _best(seed_records),
+            "mean_val_loss": _mean(seed_records),
+        }
+        # One column per seed, so a report can see whether the ensemble's members
+        # agreed or whether a single seed carried the block.
+        for seed, values in seed_records.items():
+            record["seed{}_val".format(seed)] = values["best_val_loss"]
+            record["seed{}_epochs".format(seed)] = values["epochs_run"]
+            record["seed{}_best_epoch".format(seed)] = values["best_epoch"]
+        records.append(record)
 
     if not predictions:
         raise ValueError(

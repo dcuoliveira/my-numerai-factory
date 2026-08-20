@@ -4,8 +4,13 @@
 #
 #   bash setup.sh                 # deps + base crypto dataset + verify
 #   bash setup.sh --with-derived  # also build the 812-feature chain (~3 min)
+#   bash setup.sh --with-autoencoder   # also build crypto/v2.0-ae (needs torch)
 #   bash setup.sh --all           # everything, including numerai Classic data
 #   bash setup.sh --check         # verify an existing install, change nothing
+#
+# --all deliberately does NOT imply --with-autoencoder: torch is an optional
+# dependency, and a --all run has to still succeed on a box where its wheel
+# failed to install.
 #
 # What this does, in order:
 #
@@ -30,6 +35,7 @@ cd "$REPO"
 
 WITH_DERIVED=0
 WITH_NUMERAI=0
+WITH_AUTOENCODER=0
 CHECK_ONLY=0
 SKIP_TESTS="${SKIP_TESTS:-0}"
 PYTHON="${PYTHON:-python3}"
@@ -39,10 +45,11 @@ for arg in "$@"; do
     case "$arg" in
         --with-derived) WITH_DERIVED=1 ;;
         --with-numerai) WITH_NUMERAI=1 ;;
+        --with-autoencoder) WITH_AUTOENCODER=1 ;;
         --all)          WITH_DERIVED=1; WITH_NUMERAI=1 ;;
         --check)        CHECK_ONLY=1 ;;
         --skip-tests)   SKIP_TESTS=1 ;;
-        -h|--help)      sed -n '2,26p' "$0"; exit 0 ;;
+        -h|--help)      sed -n '2,29p' "$0"; exit 0 ;;
         *) echo "unknown option '$arg' (try --help)" >&2; exit 2 ;;
     esac
 done
@@ -112,7 +119,7 @@ REQUIRED=(numerapi numerai-tools pandas pyarrow numpy scipy scikit-learn lightgb
 #                      a large wheel, run_forecast.py never touches it, and a
 #                      machine that only runs ridge/lgb should not have to carry
 #                      it. run_nn_forecast fails early with a clear message.
-OPTIONAL=(xgboost catboost scikit-optimize torch)
+OPTIONAL=(xgboost catboost scikit-optimize torch optuna)
 
 if [ "$CHECK_ONLY" = "1" ]; then
     ok "--check: skipping install"
@@ -285,6 +292,35 @@ else
     ok "derived datasets skipped (pass --with-derived; ~3 min, ~45 MB)"
 fi
 
+# A SIBLING of the chain above, never a step inside it. The 22/763/787/798/812
+# counts are load-bearing in ten places -- two refuse-to-run gates in
+# experiments/, and three n_features entries in src/live/registry.py whose
+# fitted joblib caches would go stale -- so inserting a step here would break a
+# working live book to add an experimental feature block.
+if [ "$WITH_AUTOENCODER" = "1" ] && [ "$CHECK_ONLY" != "1" ]; then
+    if ! "$PYTHON" -c "import torch" >/dev/null 2>&1; then
+        warn "torch is not installed, so the autoencoder dataset was skipped"
+        warn "  (it is in the OPTIONAL set; build the linear control instead with"
+        warn "   $PYTHON -m src.data_mani.build_autoencoder --method pca)"
+    else
+        build_step "crypto/v2.0-ae" \
+            "$PYTHON" -m src.data_mani.build_autoencoder --code-dim 8
+        "$PYTHON" - <<'PY'
+import os, pyarrow.parquet as pq
+path = "data/crypto/v2.0-ae/train.parquet"
+if not os.path.exists(path):
+    print("  WARN  crypto/v2.0-ae%snot built" % (" " * 44))
+else:
+    got = sum(c.startswith("feature_") for c in pq.ParquetFile(path).schema.names)
+    print("  %s %-50s %4d features%s" % (
+        "ok   " if got == 30 else "WARN ", "crypto/v2.0-ae", got,
+        "" if got == 30 else "  (expected 30)"))
+PY
+    fi
+elif [ "$CHECK_ONLY" != "1" ]; then
+    ok "autoencoder dataset skipped (pass --with-autoencoder; needs torch, ~3 min)"
+fi
+
 # --------------------------------------------------------------------------- #
 step "5/6  credentials template"
 # --------------------------------------------------------------------------- #
@@ -382,4 +418,5 @@ gitignored, all reproducible from the command recorded in each metrics json.
 
 NEXT
 [ "$WITH_DERIVED" != "1" ] && echo "NOTE: the allfeat++ arm needs --with-derived. Re-run: bash setup.sh --with-derived"
+[ "$WITH_AUTOENCODER" != "1" ] && echo "NOTE: experiments/autoencoder_crypto.sh builds its own datasets, or pre-build one: bash setup.sh --with-autoencoder"
 exit 0

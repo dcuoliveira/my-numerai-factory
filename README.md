@@ -78,6 +78,8 @@ All take `DRY_RUN=1` to print the commands without running them.
 | `weighting_crypto.sh` | How to weight CURUPIRA_05's five members |
 | `weighting_sweep_crypto.sh` | Tunes the four surviving weighting schemes; read with `analysis.weighting_report` |
 | `target60_crypto.sh` | Every deployed model refit from scratch on the 60-day target |
+| `e01_blocks60_lgb_reg_crypto.sh` | **E01** — the LightGBM feature-block table on the 60-day target (see `experiments/EXPERIMENTS.md`) |
+| `autoencoder_crypto.sh` | Bottleneck-autoencoder codes as extra features, against a PCA control and an untuned variant (needs torch) |
 
 `lgb_6m6m_crypto.sh` is the shared implementation behind the two `lgb_6m6m_*`
 runners; invoke those, not it. Knobs common to the LightGBM runners:

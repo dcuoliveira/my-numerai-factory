@@ -1,5 +1,5 @@
 """
-The torch LSTM forecasting pipeline.
+The repo's torch code: an LSTM forecaster, and a feature autoencoder.
 
 A deliberately separate world from the sklearn wrappers in prediction/models.py.
 Those are row-independent estimators driven by RandomizedSearchCV; this is a
@@ -12,6 +12,16 @@ output conventions and nothing else.
     losses.py    differentiable CORR / BMC / mixture, computed ex-post on a batch
     train.py     epoch loop, seed selection, walk-forward
 
-torch is an OPTIONAL dependency (see setup.sh), so nothing here is imported by
-prediction/functions.py or run_forecast.py. Importing this package requires torch.
+The second thing here does not forecast anything:
+
+    autoencoder.py   a row-wise bottleneck whose activations become FEATURES,
+                     driven by data_mani/build_autoencoder.py and written into a
+                     dataset that the ordinary tabular runners read unchanged
+
+It lives in this package rather than beside its builder for one reason: torch is
+an OPTIONAL dependency (see setup.sh), so nothing here is imported by
+prediction/functions.py or run_forecast.py, and importing this package requires
+torch. data_mani is the opposite -- src/live/features.py imports its builders at
+module scope, so a top-level torch import there would take the live submission
+path down on a box where the wheel failed to install.
 """
