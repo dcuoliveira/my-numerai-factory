@@ -171,6 +171,9 @@ MODELS = {
         # slots that are already fitted for their own sake, so it costs seconds.
         "feature_set": "allfeat_pp",   # superset of all three members' columns
         "n_features": 812,
+        # Blends have no wrapper, so the results tree cannot be derived from
+        # one. This is the model directory their backtest_run was scored under.
+        "scored_under": "lgb",
         "backtest_run": "saci01_c03_c0560",
         "why": (
             "Highest payout of anything in the project at 0.097730, and it beats "
@@ -234,18 +237,39 @@ MODELS = {
             "that blend lands at sharpe 1.3941 and drawdown 1.0523."
         ),
         "backtest": {
+            # SCORED ON THE 60-DAY LABEL, FITTED LIVE ON THE 20-DAY ONE.
+            # Every number below comes from a target_binned_return_60 study, so
+            # it does NOT describe what this slot now submits. There is no
+            # re-scored figure for it either: results/cache/cross_target_payout.csv
+            # covers the ridge CURUPIRA arms and the group blends, not this one.
+            # The one comparable case, CURUPIRA_05_60, lost ~19% crossing labels
+            # (0.092201 -> 0.074914). Produce the re-score before staking this.
+            "scored_on": "target_binned_return_60",
             "corr": 0.142699, "corr_sharpe": 1.0926, "corr_max_dd": 7.7020,
             "mmc": 0.078748, "mmc_sharpe": 0.6709,
             "payout": 0.093018, "payout_sharpe": 0.7170, "payout_max_dd": 10.9473,
             "n_periods": 470,
         },
         "fit_override": {
-            # Both must move together, exactly as CURUPIRA_05_60 does: the
-            # 60-day label resolves 60 periods out and is NaN over the panel's
-            # last 40 dates, so a 20-day embargo would leak three times over and
-            # feed NaN targets in.
-            "target": "target_binned_return_60",
-            "embargo": 60,
+            # SEARCHED on the 60-day label, FITTED on the payable 20-day one.
+            #
+            # These fixed_params are the ones the 60-day study selected, and they
+            # are kept exactly: they say which shape of booster suits this feature
+            # set, which does not depend on the horizon. But Numerai scores live
+            # submissions on target_binned_return_20, so a slot that is uploaded
+            # in its own right must be fitted to predict THAT. Fitting on the
+            # 60-day label and being scored on the 20-day one is predicting the
+            # wrong quantity, however good the 60-day backtest looked.
+            #
+            # Target and embargo move together -- the 20-day label resolves 20
+            # periods out, so 20 is the matching embargo. A happy side effect:
+            # the 20-day label resolves ~40 periods sooner than the 60-day one,
+            # which pulls this slot's training edge from 2026-05-13 up to
+            # 2026-07-08, the same edge every other slot sits on.
+            #
+            # CURUPIRA_05_60 deliberately does NOT do this -- see its entry.
+            "target": "target_binned_return_20",
+            "embargo": 20,
             "fixed_params": {
                 "n_estimators": 4327, "learning_rate": 0.002572,
                 "max_depth": 8, "num_leaves": 255,
@@ -262,6 +286,9 @@ MODELS = {
         "wrapper": None,
         "feature_set": "allfeat_pp",   # superset of all three members' columns
         "n_features": 812,
+        # Blends have no wrapper, so the results tree cannot be derived from
+        # one. This is the model directory their backtest_run was scored under.
+        "scored_under": "lgb",
         "backtest_run": "x3_int_e60tenc_c05",
         "why": (
             "Highest payout of anything in the project at 0.099528, and the "
@@ -274,6 +301,14 @@ MODELS = {
             "CURUPIRA_01 vs _03, which is what a redundant pair looks like."
         ),
         "backtest": {
+            # DIVERGES FROM LIVE. This blend was measured with SACI_03 fitted on
+            # the 60-day label. SACI_03 is now a submitted slot in its own right
+            # and fits the payable 20-day label, and it carries ONE cached fit,
+            # so this blend inherits the retargeted member. The numbers below
+            # describe the arm as backtested, not as it now runs. Deliberate:
+            # a per-role cache does not exist, and a submitted slot predicting
+            # the wrong horizon was the worse of the two problems.
+            "scored_on": "target_binned_return_20",
             "corr": 0.153321, "corr_sharpe": 1.9278, "corr_max_dd": 0.5894,
             "mmc": 0.084196, "mmc_sharpe": 1.2950,
             "payout": 0.099528, "payout_sharpe": 1.3941, "payout_max_dd": 1.0523,
@@ -342,6 +377,9 @@ MODELS = {
         "wrapper": None,
         "feature_set": "allfeat_pp",
         "n_features": 812,
+        # Blends have no wrapper, so the results tree cannot be derived from
+        # one. This is the model directory their backtest_run was scored under.
+        "scored_under": "lgb",
         "backtest_run": "saci04_c05_c08",
         "why": (
             "The highest payout in the project at 0.100904, and the best "
@@ -381,6 +419,141 @@ MODELS = {
             "Scored on 470 periods, not 510: CURUPIRA_08 carries the 60-day "
             "label, which is NaN over the panel's last 40 dates.",
         ],
+    },
+    "SACI_05": {
+        "wrapper": "lgb",
+        "feature_set": "cumlag3",
+        "n_features": 88,
+        "backtest_run": "e05_cumlag3",
+        "why": (
+            "The 22 raw features plus every lag 1..3 of them, from experiment "
+            "E05. It is here for its RISK PROFILE, not its return: payout "
+            "drawdown 0.5610 against 1.1964 for the same model on the raw 22 -- "
+            "less than half -- which made it the best calmar (payout / drawdown) "
+            "of any lag depth tried, 0.1367 against 0.0700.\n\n"
+            "DO NOT STAKE IT ALONE. Its payout is the lowest of any deployed "
+            "single model at 0.076671, below raw's 0.083272 (t = -1.52). It "
+            "exists as the low-drawdown member of CURUPIRA_SACI_04, where "
+            "pairing it with CURUPIRA_05 raises payout to 0.093888 while keeping "
+            "the drawdown at 0.5182."
+        ),
+        "backtest": {
+            "corr": 0.134524, "corr_sharpe": 1.7269, "corr_max_dd": 0.1652,
+            "mmc": 0.063218, "mmc_sharpe": 1.0580,
+            "payout": 0.076671, "payout_sharpe": 1.1672, "payout_max_dd": 0.5610,
+            "n_periods": 510,
+        },
+        "fit_override": {
+            "fixed_params": {
+                "n_estimators": 4327, "learning_rate": 0.002572,
+                "max_depth": 8, "num_leaves": 255,
+                "colsample_bytree": 0.070213, "subsample": 0.816153,
+                "subsample_freq": 1, "min_child_samples": 313,
+                "reg_lambda": 1.757511,
+            },
+        },
+        # Losing the lags leaves the plain 22 -- a materially different model,
+        # but a working one. The lags are a within-symbol backward shift of
+        # columns that are always present, so this should never fire.
+        "fallback_feature_set": "raw",
+    },
+    "CURUPIRA_SACI_04": {
+        "wrapper": None,
+        # allfeat_pp does NOT contain SACI_05's 66 lag columns, so the single
+        # frame load_slot_blend builds was missing them and this slot fell to
+        # Numerai's example predictions. allfeat_pp_lag3 is allfeat_pp + cumlag3.
+        "feature_set": "allfeat_pp_lag3",
+        "n_features": 878,
+        # Blends have no wrapper, so the results tree cannot be derived from
+        # one. This is the model directory their backtest_run was scored under.
+        "scored_under": "lgb",
+        "backtest_run": "x_lag3_c05",
+        "why": (
+            "The best risk-adjusted slot in the book: calmar 0.1812 (payout per "
+            "unit of worst-case drawdown), ahead of every single model and every "
+            "other blend. It is also the rare blend that improves BOTH sides -- "
+            "payout 0.093888 against CURUPIRA_05's 0.086318 while cutting the "
+            "payout drawdown from 0.6182 to 0.5182. Most blends here trade one "
+            "for the other.\n\n"
+            "Two members that fail differently: a lagged LightGBM with the "
+            "lowest drawdown and the lowest return in the book, and a five-member "
+            "ridge feature-block blend with the return. Their prediction rank "
+            "correlation is 0.46."
+        ),
+        "backtest": {
+            "corr": 0.151251, "corr_sharpe": 1.9590, "corr_max_dd": 0.2006,
+            "mmc": 0.078763, "mmc_sharpe": 1.3065,
+            "payout": 0.093888, "payout_sharpe": 1.4182, "payout_max_dd": 0.5182,
+            "n_periods": 510,
+        },
+        "slot_members": [
+            {"name": "SACI_05", "weight": 0.5},
+            {"name": "CURUPIRA_05", "weight": 0.5},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "The payout margin over CURUPIRA_05 is +0.007570 at t = +1.81 -- the "
+            "strongest of any blend here, but still short of |t| > 2 on ~26 "
+            "effective independent windows. Read it as 'no worse than C05 and "
+            "better diversified', not as an established edge.",
+            "Its case rests on calmar, which is a RATIO OF A PER-PERIOD MEAN TO "
+            "A CUMULATIVE DRAWDOWN. That scales with 1/n_periods, so it is "
+            "comparable only against arms measured on the same window. Do not "
+            "rank it against the 470-period slots on calmar.",
+            "SACI_05's lags are a within-symbol backward shift, so a token's "
+            "first three rows in the live panel have no history and fall back to "
+            "the neutral 0.5. Verified that no LIVE row is affected -- live rows "
+            "are the newest periods and the best covered -- but the training "
+            "block's first 3 rows per symbol differ slightly from the offline "
+            "dataset unless the panel loads 3 extra periods of history.",
+        ],
+    },
+    "SACI_06": {
+        "wrapper": "lgb_ktz",
+        "feature_set": "tenc_onehot",
+        "n_features": 763,
+        "backtest_run": "e29_tenc_onehot",
+        "why": (
+            "The E29 lgb_ktz tune on tenc_onehot, and the first slot whose live "
+            "fit IS a from-scratch search rather than a pinned config: lgb_ktz's "
+            "grid encodes the E27 (Kalfa-Timmermann-van der Zwan) priors -- dense "
+            "low learning_rate, low colsample, small num_leaves, L=lr*n_est<=40 -- "
+            "so every refit re-selects hyperparameters inside E27's good corner "
+            "by purged/embargoed CV. In E29 the search landed on num_leaves=2, "
+            "lr~=0.0035, colsample~=0.20 on this dataset, and payout 0.089991 at "
+            "corr-sharpe 1.8387.\n\n"
+            "Unlike SACI_03 (same wrapper family and dataset, but a 60-day model "
+            "fitted on the 20-day label), this is a 20-DAY model scored on the "
+            "20-day label -- backtest and live predict the same quantity, so the "
+            "numbers below describe what it submits.\n\n"
+            "Paired against the deployed single-model slots on 510 shared dates "
+            "it is indistinguishable from the staked trio (|t|<=1.05) and beats "
+            "only SACI_05 significantly; it loses to every blend. Its case is "
+            "diversification -- a LightGBM on 763 columns against a ridge-heavy "
+            "staked book -- not standalone payout. Size it as a blend member, "
+            "not a large solo stake."
+        ),
+        "backtest": {
+            # Scored AND fitted on target_binned_return_20 -- no cross-label gap.
+            "scored_on": "target_binned_return_20",
+            "corr": 0.157183, "corr_sharpe": 1.8387, "corr_max_dd": 0.6194,
+            "mmc": 0.074273, "mmc_sharpe": 1.1989,
+            "payout": 0.089991, "payout_sharpe": 1.3119, "payout_max_dd": 1.0529,
+            "n_periods": 510,
+        },
+        "fit_override": {
+            # Reproduce the E29 backtest exactly: it searched 60 draws per refit
+            # (the shared FIT default is 50). Everything else -- 20-day target,
+            # embargo 20, 6-month window/refit, 5 folds, seed 42 -- already
+            # matches FIT, and lgb_ktz pins min_child_samples inside its own grid,
+            # so no fixed_params block is needed here. The live refit runs the
+            # same purged/embargoed walk-forward search that produced e29.
+            "n_iter": 60,
+        },
+        # If the one-hot vocabulary cannot be built live, degrade to tenc (23),
+        # exactly as SACI_03 does. The lgb_ktz grid still applies to the narrower
+        # frame -- num_leaves and the learning schedule do not depend on width.
+        "fallback_feature_set": "tenc",
     },
     "CURUPIRA_01": {
         "wrapper": "ridge_glmnet",
@@ -487,8 +660,17 @@ MODELS = {
             # matched exactly 4 columns, but on the 812-column build the same
             # pattern also catches feature_market_cap_avg_spread. Without the
             # anchor the live model would fit 6 columns where the backtest fit 4.
+            # n_features_varies: this block is one column per symbol carrying
+            # ONEHOT_MIN_DATES of history, so its width tracks the live universe
+            # rather than the model. 740 is what the backtest fitted and is kept
+            # for the record, but pinning it made the blend unrefittable the
+            # moment a symbol crossed the threshold -- refreshing train.parquet
+            # on 2026-08-23 took it to 742 and left both blends with no usable
+            # cache at all. The other four members have genuinely fixed widths
+            # and stay pinned.
             {"name": "onehot", "wrapper": "ridge_glmnet", "weight": 0.2,
-             "include": r"^feature_sym_(?!tenc$)", "n_features": 740},
+             "include": r"^feature_sym_(?!tenc$)", "n_features": 740,
+             "n_features_varies": True},
             {"name": "tenc", "wrapper": "ridge_glmnet", "weight": 0.2,
              "include": r"^feature_sym_tenc$", "n_features": 1},
             {"name": "interact", "wrapper": "ridge_glmnet", "weight": 0.2,
@@ -532,7 +714,7 @@ MODELS = {
             "pattern -- and the 50/50 weight is chosen, not searched."
         ),
         "backtest": {
-            "corr": 0.148223, "corr_sharpe": 1.6297, "corr_max_dd": 0.5838,
+            "corr": 0.148223, "corr_sharpe": 1.9393, "corr_max_dd": 0.5838,
             "mmc": 0.075691, "mmc_sharpe": 1.3392,
             "payout": 0.090514, "payout_sharpe": 1.4476, "payout_max_dd": 1.0594,
             "n_periods": 510,
@@ -582,14 +764,39 @@ MODELS = {
             "a member of CURUPIRA_07; never submitted on its own."
         ),
         "backtest": {
-            "corr": 0.098256, "corr_sharpe": 0.7027, "corr_max_dd": 7.8815,
+            # DELIBERATELY NOT RETARGETED, unlike SACI_03. This slot is never
+            # uploaded, so nothing it produces is ever scored on the payable
+            # label directly -- it exists to decorrelate CURUPIRA_07, _08,
+            # CURUPIRA_SACI_01 and _03, and it shares allfeat_pp with
+            # CURUPIRA_05. The 60-day horizon IS its diversification: refit it on
+            # the 20-day label and it collapses toward CURUPIRA_05, those four
+            # blends stop reproducing their backtests, and the mean-variance
+            # weights in stake.py -- solved on the current payout covariance and
+            # carrying 4.9162 NMR through CURUPIRA_08 -- stop describing the book.
+            "scored_on": "target_binned_return_60",
+            "corr": 0.098256, # corr_sharpe and corr_max_dd were copies of the payout row -- identical
+            # to payout_sharpe and payout_max_dd to four decimals, which is not
+            # something two different series do. The payout figures below are
+            # right (results/cache/cross_target_payout.csv reproduces all three
+            # exactly), but the 20-day re-score has no CORR series cached, so
+            # these cannot be recovered. None beats a wrong number.
+            "corr_sharpe": None, "corr_max_dd": None,
             "mmc": 0.065089, "mmc_sharpe": 0.7027,
             "payout": 0.074914, "payout_sharpe": 0.7027, "payout_max_dd": 7.8815,
             "n_periods": 470,
         },
         "members": [
+            # n_features_varies: this block is one column per symbol carrying
+            # ONEHOT_MIN_DATES of history, so its width tracks the live universe
+            # rather than the model. 740 is what the backtest fitted and is kept
+            # for the record, but pinning it made the blend unrefittable the
+            # moment a symbol crossed the threshold -- refreshing train.parquet
+            # on 2026-08-23 took it to 742 and left both blends with no usable
+            # cache at all. The other four members have genuinely fixed widths
+            # and stay pinned.
             {"name": "onehot", "wrapper": "ridge_glmnet", "weight": 0.2,
-             "include": r"^feature_sym_(?!tenc$)", "n_features": 740},
+             "include": r"^feature_sym_(?!tenc$)", "n_features": 740,
+             "n_features_varies": True},
             {"name": "tenc", "wrapper": "ridge_glmnet", "weight": 0.2,
              "include": r"^feature_sym_tenc$", "n_features": 1},
             {"name": "interact", "wrapper": "ridge_glmnet", "weight": 0.2,
@@ -742,6 +949,230 @@ MODELS = {
             "is nothing to score it against directly.",
         ],
     },
+
+    # ---------------------------------------------------------------- #
+    # The neural family
+    # ---------------------------------------------------------------- #
+
+    "IA_01": {
+        "wrapper": "mlp",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "a2_mlp_fenccausal",
+        "why":
+            "The first neural slot in the book, and the only one that can be built "
+            "live. It is a plain feedforward MLP on the 22 raw features plus their "
+            "22 CAUSAL per-symbol means (build_feature_encoding --mode causal): an "
+            "expanding mean of each symbol's own past, so a row never enters its own "
+            "encoding and no target is touched.\n\n"
+            "It is here because it beats the torch LSTM outright on identical data -- "
+            "CORR 0.15812 against 0.10495 on the raw 22, +51% -- which is why the "
+            "sequence model is NOT in this registry. The LSTM's own study found the "
+            "recurrence contributes nothing (seq_length 1 scores 0.10543 against "
+            "seq_length 21's 0.10445) and that it is largely a per-symbol lookup "
+            "table: a 405-number table of each symbol's mean target reproduces ~70% "
+            "of its out-of-sample signal.\n\n"
+            "NOT ON THE ACCOUNT, so it is in NOT_SUBMITTED -- it exists to be the "
+            "second leg of CU_SA_IA_BO_01. Same reason CURUPIRA_05_60 is a component.",
+        "backtest": {"corr": 0.16172, "corr_sharpe": 1.8094, "corr_max_dd": 0.6998, "mmc": 0.082492, "mmc_sharpe": 1.2392, "payout": 0.098664, "n_periods": 510, "payout_sharpe": 1.3391, "payout_max_dd": 1.1786},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "The mlp family has FOUR runs in a book of 500+. Its 0.16172 CORR is one "
+            "configuration, never replicated across seeds. The same single-run "
+            "evidence on the LSTM side (cumlag3, +0.0088 CORR at t +2.47) reversed "
+            "sign when redrawn at a second seed, so treat this as promising rather "
+            "than established until it is replicated.",
+            "fenccausal became live-buildable only recently; every earlier fenccausal "
+            "number came from the offline dataset. src/live/features.py:add_fenccausal "
+            "reproduces it bit-exactly (max diff 0.000e+00 over 504,196 rows), and the "
+            "live path computes the shrinkage prior from non-live rows only so today's "
+            "features cannot move a historical encoding.",
+        ],
+    },
+
+    "CU_SA_IA_BO_01": {
+        "wrapper": None,
+        "scored_under": "lgb",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "boto01_slot_mlpfenc",
+        "why":
+            "Curupira + Saci + the neural family, 50/50 over CURUPIRA_SACI_03 and "
+            "IA_01. It is the first slot in the book to combine the tabular ensemble "
+            "with a neural model.\n\n"
+            "Against CURUPIRA_SACI_03 alone, paired Newey-West at lag 20 over 470 "
+            "periods: CORR +0.010429 (t +2.83), MMC +0.005178 (t +1.58), payout "
+            "+0.006221 (t +1.72). The CORR gain clears the house |t| >= 2 bar; the "
+            "PAYOUT gain does not. Deploy it for the correlation improvement and the "
+            "MMC, not on the expectation that the payout edge is established.\n\n"
+            "The member choice is measured, not assumed: the same blend built with the "
+            "RAW-feature MLP instead scores payout 0.09975, i.e. WORSE than "
+            "CURUPIRA_SACI_03 alone (t -0.39). The causal feature encoding is what "
+            "makes this slot work.",
+        "backtest": {"corr": 0.168171, "corr_sharpe": 1.9179, "corr_max_dd": 0.6778, "mmc": 0.090308, "mmc_sharpe": 1.4182, "payout": 0.107125, "n_periods": 470, "payout_sharpe": 1.5146, "payout_max_dd": 1.1568},
+        "slot_members": [
+            {"name": "CURUPIRA_SACI_03", "weight": 0.5},
+            {"name": "IA_01", "weight": 0.5},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Payout +0.006221 at t = +1.72 is under the |t| >= 2 bar this repo holds "
+            "itself to. On ~26 effective independent windows that is the expected "
+            "outcome and is itself the finding -- it is not evidence of no effect, but "
+            "it is not evidence of one either.",
+            "Drawdown is slightly WORSE than the member it improves on: dd(pay) 1.16 "
+            "against CURUPIRA_SACI_03's 1.03, and calmar 0.093 against 0.098. This "
+            "slot buys level, not stability.",
+            "It inherits CURUPIRA_SACI_03, which has been falling through to Numerai's "
+            "EXAMPLE predictions in recent rounds because its members could not all be "
+            "resolved. If that is still true this slot inherits the same fallback -- "
+            "check round_report.json for source 'example' before trusting a live score.",
+            "The torch LSTM is deliberately absent. Adding it at 20% scored payout "
+            "0.10955 in backtest, but src/live/ has no torch path at all, so that "
+            "blend cannot be produced for a live round.",
+        ],
+    },
+    "CURUPIRA_BOITATA_01": {
+        # CURUPIRA_08 + CU_SA_IA_BO_01, rank-averaged 50/50. Fits nothing of its
+        # own; both members are already-deployed slots, so this reuses their
+        # caches exactly as CURUPIRA_06/07 reuse theirs -- a zero-fit tail slot.
+        "wrapper": None,
+        # allfeat_pp_fenc (834) is the richer of the two members' feature sets
+        # (CURUPIRA_08's allfeat_pp is 812; CU_SA_IA_BO_01's allfeat_pp_fenc adds
+        # the 22 causal means), so one frame built from it is a superset of both.
+        "scored_under": "ridge_glmnet",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "ens_scr_c08_bo",
+        "why": (
+            "The risk-adjusted frontier point of the whole book. Against every "
+            "benchmark family and grid ensemble screened over the CURUPIRA/ktz "
+            "panel, this 50/50 of CURUPIRA_08 and CU_SA_IA_BO_01 has the highest "
+            "payout SHARPE measured -- 1.5758, above CU_SA_IA_BO_01's 1.5146 and "
+            "the staked portfolio's 1.566 -- at a payout (0.106399) statistically "
+            "identical to CU_SA_IA_BO_01's best-member 0.107125 (paired "
+            "Newey-West t = -0.21). It also cuts the drawdown: dd(pay) 1.0799 "
+            "against CU_SA_IA_BO_01's 1.1568. It buys stability at unchanged "
+            "level, which is the only thing blending on this panel ever buys."
+        ),
+        "backtest": {
+            "corr": 0.164715, "corr_sharpe": 1.9828, "corr_max_dd": 0.6603,
+            "mmc": 0.089928, "mmc_sharpe": 1.4782,
+            "payout": 0.106399, "payout_sharpe": 1.5758, "payout_max_dd": 1.0799,
+            "n_periods": 470,
+        },
+        "slot_members": [
+            {"name": "CURUPIRA_08", "weight": 0.5},
+            {"name": "CU_SA_IA_BO_01", "weight": 0.5},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "It is largely DOUBLING DOWN on CURUPIRA_08, not diversifying. "
+            "CU_SA_IA_BO_01 is CURUPIRA_SACI_03 + IA_01, and CURUPIRA_SACI_03 "
+            "already contains CURUPIRA_08 -- so this concentrates CURUPIRA_08 "
+            "exposure. The sharpe gain is real but it is a lever into the "
+            "book's best signal, not a new one.",
+            "The payout gain over CU_SA_IA_BO_01 is NOT established: +0.00 at "
+            "t = -0.21 means the two are indistinguishable on level. Deploy it "
+            "for the drawdown and the sharpe, not for more payout.",
+            "It inherits both members' fallbacks. CU_SA_IA_BO_01 in turn inherits "
+            "CURUPIRA_SACI_03, which has fallen through to Numerai's EXAMPLE "
+            "predictions in some rounds; if either member falls back, this blend "
+            "does too. Check round_report.json for source 'example' before "
+            "trusting a live score.",
+            "SCORED ON 470 PERIODS, NOT 510, because it carries CURUPIRA_08's "
+            "60-day member CURUPIRA_05_60, whose label is NaN over its last 40 "
+            "dates.",
+        ],
+    },
+    "IAUARETE_01": {
+        # The CatBoost leg of CURUPIRA_CAIPORA_01. A NOT_SUBMITTED component, the
+        # booster sibling of SACI_06's lgb_ktz search and IA_01's live MLP.
+        "wrapper": "catboost_ktz",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "e32_sel_fenccausal",
+        "why": (
+            "The CatBoost leg of CURUPIRA_CAIPORA_01. It fits catboost_ktz on the "
+            "22 raw features plus their 22 CAUSAL per-symbol means (fenccausal -- "
+            "the same 44 columns IA_01 uses, which src/live/features.py already "
+            "builds live and bit-exactly). Its live fit SWEEPS the 12-cell E27/KTZ "
+            "grid exactly as the e32_sel_fenccausal backtest did: "
+            "build_wrapper('catboost_ktz') is iterations=2000 x lr{.005,.01,.02} x "
+            "depth{2,4} x rsm{.1,.2}, and fit_override n_iter=12 sweeps all twelve "
+            "and CV-picks one -- so the live refit reproduces the backtest's "
+            "protocol, not just an approximation of it.\n\n"
+            "NOT ON THE ACCOUNT, so it is in NOT_SUBMITTED. It exists to be the "
+            "third leg of CURUPIRA_CAIPORA_01, the same reason IA_01 and "
+            "CURUPIRA_05_60 are components."
+        ),
+        "backtest": {
+            "scored_on": "target_binned_return_20",
+            "corr": 0.156464, "corr_sharpe": 1.8311, "corr_max_dd": 0.6184,
+            "mmc": 0.077381, "mmc_sharpe": 1.2380,
+            "payout": 0.093027, "payout_sharpe": 1.3467, "payout_max_dd": 1.0665,
+            "n_periods": 510,
+        },
+        "fit_override": {
+            # Sweep the 12-cell catboost_ktz grid exhaustively, exactly as e32
+            # did. The grid pins iterations=2000 internally, so no model_options
+            # or fixed_params are needed -- every other field matches shared FIT.
+            "n_iter": 12,
+        },
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Single-run evidence, like every ktz benchmark: e32_sel_fenccausal is "
+            "one config on one dataset, never replicated across seeds. It is a "
+            "blend member here, not a solo bet.",
+            "Its CV picks one of the 12 cells each refit, so a LIVE fit can select "
+            "a different cell than e32 did on a given window -- the numbers above "
+            "are indicative of the protocol, not a promise of the exact estimator.",
+        ],
+    },
+    "CURUPIRA_CAIPORA_01": {
+        # CURUPIRA_05 + CURUPIRA_08 + the CatBoost leg IAUARETE_01, 1/3 each. A
+        # zero-fit slot blend; the three members are fitted for their own sake.
+        "wrapper": None,
+        # allfeat_pp_fenc (834) is the superset covering CURUPIRA_05/08's
+        # allfeat_pp columns AND IAUARETE_01's fenccausal means -- the same frame
+        # CU_SA_IA_BO_01 builds.
+        "scored_under": "ridge_glmnet",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "ens_scr_c05_c08_cat",
+        "why": (
+            "CURUPIRA_05 + CURUPIRA_08 + the CatBoost leg IAUARETE_01, rank-averaged "
+            "1/3 each. In the ktz-benchmark ensemble screen it was the ONLY priced "
+            "blend with a positive payout delta over its own best member (+0.0037 "
+            "over CURUPIRA_08, though t = +0.69, not established), and it holds the "
+            "lowest drawdown of the top group -- dd(pay) 0.9648, calmar 0.107, burn "
+            "33 of 470 days -- at payout 0.103468 and sharpe 1.5504. Its case is "
+            "diversification: a booster on the causal encoding added to a "
+            "ridge-heavy pair, a signal no fourth ridge arm brings."
+        ),
+        "backtest": {
+            "corr": 0.158744, "corr_sharpe": 1.9600, "corr_max_dd": 0.6104,
+            "mmc": 0.087593, "mmc_sharpe": 1.4554,
+            "payout": 0.103468, "payout_sharpe": 1.5504, "payout_max_dd": 0.9648,
+            "n_periods": 470,
+        },
+        "slot_members": [
+            {"name": "CURUPIRA_05", "weight": 1.0 / 3},
+            {"name": "CURUPIRA_08", "weight": 1.0 / 3},
+            {"name": "IAUARETE_01", "weight": 1.0 / 3},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "The payout edge over CURUPIRA_08 is NOT established: +0.0037 at "
+            "t = +0.69 on ~23 effective independent windows. Deploy it for the "
+            "drawdown and the diversification, not for established level.",
+            "It carries CURUPIRA_08's 60-day member CURUPIRA_05_60, so it is scored "
+            "on 470 periods, not 510.",
+            "IAUARETE_01 is a fresh CatBoost search each refit and single-run "
+            "evidence; if it cannot be fit or the fenccausal build fails, the blend "
+            "degrades through the members' raw fallback.",
+        ],
+    },
 }
 
 # Order matters: this is the order slots are refit and submitted in, so the
@@ -758,21 +1189,62 @@ MODELS = {
 # CURUPIRA_06 fits nothing, so it is cheapest -- but it must run AFTER the
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
-ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_04", "SACI_01", "CURUPIRA_03",
-         "CURUPIRA_04", "SACI_03", "SACI_02",
-         "CURUPIRA_05", "CURUPIRA_05_60", "CURUPIRA_06", "CURUPIRA_07",
+ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_04", "SACI_01",
+         "CURUPIRA_03", "SACI_05",
+         "CURUPIRA_04", "SACI_03", "IA_01", "SACI_02",
+         # IAUARETE_01 is a catboost_ktz search: ~300 s, between SACI_02 (120)
+         # and CURUPIRA_05 (440), so the fitting slots stay cheapest-first.
+         "IAUARETE_01",
+         "CURUPIRA_05", "CURUPIRA_05_60", "SACI_06", "CURUPIRA_06", "CURUPIRA_07",
          "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02",
-         "CURUPIRA_SACI_03"]
+         "CURUPIRA_SACI_03", "CURUPIRA_SACI_04", "CU_SA_IA_BO_01",
+         # Zero-fit slot blends: each rank-averages already-fitted slots, so both
+         # must run AFTER their members -- last in the order, like CURUPIRA_06/07.
+         # CURUPIRA_BOITATA_01 = C08 + CU_SA_IA_BO_01; CURUPIRA_CAIPORA_01 =
+         # CURUPIRA_05 + CURUPIRA_08 + IAUARETE_01.
+         "CURUPIRA_BOITATA_01", "CURUPIRA_CAIPORA_01"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
-# the worst-scoring arm in the study.
-NOT_SUBMITTED = {"CURUPIRA_05_60", "SACI_03"}
+# the worst-scoring arm in the study. IA_01 and IAUARETE_01 are the neural and
+# CatBoost legs of CU_SA_IA_BO_01 and CURUPIRA_CAIPORA_01 respectively -- fitted
+# so a blend can reuse them, never uploaded alone.
+NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IAUARETE_01"}
 
 
 def is_blend(spec):
     """True when a slot rank-averages feature-block members it fits itself."""
     return bool(spec.get("members"))
+
+
+def backtest_target(name):
+    """
+    The label a slot's backtest was SCORED on, which is not always what it fits.
+
+    They were the same thing until SACI_03 was promoted to a submitted slot:
+    its hyperparameters were selected on the 60-day label, but Numerai pays on
+    the 20-day one, so it now FITS target_binned_return_20 while its backtest
+    block still describes a 60-day study. Anything reasoning about the backtest
+    (period counts, cross-slot comparisons) must ask this rather than reading
+    fit["target"], or it will silently compare 470-period and 510-period arms.
+    """
+    spec = get(name)
+    return spec["backtest"].get("scored_on") or spec["fit"]["target"]
+
+
+def reused_slots():
+    """
+    Slots that another slot rank-averages, so a failure there does not stay put.
+
+    SACI_03/04/05 are submitted models AND members of a CURUPIRA_SACI blend, so
+    one bad fit shows up as several unrelated broken slots unless the report says
+    which one to look at first.
+    """
+    out = set()
+    for spec in MODELS.values():
+        for member in (spec.get("slot_members") or []):
+            out.add(member["name"])
+    return out
 
 
 def is_slot_blend(spec):

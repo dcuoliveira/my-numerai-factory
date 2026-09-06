@@ -64,8 +64,8 @@ import pandas as pd
 
 from src.live import registry, submit
 from src.live.env import get_api, load_env
-from src.live.features import (LIVE_DIR, PERIOD, SYMBOL, append_live_history,
-                               build_features, load_panel)
+from src.live.features import (LIVE_DIR, PERIOD, SYMBOL, TRAIN_PARQUET,
+                               append_live_history, build_features, load_panel)
 from src.live.notify import send
 from src.live.refit import (feature_signature, load_cached, load_slot_blend,
                             refit, refit_blend, refit_due)
@@ -79,9 +79,41 @@ RESERVE_PER_SLOT = 90
 DOWNLOAD_ATTEMPTS = 4
 BACKOFF_BASE_SECONDS = 5
 
+# What to fetch each round, and how forgiving to be about each one.
+#
+#   refresh   re-download even when a copy is on disk. This used to be an inline
+#             `name != "live.parquet"` test, which quietly pinned the example
+#             predictions to whatever round first downloaded them -- by 2026-08-22
+#             that was round 1332, nine rounds stale, covering 279 of 300 symbols.
+#   required  a failure with no copy on disk kills the round. The example
+#             predictions are a last-resort fallback, so they must not.
+DATASETS = (
+    {"remote": "crypto/v2.0/live.parquet", "refresh": True, "required": True},
+    # train.parquet was in NO download list at all, so the "rolling" 130-period
+    # window could not roll: every cached fit shared one training block ending
+    # 2026-07-08 while fitted_at spanned nine days, and the live embargo had
+    # reached 32 periods against a backtested 20, widening by one every round.
+    # Numerai was already serving 1711 dates to the 1701 on disk.
+    #
+    # required=True so a failure with a copy present raises StaleLiveData, which
+    # the caller turns into a warning and carries on -- the same treatment
+    # live.parquet gets, and the same reason: an old training file still trains.
+    {"remote": "crypto/v2.0/train.parquet", "refresh": True, "required": True,
+     "local": TRAIN_PARQUET},
+    {"remote": "crypto/v2.0/live_example_preds.csv", "refresh": True,
+     "required": False},
+)
+
 # The round list decides whether anything uploads at all, so a transient failure
 # is retried rather than shrugged off.
 ROUND_QUERY_ATTEMPTS = 3
+
+# The fallback ladder, best first. Numerai keeps the LAST upload for a round, so
+# a retry pass that lands lower down the ladder than the pass before it does not
+# add a submission -- it REPLACES a good one with a worse one. Rounds 1338 and
+# 1339 both did exactly that: a full-universe CURUPIRA_02 stand-in at 09:05 was
+# overwritten by Numerai's own example predictions at 09:25.
+SOURCE_RANK = {"model": 3, "sibling": 2, "previous_round": 1, "example": 0}
 
 
 class StaleLiveData(Exception):
@@ -92,18 +124,36 @@ class StaleLiveData(Exception):
 # inner CV rather than 50 -- cheap despite LightGBM being a heavier learner than
 # ridge. 36 features costs about what CURUPIRA_03 does; 788 costs a little more.
 DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
-                       "SACI_04": 85, "SACI_01": 90, "SACI_03": 95,
+                       "SACI_04": 85, "SACI_01": 90, "SACI_05": 92, "SACI_03": 95,
                        "CURUPIRA_03": 90, "CURUPIRA_04": 95,
                        "SACI_02": 120,
                        "CURUPIRA_05": 440,
                        "CURUPIRA_05_60": 440,
+                       # lgb_ktz runs a 60-draw search per refit -- e29 took ~34 min.
+                       "SACI_06": 2100,
                        "CURUPIRA_06": 1, "CURUPIRA_07": 1,
                        "CURUPIRA_08": 1,
                        # A slot blend: rank-averages members already fitted
                        # for their own sake, so it adds no fitting cost.
                        "CURUPIRA_SACI_01": 1,
                        "CURUPIRA_SACI_02": 1,
-                       "CURUPIRA_SACI_03": 1}
+                       "CURUPIRA_SACI_03": 1,
+                       "CURUPIRA_SACI_04": 1,
+                       # An MLP on 44 columns: one search, and cheaper per draw
+                       # than the boosters. 108.5 min over 4 backtest refits is
+                       # ~27 min of walk-forward work, but a LIVE refit is one
+                       # block, so ~110 s is the like-for-like estimate.
+                       "IA_01": 110,
+                       # catboost_ktz sweeping its 12-cell grid on 44 columns.
+                       # e32_sel_fenccausal took 21.6 min over ~4 backtest refits,
+                       # ~300 s for one live block. Between SACI_02 (120) and
+                       # CURUPIRA_05 (440) in the cheapest-first order.
+                       "IAUARETE_01": 300,
+                       "CU_SA_IA_BO_01": 1,
+                       # Slot blends of already-fitted slots -- zero fit cost, run
+                       # last after their members.
+                       "CURUPIRA_BOITATA_01": 1,
+                       "CURUPIRA_CAIPORA_01": 1}
 
 REPORT_DIR = "results/live"
 
@@ -123,12 +173,13 @@ def download_live(api, verbose=True):
     retry has nothing to fall back on either.
     """
     os.makedirs(LIVE_DIR, exist_ok=True)
-    for remote in ("crypto/v2.0/live.parquet", "crypto/v2.0/live_example_preds.csv"):
+    for spec in DATASETS:
+        remote = spec["remote"]
         name = os.path.basename(remote)
-        local = os.path.join(LIVE_DIR, name)
-        # The example predictions rarely change and are only ever a last-resort
-        # fallback, so an existing copy is good enough.
-        if name != "live.parquet" and os.path.exists(local):
+        # train.parquet is not a live file and lives beside the rest of the
+        # dataset, where features.load_panel reads it from.
+        local = spec.get("local") or os.path.join(LIVE_DIR, name)
+        if not spec["refresh"] and os.path.exists(local):
             continue
 
         staging = local + ".partial"
@@ -151,16 +202,26 @@ def download_live(api, verbose=True):
                           % (name, attempt, DOWNLOAD_ATTEMPTS, error, delay))
                 time.sleep(delay)
 
-        if last_error is not None:
-            if name == "live.parquet" and os.path.exists(local):
-                # A stale live file is normally the most dangerous thing here,
-                # so this is not silent: the caller warns, and load_panel prints
-                # the live date so a stale round is visible in the report.
-                raise StaleLiveData(
-                    "could not download live.parquet after %d attempts (%s); "
-                    "a previous round's file is still on disk"
-                    % (DOWNLOAD_ATTEMPTS, last_error))
+        if last_error is None:
+            continue
+
+        stale = ("could not download %s after %d attempts (%s); the copy on "
+                 "disk is from an earlier round"
+                 % (name, DOWNLOAD_ATTEMPTS, last_error))
+        if os.path.exists(local):
+            # A stale file is not silent: a required one raises so the caller
+            # warns and load_panel prints the live date, an optional one says so
+            # here. Neither is worth killing a round over when a copy exists.
+            if spec["required"]:
+                raise StaleLiveData(stale)
+            if verbose:
+                print("   WARNING: %s" % stale)
+            continue
+        if spec["required"]:
             raise
+        if verbose:
+            print("   %s could not be downloaded and no copy exists (%s)"
+                  % (name, last_error))
     if verbose:
         print("live data ready in %s" % LIVE_DIR)
 
@@ -376,13 +437,18 @@ def resolve_model_ids(api, names):
     return resolved, missing, sorted(available)
 
 
-def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False):
+def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False,
+                 cache_only=False):
     """
     Build features and load or refit the estimator for one slot.
 
     Returns (estimator, columns, built_panel, metadata, info) where info records
     what happened for the report. Never raises: a slot that cannot be prepared
     returns estimator=None and the fallback chain takes over.
+
+    cache_only skips the refit branch entirely and takes whatever is cached. It
+    is what --safety-first wants -- the point of that pass is to get a defensible
+    file in the door in seconds, and a refit is the one thing that could stop it.
     """
     spec = registry.get(name)
     info = {"refit": False, "detail": "", "note": None, "diagnostics": None}
@@ -401,8 +467,9 @@ def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False):
     if registry.is_slot_blend(spec):
         estimator, metadata = load_slot_blend(name, panel)
         if estimator is None:
-            info["note"] = "members unavailable (%s)" % ", ".join(
-                m["name"] for m in spec["slot_members"])
+            info["note"] = "members unavailable: %s" % "; ".join(
+                (metadata or {}).get("missing")
+                or [m["name"] for m in spec["slot_members"]])
             return None, None, None, None, info
         info["detail"] = "reuses %s" % "+".join(
             m["name"].replace("CURUPIRA_", "C") for m in spec["slot_members"])
@@ -410,9 +477,12 @@ def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False):
 
     estimator, metadata = load_cached(name, columns)
     signature = feature_signature(columns)
-    due, reason = refit_due(metadata, live_date, spec["fit"]["refit_every"], signature)
+    due, reason = refit_due(metadata, live_date, spec["fit"]["refit_every"],
+                            signature)
     if force_refit and not due:
         due, reason = True, "forced by --force-refit"
+    if cache_only and due:
+        due, reason = False, "%s, but this pass takes the cache" % reason
 
     if due:
         estimate = (metadata or {}).get("fit_seconds") or DEFAULT_FIT_SECONDS.get(name, 90)
@@ -500,9 +570,38 @@ def already_submitted(round_number, names):
             and slot["name"] in names}
 
 
+def standing_records(round_number):
+    """
+    {slot: record} for every slot that already has a submission this round.
+
+    Unlike already_submitted this keeps the FALLBACK sources too, because they
+    are exactly the ones a retry can make worse. A rehearsal never counts, for
+    the same reason it does not count there.
+    """
+    path = os.path.join(REPORT_DIR, str(round_number), "round_report.json")
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as handle:
+            report = json.load(handle)
+    except Exception:
+        return {}
+    if report.get("dry_run"):
+        return {}
+    return {slot["name"]: slot for slot in report.get("slots", [])
+            if slot.get("status") == "submitted"}
+
+
+def _would_downgrade(prior, source):
+    """True when uploading `source` would replace a better standing submission."""
+    if not prior or prior.get("source") is None:
+        return False
+    return SOURCE_RANK.get(source, -1) < SOURCE_RANK.get(prior["source"], -1)
+
+
 def run(deadline_minutes=60, dry_run=False, safety_first=False,
         force_refit=False, models=None, email=True, skip_if_submitted=False,
-        allow_late=False):
+        allow_late=False, progress=None, round_info=None):
     load_env()
     api = get_api()
 
@@ -520,6 +619,9 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     # Slots first: the submission service is the only source that sees a round
     # the moment it opens, and reaching it needs a model id.
     model_ids, missing, available = resolve_model_ids(api, names)
+    # A NOT_SUBMITTED slot has no account slot ON PURPOSE, so telling the reader
+    # to go and create it is noise that trains them to ignore this warning.
+    missing = [n for n in missing if n not in registry.NOT_SUBMITTED]
     if missing:
         warnings.append(
             "these slots do not exist on the account and cannot be submitted: %s. "
@@ -527,9 +629,22 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             "Slots currently on the account: %s"
             % (", ".join(missing), ", ".join(available) or "(none)"))
 
+    # The reverse difference, which nothing used to take: a slot that exists on
+    # the account but is in no ORDER receives nothing, every round, silently.
+    # CURUPIRA_IARA_01 was created on 2026-08-22 and went unmentioned all day.
+    orphans = sorted(set(available) - set(registry.ORDER))
+    if orphans:
+        warnings.append(
+            "these account slots are not in registry.ORDER and so receive no "
+            "predictions at all: %s. Add them to the registry or archive them "
+            "at numer.ai." % ", ".join(orphans))
+
     probe = next(iter(model_ids.values()), None)
     round_number, opened, deadline, minutes_left, state, via = open_round(
         api, model_id=probe)
+    if round_info is not None:
+        # So a crash after this point still names the round in the email.
+        round_info["number"] = round_number
 
     if state == "closed" and not allow_late:
         print("round %s stopped accepting submissions at %s UTC (%.0f min ago) "
@@ -612,21 +727,57 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
         warnings.append("train.parquet lags live by %d days; CURUPIRA_03's rolling "
                         "features are computed across that gap" % gap_days)
 
+    # What already landed this round, kept so a retry can never replace a good
+    # submission with a worse one.
+    standing = {} if dry_run else standing_records(round_number)
+
     context = {"estimators": {}, "live_date": live_date,
                "round_number": round_number, "live_symbols": live_symbols}
-    slots, diagnostics = [], {}
+    # `progress` is the SAME list object the caller holds, appended to as each
+    # slot finishes. It is how main()'s crash handler knows what actually went
+    # out before the exception -- see the note there.
+    slots = progress if progress is not None else []
+    diagnostics = {}
+
+    # The sibling rung reads CURUPIRA_02 out of context. On a retry pass
+    # CURUPIRA_02 has almost always already submitted, so already_submitted
+    # filtered it out of `names`, it was never prepared, and the rung was
+    # unreachable at exactly the moment it was needed -- which is how rounds 1338
+    # and 1339 fell straight past it to Numerai's example predictions. Prepare it
+    # whether or not this pass uploads it. cache_only, because a slot we are not
+    # submitting must never spend the budget on a refit, and it is deliberately
+    # not counted in budget.outstanding for the same reason.
+    if submit.SIBLING not in names and submit.SIBLING in registry.ORDER:
+        estimator, columns, built, metadata, _ = prepare_slot(
+            submit.SIBLING, panel, live_date, budget, warnings, cache_only=True)
+        if estimator is not None:
+            context["estimators"][submit.SIBLING] = (estimator, columns, built,
+                                                     metadata)
+            print("   %s prepared for the sibling fallback (not uploaded this "
+                  "pass)" % submit.SIBLING)
+        else:
+            warnings.append(
+                "%s could not be prepared, so the sibling fallback is "
+                "unavailable to every other slot this pass" % submit.SIBLING)
 
     # --- optional guard pass: get something in the door immediately -----------
     if safety_first and not dry_run:
+        # This block used to build its own features and call load_cached with a
+        # `columns` that had not been assigned yet -- an UnboundLocalError on the
+        # first slot, raised outside the try, which escaped run() and mailed
+        # CRASHED. It also skipped every slot blend, because it never dispatched
+        # on is_slot_blend. prepare_slot already does all of that correctly.
         print("\n--- safety-first pass: submitting from cache ---")
         for name in names:
-            estimator, metadata = load_cached(name, columns)
-            if estimator is None or name not in model_ids:
+            if name not in model_ids:
+                continue
+            estimator, columns, built, _, _ = prepare_slot(
+                name, panel, live_date, budget, warnings, cache_only=True)
+            if estimator is None:
                 continue
             try:
-                built, columns, _ = build_features(
-                    panel.copy(), registry.get(name)["feature_set"], verbose=False)
-                frame = submit.predict(estimator, built, columns, live_date)
+                frame = submit.predict(estimator, built, columns, live_date,
+                                       registry.get(name)["fit"]["task"])
                 path = submit.write_csv(frame, round_number, name)
                 submit.upload(api, path, model_ids[name], name)
                 print("   %s: guard submission in" % name)
@@ -657,6 +808,12 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             frame, source, note = submit.build_predictions(name, context)
             path = submit.write_csv(frame, round_number, name)
             record["source"] = source
+            if source != "model" and (record["detail"] or "").startswith("reuses "):
+                # "reuses ..." describes the blend that was PLANNED. Once the
+                # chain has fallen through it is not what went out, and detail is
+                # the column the email prints: round 1339 showed
+                # "reuses SACI_05+C05" next to source "example".
+                record["detail"] = "%s -- NOT used, fell back" % record["detail"]
             if note:
                 record["note"] = "; ".join(filter(None, [record["note"], note]))
 
@@ -671,6 +828,18 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
                 record["status"] = "failed"
                 record["error"] = ("no such model slot on the account; CSV written "
                                    "to %s but not uploaded" % path)
+            elif _would_downgrade(standing.get(name), source):
+                # Numerai keeps the last upload, so uploading now would swap a
+                # better submission for this one. Carry the earlier record
+                # forward untouched rather than recording this pass's attempt.
+                prior = standing[name]
+                record = dict(prior)
+                record["note"] = "; ".join(filter(None, [
+                    prior.get("note"),
+                    "a later pass produced only '%s'; kept the earlier '%s'"
+                    % (source, prior.get("source"))]))
+                print("   kept the earlier '%s' submission -- this pass only "
+                      "reached '%s'" % (prior.get("source"), source))
             else:
                 submission_id, attempts = submit.upload(
                     api, path, model_ids[name], name, dry_run=dry_run)
@@ -777,27 +946,50 @@ def main():
                              "zero, so this is for debugging only")
     args = parser.parse_args()
 
+    # Populated by run() as each slot finishes, so the crash handler below can
+    # report what actually landed rather than assuming nothing did.
+    progress = []
+    progress_round = {}
+
     try:
-        report = run(deadline_minutes=args.deadline_minutes, dry_run=args.dry_run,
+        report = run(progress=progress, round_info=progress_round,
+                     deadline_minutes=args.deadline_minutes,
+                     dry_run=args.dry_run,
                      safety_first=args.safety_first, force_refit=args.force_refit,
                      models=args.models, email=not args.no_email,
                      skip_if_submitted=args.skip_if_submitted,
                      allow_late=args.allow_late)
     except Exception as error:
         # Anything that escapes run() -- a DNS failure on the dataset host, a
-        # corrupt parquet, an API outage -- happens BEFORE the per-slot handling
-        # and so produces no round report and, without this, no email either.
-        # A silent miss is the worst outcome available: you find out days later
-        # from a Late flag. This is exactly how round 1333 was lost.
+        # corrupt parquet, an API outage, a full disk -- produces no round report
+        # and, without this, no email either. A silent miss is the worst outcome
+        # available: you find out days later from a Late flag. This is exactly
+        # how round 1333 was lost.
+        #
+        # But a crash is NOT necessarily "nothing was submitted", and saying so
+        # unconditionally is its own failure. Round 1348 died on a disk quota at
+        # slot 19 of 19, with 18 already uploaded and confirmed on-time by
+        # Numerai, and mailed "CRASHED -- NOTHING SUBMITTED" anyway. Under
+        # exactly the circumstances where the subject line has to be trusted, it
+        # was wrong in the most alarming direction. `progress` carries what
+        # actually went out, so the mail can say which slots are outstanding.
         import traceback
         traceback.print_exc()
+        landed = [s for s in progress if s.get("status") == "submitted"]
         if not args.no_email:
-            send({"round": "?", "live_date": "-", "started_at": "-",
+            if landed:
+                headline = ("%d slot(s) were submitted before the round aborted; "
+                            "the rest were NOT. Outstanding slots must be rerun "
+                            "before the window closes." % len(landed))
+            else:
+                headline = ("the round aborted before any slot was attempted; "
+                            "NOTHING WAS SUBMITTED")
+            send({"round": progress_round.get("number", "?"),
+                  "live_date": "-", "started_at": "-",
                   "elapsed_minutes": 0.0, "deadline_minutes": args.deadline_minutes,
-                  "dry_run": args.dry_run, "slots": [], "diagnostics": {},
+                  "dry_run": args.dry_run, "slots": list(progress), "diagnostics": {},
                   "crash": "%s: %s" % (type(error).__name__, error),
-                  "warnings": ["the round aborted before any slot was attempted; "
-                               "NOTHING WAS SUBMITTED"]})
+                  "warnings": [headline]})
         raise SystemExit(2)
 
     if report.get("skipped"):

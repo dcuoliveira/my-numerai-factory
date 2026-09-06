@@ -14,6 +14,7 @@ The heavy fixtures (a fitted estimator, the real panel) are avoided on purpose:
 these run in about a second and can sit in a pre-submission hook.
 """
 
+import json
 import os
 import shutil
 
@@ -92,6 +93,19 @@ class ConstantEstimator(object):
         return np.arange(len(X), dtype="float64")
 
 
+def write_round(root, round_number, name, source, symbols=("A",)):
+    """A submitted CSV plus the round report that says what produced it."""
+    directory = os.path.join(str(root), str(round_number))
+    os.makedirs(directory, exist_ok=True)
+    pd.DataFrame({SYMBOL: list(symbols),
+                  "prediction": np.linspace(0.1, 0.9, len(symbols))}
+                 ).to_csv(os.path.join(directory, "%s.csv" % name), index=False)
+    with open(os.path.join(directory, "round_report.json"), "w") as handle:
+        json.dump({"dry_run": False,
+                   "slots": [{"name": name, "status": "submitted",
+                              "source": source}]}, handle)
+
+
 def test_fallback_ladder_descends_one_rung_at_a_time(tmp_path):
     original = submit.SUBMISSION_DIR
     submit.SUBMISSION_DIR = str(tmp_path)
@@ -117,12 +131,10 @@ def test_fallback_ladder_descends_one_rung_at_a_time(tmp_path):
             {"CURUPIRA_02": entry}))
         assert source == "sibling" and "CURUPIRA_02" in note
 
-        # 3. nothing fitted -> last round's file for this same slot
+        # 3. nothing fitted -> last round's file, but only because round 9
+        #    recorded it as a genuine "model" submission.
         previous = os.path.join(str(tmp_path), "9")
-        os.makedirs(previous, exist_ok=True)
-        pd.DataFrame({SYMBOL: symbols,
-                      "prediction": np.linspace(0.1, 0.9, len(symbols))}
-                     ).to_csv(os.path.join(previous, "CURUPIRA_03.csv"), index=False)
+        write_round(tmp_path, 9, "CURUPIRA_03", "model", symbols)
         _, source, _ = submit.build_predictions("CURUPIRA_03", context({}))
         assert source == "previous_round"
 
@@ -146,13 +158,52 @@ def test_previous_submission_never_reaches_forward_in_time(tmp_path):
     original = submit.SUBMISSION_DIR
     submit.SUBMISSION_DIR = str(tmp_path)
     try:
-        for round_number in (8, 12):
-            directory = os.path.join(str(tmp_path), str(round_number))
-            os.makedirs(directory)
-            pd.DataFrame({SYMBOL: ["A"], "prediction": [0.5]}).to_csv(
-                os.path.join(directory, "CURUPIRA_01.csv"), index=False)
+        for round_number in (9, 12):
+            write_round(tmp_path, round_number, "CURUPIRA_01", "model")
         found = submit.previous_submission("CURUPIRA_01", 10)
-        assert found.endswith(os.path.join("8", "CURUPIRA_01.csv"))
+        assert found.endswith(os.path.join("9", "CURUPIRA_01.csv")), (
+            "round 12 is in the future of round 10 and must never be reused")
+    finally:
+        submit.SUBMISSION_DIR = original
+
+
+def test_a_fallback_is_never_laundered_forward_as_a_previous_round(tmp_path):
+    """
+    Round 1338's CURUPIRA_SACI_03.csv WAS Numerai's example file, byte for byte.
+    Round 1339 re-served it under source "previous_round", which reads clean
+    against CLAUDE.md's own detection recipe -- grep the report for
+    "source": "example" -- while the numbers going out were unchanged benchmark
+    ranks. Each hop also re-intersects with the universe without padding, so the
+    book decays: 280 rows, then 275.
+    """
+    original = submit.SUBMISSION_DIR
+    submit.SUBMISSION_DIR = str(tmp_path)
+    try:
+        write_round(tmp_path, 9, "CURUPIRA_SACI_03", "example")
+        assert submit.previous_submission("CURUPIRA_SACI_03", 10) is None
+
+        write_round(tmp_path, 9, "CURUPIRA_SACI_03", "previous_round")
+        assert submit.previous_submission("CURUPIRA_SACI_03", 10) is None, (
+            "a chain of previous_round hops is the same laundering, one step on")
+
+        write_round(tmp_path, 9, "CURUPIRA_SACI_03", "sibling")
+        assert submit.previous_submission("CURUPIRA_SACI_03", 10) is not None, (
+            "a sibling stand-in is a real model's prediction and may be reused")
+    finally:
+        submit.SUBMISSION_DIR = original
+
+
+def test_a_stale_submission_is_not_reused_for_ever(tmp_path):
+    """
+    The 95%-overlap argument for reusing yesterday's file holds for ONE round on
+    a 20-day target. It does not hold for five, and max() over every earlier
+    round had no bound at all.
+    """
+    original = submit.SUBMISSION_DIR
+    submit.SUBMISSION_DIR = str(tmp_path)
+    try:
+        write_round(tmp_path, 5, "CURUPIRA_01", "model")
+        assert submit.previous_submission("CURUPIRA_01", 10) is None
     finally:
         submit.SUBMISSION_DIR = original
 
@@ -194,6 +245,62 @@ def test_dry_run_never_touches_the_api():
             raise AssertionError("dry run must not upload")
 
     assert submit.upload(Exploding(), "x", "mid", "T", dry_run=True) == ("DRY_RUN", 0)
+
+
+# --------------------------------------------------------------------------
+# Crash survival -- what a failed write and a mid-round abort must not destroy
+# --------------------------------------------------------------------------
+
+def test_a_failed_history_write_leaves_the_previous_file_intact(tmp_path, monkeypatch):
+    """
+    The 2026-09-04 regression. live_history.parquet is the ONLY copy of the
+    accumulated live history and rebuilds one date per round, so an in-place
+    write that dies mid-flight costs weeks. A disk quota ran out inside
+    to_parquet and took three weeks of dates with it, leaving one date behind.
+    """
+    from src.live import features
+
+    path = str(tmp_path / "live_history.parquet")
+    first = make_panel(n_symbols=3, n_periods=0, n_live=2)
+    features.append_live_history(first, path=path)
+    before = pd.read_parquet(path)
+    assert len(before) > 0
+
+    def explode(self, *a, **k):
+        raise OSError(122, "Disk quota exceeded")
+
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", explode)
+    later = make_panel(n_symbols=3, n_periods=0, n_live=2, seed=7)
+    with pytest.raises(OSError):
+        features.append_live_history(later, path=path)
+
+    monkeypatch.undo()
+    after = pd.read_parquet(path)
+    pd.testing.assert_frame_equal(before, after)
+    assert not os.path.exists(path + ".partial"), "staging file left behind"
+
+
+def test_run_reports_slot_progress_to_its_caller():
+    """
+    A crash is not the same as "nothing was submitted". Round 1348 died on a
+    disk quota at slot 19 of 19 -- 18 already uploaded and confirmed on-time --
+    and mailed CRASHED -- NOTHING SUBMITTED. main() reads this list to say what
+    actually landed, so run() must append to the caller's object, not a copy.
+    """
+    import inspect
+    from src.live import run_round
+
+    assert "progress" in inspect.signature(run_round.run).parameters
+    assert "round_info" in inspect.signature(run_round.run).parameters
+
+    source = inspect.getsource(run_round.run)
+    assert "slots = progress if progress is not None else []" in source, \
+        "run() must append into the caller's list, not rebind it"
+
+    handler = inspect.getsource(run_round.main)
+    assert "NOTHING WAS SUBMITTED" in handler
+    assert 'status") == "submitted"' in handler, \
+        "the crash mail must count what landed before claiming nothing did"
 
 
 # --------------------------------------------------------------------------
@@ -376,6 +483,112 @@ def test_the_late_verdict_comes_from_numerai_not_from_the_clock():
 
 
 # --------------------------------------------------------------------------
+# What the round downloads, and how forgiving it is about each file
+# --------------------------------------------------------------------------
+
+def _dataset_specs():
+    return {os.path.basename(d["remote"]): d for d in run_round.DATASETS}
+
+
+def test_the_training_file_is_downloaded_every_round():
+    """
+    train.parquet was in no download list at all, so the "rolling" 130-period
+    window could not roll. Every cached fit shared one training block ending
+    2026-07-08 while fitted_at spanned nine days, and the live embargo had
+    reached 32 periods against a backtested 20, widening by one every round --
+    while Numerai was already serving 1711 dates to the 1701 sitting on disk.
+    """
+    from src.live.features import TRAIN_PARQUET
+    specs = _dataset_specs()
+    assert "train.parquet" in specs, "the training file must be fetched each round"
+    train = specs["train.parquet"]
+    assert train["refresh"], "an existing copy must not short-circuit the download"
+    assert train["local"] == TRAIN_PARQUET, "must land where load_panel reads it"
+
+
+def test_the_example_predictions_are_refreshed_rather_than_cached_forever():
+    """
+    The rule used to be `name != "live.parquet" and exists(local): continue`,
+    which pinned the example file to whichever round first fetched it. By
+    2026-08-22 that was round 1332, nine rounds stale, covering 279 of the 300
+    live symbols -- and write_csv checks NaN, duplicates and range but never
+    coverage, so the short book uploaded clean.
+    """
+    example = _dataset_specs()["live_example_preds.csv"]
+    assert example["refresh"]
+    # But a last-resort fallback failing to download must not kill the round.
+    assert not example["required"]
+
+
+def test_a_short_example_book_is_refused_rather_than_submitted(tmp_path):
+    """A rung that cannot cover the universe has not worked; say so."""
+    path = tmp_path / "example.csv"
+    pd.DataFrame({SYMBOL: ["A", "B"], "prediction": [0.4, 0.6]}).to_csv(path, index=False)
+    original = submit.EXAMPLE_PREDS
+    submit.EXAMPLE_PREDS = str(path)
+    try:
+        assert len(submit.load_example_predictions(["A", "B"])) == 2
+        with pytest.raises(ValueError, match="cover 2 of 3"):
+            submit.load_example_predictions(["A", "B", "C"])
+    finally:
+        submit.EXAMPLE_PREDS = original
+
+
+# --------------------------------------------------------------------------
+# A retry must never make a round worse than it already is
+# --------------------------------------------------------------------------
+
+def test_a_retry_pass_never_replaces_a_better_submission():
+    """
+    Rounds 1338 and 1339 both lost a good submission this way.
+
+    Pass 1 landed CURUPIRA_SACI_03 on 'sibling' -- a real CURUPIRA_02 ridge over
+    the full 300-symbol universe. The 09:25 retry ran that slot alone, so the
+    sibling was not in context and the chain fell to 'example'. Numerai keeps the
+    LAST upload, so the benchmark replaced the model.
+    """
+    stood = {"name": "CURUPIRA_SACI_03", "status": "submitted", "source": "sibling"}
+    assert run_round._would_downgrade(stood, "example")
+    assert run_round._would_downgrade(stood, "previous_round")
+    assert not run_round._would_downgrade(stood, "model")
+    # Equal quality is not a downgrade -- a re-upload of the same rung is fine.
+    assert not run_round._would_downgrade(stood, "sibling")
+
+
+def test_nothing_standing_means_any_source_may_upload():
+    """The guard must not block the FIRST submission of a round."""
+    assert not run_round._would_downgrade(None, "example")
+    assert not run_round._would_downgrade({}, "example")
+    assert not run_round._would_downgrade({"name": "X", "status": "failed"}, "example")
+
+
+def test_a_rehearsal_never_counts_as_a_standing_submission(tmp_path):
+    """
+    Same reason already_submitted ignores dry runs: a rehearsal records
+    status "submitted" for every slot having uploaded nothing. Trusting it would
+    let the guard block a real upload and leave the round empty.
+    """
+    original = run_round.REPORT_DIR
+    run_round.REPORT_DIR = str(tmp_path)
+    try:
+        directory = os.path.join(str(tmp_path), "1400")
+        os.makedirs(directory)
+        report = {"dry_run": True,
+                  "slots": [{"name": "CURUPIRA_01", "status": "submitted",
+                             "source": "model"}]}
+        with open(os.path.join(directory, "round_report.json"), "w") as handle:
+            json.dump(report, handle)
+        assert run_round.standing_records(1400) == {}
+
+        report["dry_run"] = False
+        with open(os.path.join(directory, "round_report.json"), "w") as handle:
+            json.dump(report, handle)
+        assert set(run_round.standing_records(1400)) == {"CURUPIRA_01"}
+    finally:
+        run_round.REPORT_DIR = original
+
+
+# --------------------------------------------------------------------------
 # Fidelity to the backtest protocol
 # --------------------------------------------------------------------------
 
@@ -400,9 +613,12 @@ def _touches_the_60_day_label(name, seen=None):
         return False
     seen.add(name)
 
-    spec = registry.get(name)
-    if spec["fit"]["target"].endswith("_60"):
+    # The BACKTEST's label, not the live fit target. SACI_03 fits the 20-day
+    # label live while its backtest block is a 60-day study, so reading
+    # fit["target"] here would expect 510 periods from a 470-period arm.
+    if registry.backtest_target(name).endswith("_60"):
         return True
+    spec = registry.get(name)
     return any(_touches_the_60_day_label(m["name"], seen)
                for m in spec.get("slot_members") or [])
 
@@ -427,6 +643,44 @@ def test_every_slot_declares_a_backtest_run_and_stats():
             "%s declares %d periods; a slot %s the 60-day label should have %d"
             % (name, spec["backtest"]["n_periods"],
                "touching" if expected == 470 else "clear of", expected))
+
+
+def test_every_submitted_slot_fits_the_label_numerai_pays_on():
+    """
+    Numerai scores live submissions on target_binned_return_20, so a slot that is
+    uploaded in its own right must FIT that label -- whatever label its
+    hyperparameters were searched on. Fitting the 60-day target and being scored
+    on the 20-day one is predicting the wrong quantity, however good the 60-day
+    study looked.
+
+    SACI_03 is the case that forced this: searched on the 60-day label, promoted
+    to a submitted slot on 2026-08-22, retargeted to 20 with its params kept.
+    CURUPIRA_05_60 is the deliberate exception and is in NOT_SUBMITTED -- it is
+    never uploaded, and its horizon is its entire contribution to four blends.
+    """
+    for name in registry.ORDER:
+        if name in registry.NOT_SUBMITTED:
+            continue
+        target = registry.get(name)["fit"]["target"]
+        assert target == "target_binned_return_20", (
+            "%s is submitted but fits %s" % (name, target))
+
+
+def test_the_retarget_kept_the_hyperparameters_the_60_day_study_selected():
+    """
+    The retarget changes the LABEL, not the model. Re-searching on the 20-day
+    label would discard the study that justified deploying the slot, and the
+    embargo has to follow the target or the guard is sized for the wrong horizon.
+    """
+    spec = registry.get("SACI_03")
+    fixed = spec["fit_override"]["fixed_params"]
+    assert fixed["n_estimators"] == 4327
+    assert fixed["learning_rate"] == pytest.approx(0.002572)
+    assert fixed["min_child_samples"] == 50, "50 keeps the 740 one-hot columns usable"
+    assert spec["fit"]["embargo"] == 20, "embargo must follow the target horizon"
+    # And the divergence stays legible: the backtest is still a 60-day study.
+    assert registry.backtest_target("SACI_03") == "target_binned_return_60"
+    assert spec["backtest"]["n_periods"] == 470
 
 
 def test_submission_order_is_cheapest_first():
@@ -454,6 +708,65 @@ def test_submission_order_is_cheapest_first():
         "fitting slots must run cheapest-first, got %s" % list(zip(fitting, costs)))
     assert registry.ORDER[0] == "CURUPIRA_02", "the no-build slot must go first"
     assert set(registry.ORDER) == set(registry.MODELS)
+
+
+def test_every_slot_blend_can_be_fed_from_its_own_declared_feature_set():
+    """
+    load_slot_blend builds ONE frame from the blend's declared feature_set and
+    promises it is a superset of every member's columns. Nothing checked that.
+
+    CURUPIRA_SACI_04 broke the promise silently: it declared allfeat_pp, which
+    calls add_cumlags from nowhere, so member SACI_05's 66 lag columns were
+    absent, RankBlend.predict raised on them, and the slot uploaded Numerai's
+    example predictions instead. The ordering test below would not have caught
+    it -- position and weights were both fine.
+    """
+    panel = make_panel(n_periods=ONEHOT_MIN_DATES + 25)
+    built = {}
+
+    def columns_for(feature_set):
+        if feature_set not in built:
+            _, cols, _ = build_features(panel.copy(), feature_set, verbose=False)
+            built[feature_set] = set(cols)
+        return built[feature_set]
+
+    for spec in registry.all_specs():
+        if not registry.is_slot_blend(spec):
+            continue
+        outer = columns_for(spec["feature_set"])
+        for member in spec["slot_members"]:
+            member_set = registry.get(member["name"])["feature_set"]
+            missing = columns_for(member_set) - outer
+            assert not missing, (
+                "%s builds '%s', which lacks %d columns its member %s ('%s') "
+                "needs, e.g. %s" % (spec["name"], spec["feature_set"],
+                                    len(missing), member["name"], member_set,
+                                    sorted(missing)[:3]))
+
+
+def test_a_slot_blend_may_be_a_member_of_another_slot_blend():
+    """
+    CURUPIRA_08 sits inside CURUPIRA_SACI_03, and a slot blend fits nothing and
+    so persists no joblib. Looking one up on disk therefore returns nothing, and
+    load_cached's docstring still asserts slot blends "never reach here" -- true
+    only until a blend was made a member of another blend. load_slot_blend has to
+    ASSEMBLE a nested member, recursively, rather than load it.
+
+    Until it did, CURUPIRA_SACI_03 reported "CURUPIRA_08 (no cached fit)" and
+    uploaded Numerai's example predictions every round from 1338 onward.
+    """
+    import inspect
+    from src.live import refit as refit_module
+
+    nested = [(spec["name"], member["name"])
+              for spec in registry.all_specs()
+              for member in (spec.get("slot_members") or [])
+              if registry.is_slot_blend(registry.get(member["name"]))]
+    assert nested, ("no slot blend nests another any more -- if that is "
+                    "deliberate, delete this test rather than weakening it")
+    # The recursion carries a cycle guard, because a membership loop would
+    # otherwise recurse until the stack gives out.
+    assert "seen" in inspect.signature(refit_module.load_slot_blend).parameters
 
 
 def test_slot_blends_run_after_every_slot_they_reuse():
@@ -503,13 +816,52 @@ def test_training_block_takes_exactly_the_last_window_periods():
 def test_refit_cadence():
     live = pd.Timestamp("2026-08-12")
     assert refit_due(None, live, 130, "sig")[0] is True
-    fresh = {"fitted_through": "2026-07-08", "feature_signature": "sig"}
+    fresh = {"live_date": "2026-08-05", "fitted_through": "2026-07-08",
+             "feature_signature": "sig"}
     assert refit_due(fresh, live, 130, "sig")[0] is False
-    stale = {"fitted_through": "2025-01-01", "feature_signature": "sig"}
+    stale = {"live_date": "2025-01-01", "fitted_through": "2024-12-01",
+             "feature_signature": "sig"}
     assert refit_due(stale, live, 130, "sig")[0] is True
     # A changed one-hot vocabulary invalidates the cache regardless of the clock.
     due, reason = refit_due(fresh, live, 130, "different")
     assert due is True and "feature set changed" in reason
+
+
+def test_the_cadence_is_counted_in_periods_not_calendar_days():
+    """
+    registry.FIT declares refit_every in PERIODS and this compared it against
+    .days. The panel is weekday-only -- 1709 dates over 2424 calendar days -- so
+    130 calendar days is 93 periods, a 29% short cadence. That lands between the
+    r6m and r3m arms of the repo's own cadence sweep, whose conclusion is that
+    refitting more often is actively worse.
+    """
+    assert (pd.bdate_range("2025-01-01", periods=131)[-1] - pd.Timestamp("2025-01-01")).days > 175, (
+        "130 business periods should span ~181 calendar days, not 130")
+    fitted = {"live_date": str(pd.Timestamp("2025-01-01").date()),
+              "feature_signature": "sig"}
+    # 130 CALENDAR days on: the old code refit here. It must not.
+    day_130 = pd.Timestamp("2025-01-01") + pd.Timedelta(days=130)
+    assert refit_due(fitted, day_130, 130, "sig")[0] is False
+    # 130 PERIODS on: now it is genuinely due.
+    assert refit_due(fitted, pd.bdate_range("2025-01-01", periods=131)[-1], 130, "sig")[0] is True
+
+
+def test_the_cadence_clock_starts_at_zero_on_the_day_of_the_fit():
+    """
+    It used to measure from fitted_through -- the last TRAINING period -- so a
+    model refit today reported itself 44 days old the same afternoon, because
+    train.parquet lags live by that much. Each fit's counter started at the
+    embargo rather than zero, making the effective cadence `refit_every - gap`
+    and shrinking it as the gap grew; the 60-day slots started at 93 and 99, so
+    their service life was set by their target horizon, not by the protocol.
+    """
+    live = pd.Timestamp("2026-02-25")
+    just_fitted = {"live_date": str(live.date()),
+                   "fitted_through": str(pd.Timestamp("2026-01-14").date()),
+                   "feature_signature": "sig"}
+    due, reason = refit_due(just_fitted, live, 130, "sig")
+    assert due is False
+    assert "0 of 130 periods" in reason, reason
 
 
 def test_feature_signature_tracks_column_identity_and_order():
@@ -821,3 +1173,108 @@ def test_mmc_budget_beats_equal_weight_on_mmc_and_respects_correlation():
     # because the covariance is not a multiple of the identity.
     naive = means / means.sum()
     assert max(abs(tilted[n] - w) for n, w in zip(payout.columns, naive)) > 0.01
+
+
+# --------------------------------------------------------------------------- #
+# fenccausal: the causal per-symbol feature encoding in the live path
+# --------------------------------------------------------------------------- #
+
+def _fenc_panel(n_dates=40, n_symbols=12, live_dates=1, seed=0):
+    """A live-shaped panel: history plus a trailing live date."""
+    import numpy as np
+    import pandas as pd
+    rng = np.random.default_rng(seed)
+    dates = pd.date_range("2026-01-01", periods=n_dates, freq="B")
+    rows = []
+    for s in range(n_symbols):
+        for d in dates:
+            row = {"symbol": "SYM%02d" % s, "date": d}
+            for f in ("feature_a", "feature_b"):
+                row[f] = float(rng.choice([0.0, 0.25, 0.5, 0.75, 1.0]))
+            rows.append(row)
+    panel = pd.DataFrame(rows)
+    panel["is_live"] = panel["date"].isin(dates[-live_dates:])
+    return panel
+
+
+def test_fenccausal_is_registered_and_global_is_not():
+    """
+    `global` mode is lookahead by construction -- build_feature_encoding calls it
+    "a diagnostic upper bound, not a candidate". It must never be live-buildable.
+    """
+    from src.live.features import FEATURE_SETS
+    assert "fenccausal" in FEATURE_SETS
+    assert "fencglobal" not in FEATURE_SETS
+
+
+def test_fenccausal_never_lets_live_rows_move_a_historical_encoding():
+    """
+    REGRESSION TEST. The shrinkage prior defaulted to the mean over the whole
+    frame, live rows included, so today's features shifted every historical row's
+    encoding -- measured at 8.3e-3 before the fix. The live path now computes the
+    prior from non-live rows only.
+    """
+    import numpy as np
+    from src.live.features import add_fenccausal
+
+    panel = _fenc_panel()
+    built, added = add_fenccausal(panel)
+    column = added[0]
+    raw = column.replace("_symmean", "")
+
+    for extreme in (999.0, 1.0, 0.0):
+        tampered = panel.copy()
+        tampered.loc[tampered["is_live"], raw] = extreme
+        after, _ = add_fenccausal(tampered)
+
+        joined = built[["symbol", "date", column]].merge(
+            after[["symbol", "date", column]], on=["symbol", "date"],
+            suffixes=("_before", "_after"))
+        historical = joined[~joined["date"].isin(
+            panel.loc[panel["is_live"], "date"].unique())]
+        shift = float(np.nanmax(np.abs(
+            historical[column + "_before"] - historical[column + "_after"])))
+        assert shift == 0.0, (
+            "live value %s moved a historical encoding by %.3e" % (extreme, shift))
+
+
+def test_fenccausal_row_never_contributes_to_its_own_encoding():
+    """
+    The defining property of a causal expanding mean.
+
+    The prior is pinned here on purpose. It is a statistic over the training rows,
+    so perturbing a training row legitimately moves it and would move every
+    encoding with it -- that is fit-on-train, not lookahead. Holding it fixed
+    isolates the property actually under test: the expanding mean itself must
+    exclude the row's own value.
+    """
+    import numpy as np
+    from src.data_mani.build_feature_encoding import causal_feature_means
+
+    panel = _fenc_panel()
+    base = ["feature_a", "feature_b"]
+    prior = {"feature_a": 0.5, "feature_b": 0.5}
+
+    before, _ = causal_feature_means(panel, base, "symbol", "date", 50.0, prior=prior)
+
+    target = panel.index[(panel["symbol"] == "SYM03") & (~panel["is_live"])][10]
+    tampered = panel.copy()
+    tampered.loc[target, "feature_a"] = 999.0
+    after, _ = causal_feature_means(tampered, base, "symbol", "date", 50.0, prior=prior)
+
+    assert float(before.loc[target, "feature_a_symmean"]) == pytest.approx(
+        float(after.loc[target, "feature_a_symmean"]), abs=1e-9), (
+        "a row contributed to its own encoding")
+
+    # And it MUST move strictly later rows of that same symbol -- otherwise the
+    # expanding mean is not accumulating anything.
+    later = panel.index[(panel["symbol"] == "SYM03") & (~panel["is_live"])][11]
+    assert abs(float(before.loc[later, "feature_a_symmean"]) -
+               float(after.loc[later, "feature_a_symmean"])) > 1e-6
+
+
+def test_fenccausal_adds_one_column_per_raw_feature():
+    from src.live.features import add_fenccausal
+    panel = _fenc_panel()
+    _, added = add_fenccausal(panel)
+    assert sorted(added) == ["feature_a_symmean", "feature_b_symmean"]

@@ -125,6 +125,7 @@ reason the allocation reads second moments and not means.
 """
 
 import argparse
+import os
 from decimal import Decimal, ROUND_DOWN
 
 import numpy as np
@@ -199,7 +200,18 @@ def per_period(names=None):
     for name in (names or STAKED):
         path = registry.per_period_path(name)
         if path is None:
-            raise SystemExit("%s has no scored run -- it cannot be weighted" % name)
+            # CURUPIRA_07's registry backtest_run is a SCREEN, not a run, so the
+            # registry cannot resolve it -- but it is a submitted slot and has
+            # to be weightable. src.analysis.slots keeps the reconstruction that
+            # answers "what does this slot actually submit". Imported lazily:
+            # slots imports this module back, for STAKED.
+            from src.analysis import slots as _slots
+            model, run, why = _slots.slot_run(name)
+            if not model:
+                raise SystemExit("%s has no scored run (%s) -- it cannot be "
+                                 "weighted" % (name, why))
+            path = os.path.join(_slots.registry.PER_PERIOD_DIR,
+                                model, "%s.csv" % run)
         frames[name] = pd.read_csv(path, parse_dates=["date"]).set_index("date")
     index = None
     for frame in frames.values():

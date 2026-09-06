@@ -78,6 +78,15 @@ CURUPIRA_02 autoencoder study the arm lost 0.005 corr while gaining 0.06 sharpe
 and cutting max drawdown 24%; reporting only the mean would have been true and
 misleading.
 
+Report downside as both DEPTH and FREQUENCY, because they disagree. `dd(pay)` is
+the deepest single fall; `burn(d)` (from `results_table.burn_days`, and a column in
+`results_table` / `row_from_frame`) is how many periods came out negative. Two runs
+at the same drawdown can burn very different day counts. It is a raw COUNT of periods,
+so like `calmar` it is comparable only across rows on the same window: slice to a
+common window and print `n` beside it (or use the rate `burn(d)/n`). State the caveat
+when you report it — a 20-day target overlaps ~95% period to period, so this is time
+under water, not that many independent losing bets.
+
 ### Verify a baseline before trusting a comparison
 
 When reproducing a deployed slot, check the rerun reproduces the registry's
