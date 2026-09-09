@@ -42,6 +42,15 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Every var prefixed: GNU screen exports $WINDOW=0 into sessions it starts, so a
 # bare WINDOW= silently becomes 0 and every training block comes out empty.
+LCV_LOSS="${LCV_LOSS:-mixture}"
+LCV_PREFIX="${LCV_PREFIX:-lstm_cv}"
+# A seeds.json to seed BOTH arms from. Valid only when it came from a run with the
+# SAME loss: select_seeds ignores cv_scheme and train_window, but it very much
+# reads the objective.
+LCV_DONOR="${LCV_DONOR:-}"
+# An existing run the rolling arm should reproduce, as a correctness check before
+# any comparison is trusted.
+LCV_REPRO="${LCV_REPRO:-}"
 LCV_SEQ="${LCV_SEQ:-21}"
 LCV_TRIALS="${LCV_TRIALS:-20}"
 LCV_TOPFRAC="${LCV_TOPFRAC:-0.25}"
@@ -61,7 +70,7 @@ SKIP="${SKIP:-}"
 # Parallel arrays, never pipe-delimited records: feature regexes use | as
 # alternation, so packing fields and splitting on IFS='|' tears them apart.
 ARM_NAMES=(expanding rolling)
-ARM_RUNS=(lstm_cv_expanding lstm_cv_rolling)
+ARM_RUNS=("${LCV_PREFIX}_expanding" "${LCV_PREFIX}_rolling")
 ARM_FLAGS=("--cv-scheme expanding" "--cv-scheme rolling --train-window ${LCV_WINDOW}")
 
 mkdir -p logs
@@ -90,8 +99,11 @@ run_arm() {
     local log="logs/${run}.log"
 
     # shellcheck disable=SC2086
+    local lossflags="--loss ${LCV_LOSS}"
+    [ "$LCV_LOSS" = "mixture" ] && lossflags="${lossflags} --bmc-weight 1.0 --corr-weight 0.1"
+
     local cmd="python3 -u -m src.run_nn_forecast crypto \
---loss mixture --bmc-weight 1.0 --corr-weight 0.1 \
+${lossflags} \
 --seq-length ${LCV_SEQ} --overlapping --train-buffer ${LCV_BUFFER} \
 --data-version ${LCV_DATA} --refit-every ${LCV_REFIT} ${flags} \
 --max-trials ${LCV_TRIALS} --top-frac ${LCV_TOPFRAC} \
@@ -120,6 +132,14 @@ wanted() {
     [ -n "$SKIP" ] && [ "$SKIP" = "$n" ] && return 1
     return 0
 }
+
+if [ -n "$LCV_DONOR" ]; then
+    [ -f "$LCV_DONOR" ] || { echo "FAIL  donor checkpoint ${LCV_DONOR} not found" >&2; exit 1; }
+    for r in "${ARM_RUNS[@]}"; do
+        cp "$LCV_DONOR" "results/metrics/crypto/lstm/${r}.seeds.json"
+    done
+    echo "ok    seeded both arms from ${LCV_DONOR} (same loss, so Phase 1 is shared)"
+fi
 
 for i in "${!ARM_NAMES[@]}"; do
     name="${ARM_NAMES[$i]}"; run="${ARM_RUNS[$i]}"
@@ -151,13 +171,13 @@ python3 .claude/skills/crypto-experiment-reporting/scripts/paired_delta.py \
     --model lstm --baseline "${ARM_RUNS[0]}" --arms "${ARM_RUNS[1]}" \
     > "$REPORT" 2>&1 || echo "(paired_delta failed -- see $REPORT)" >> "$REPORT"
 
-python3 - >> "$REPORT" 2>&1 <<'PY'
+python3 - >> "$REPORT" 2>&1 <<PY
 import json, os
 print()
 print("LEVEL AND RISK")
 print("%-24s %-9s %-7s %-8s %-9s %-9s %-6s %s" % (
     "run","corr","sharpe","max_dd","mmc","payout","min","early-stop/block"))
-for r in ("lstm_cv_expanding","lstm_cv_rolling"):
+for r in ("${ARM_RUNS[0]}","${ARM_RUNS[1]}"):
     p = "results/metrics/crypto/lstm/%s.json" % r
     if not os.path.exists(p):
         print("%-24s MISSING" % r); continue
@@ -171,6 +191,30 @@ for r in ("lstm_cv_expanding","lstm_cv_rolling"):
         print("   WARNING: early stopping did not engage in every block -- "
               "this arm is not a clean test")
 PY
+
+if [ -n "$LCV_REPRO" ]; then
+    # Verify a baseline before trusting a comparison: the rolling arm has the
+    # same config and the same seeds as $LCV_REPRO, so it must produce the same
+    # number. If it does not, something differs that nobody has accounted for.
+    python3 - >> "$REPORT" 2>&1 <<REPRO
+import json, os
+print()
+print("REPRODUCTION CHECK")
+a = "results/metrics/crypto/lstm/${ARM_RUNS[1]}.json"
+b = "results/metrics/crypto/lstm/${LCV_REPRO}.json"
+if not (os.path.exists(a) and os.path.exists(b)):
+    print("  skipped -- one of the runs is missing")
+else:
+    x, y = json.load(open(a))["corr"]["mean"], json.load(open(b))["corr"]["mean"]
+    print("  ${ARM_RUNS[1]} corr %.6f" % x)
+    print("  ${LCV_REPRO} corr %.6f" % y)
+    ok = abs(x - y) < 1e-6
+    verdict = ("reproduces, the comparison is trustworthy" if ok else
+               "DOES NOT REPRODUCE -- same config and seeds must give the same "
+               "number; do not trust the comparison until this is explained")
+    print("  delta %.6f -- %s" % (x - y, verdict))
+REPRO
+fi
 
 echo; cat "$REPORT"
 

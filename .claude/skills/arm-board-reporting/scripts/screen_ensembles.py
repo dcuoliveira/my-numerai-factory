@@ -22,34 +22,24 @@ number or deploying anything. Two rules this encodes, both learned the hard way:
     panel, zero beat their best member on payout at |t| > 2 and every point
     estimate was negative -- while the best pairing cut max drawdown from 1.00
     to 0.23. Blending here is a risk decision.
+
+This is now a CLI over src/analysis/ensemble_screen.py -- the same code the PDF
+report calls, so a screened number in a report and a screened number on the
+command line cannot drift apart. Run it from the repo root.
 """
-import argparse, glob, itertools, json, os, sys
-import numpy as np
+import argparse, glob, os, sys
+
 import pandas as pd
 
-LAG = 20
-
-def newey_west(series, lag=LAG):
-    x = np.asarray(series, dtype="float64"); n = len(x)
-    mean = x.mean(); e = x - mean; var = (e @ e) / n
-    for k in range(1, min(lag, n - 1) + 1):
-        var += 2 * (1 - k / (lag + 1)) * ((e[k:] @ e[:-k]) / n)
-    se = np.sqrt(max(var, 0.0) / n)
-    return mean, (mean / se if se > 0 else np.nan)
-
-def payout(frame): return 0.1 * frame["corr"] + frame["mmc"]
-
-def stats(series):
-    cum = series.cumsum()
-    return dict(payout=float(series.mean()),
-                sharpe=float(series.mean() / series.std(ddof=0)),
-                maxdd=float((np.maximum.accumulate(cum) - cum).max()))
+sys.path.insert(0, os.getcwd())
+from src.analysis.ensemble_screen import LAG, beat_their_best, rank, screen
+from src.analysis.results_table import payout_series
 
 def load(tournament, model, run):
     path = "results/per_period/%s/%s/%s.csv" % (tournament, model, run)
     if not os.path.exists(path): return None
     f = pd.read_csv(path)
-    return payout(f.set_index("date") if "date" in f.columns else f)
+    return payout_series(f.set_index("date") if "date" in f.columns else f)
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -60,6 +50,7 @@ def main():
                     help="also include the deployed slots from src/live/registry.py")
     ap.add_argument("--size", type=int, nargs="+", default=[2, 3])
     ap.add_argument("--top", type=int, default=8)
+    ap.add_argument("--lag", type=int, default=LAG)
     args = ap.parse_args()
 
     base = "results/metrics/%s/%s" % (args.tournament, args.model)
@@ -73,52 +64,32 @@ def main():
         if s is not None: members[run] = s
 
     if args.with_registry:
-        sys.path.insert(0, ".")
-        from src.live import registry
-        for name in registry.ORDER:
-            run = registry.get(name).get("backtest_run")
-            if not run: continue
-            for m in ("ridge_glmnet", "ridge", "lgb", "lstm"):
-                s = load(args.tournament, m, run)
-                if s is not None:
-                    # A deployed slot's backtest_run may already be in --runs
-                    # (SACI_01's IS fe_lgb_reg_interact). Same series under two
-                    # names would double-count it in every combination.
-                    if run not in members:
-                        members["deployed:" + name] = s
-                    break
+        from src.analysis import slots
+        for slot in slots.slot_rows("all", args.tournament)[0]:
+            # A deployed slot's backtest_run may already be in --runs (SACI_01's
+            # IS fe_lgb_reg_interact). Same series under two names would
+            # double-count it in every combination.
+            if slot.run not in members:
+                members["deployed:" + slot.name] = slot.payout
 
-    frame = pd.DataFrame(members).dropna()
-    if frame.shape[1] < 2:
+    rows, solo, n_periods = screen(members, tuple(args.size), args.lag)
+    if not rows:
         raise SystemExit("need at least 2 members with overlapping periods")
-    solo = {c: stats(frame[c]) for c in frame}
-    print("%d members over %d shared periods\n" % (frame.shape[1], len(frame)))
-
-    rows = []
-    for r in args.size:
-        for combo in itertools.combinations(frame.columns, r):
-            blend = frame[list(combo)].mean(axis=1)
-            st = stats(blend)
-            best = max(combo, key=lambda c: solo[c]["payout"])
-            d, t = newey_west(blend - frame[best])
-            rho = np.mean([frame[a].corr(frame[b])
-                           for a, b in itertools.combinations(combo, 2)])
-            st.update(members=combo, best=best, delta=float(d), t=float(t), rho=float(rho))
-            rows.append(st)
+    print("%d members over %d shared periods\n" % (len(solo), n_periods))
 
     def show(title, key):
         print("=== %s ===" % title)
         print("%-52s %9s %8s %8s %11s %6s %5s"
               % ("ensemble", "payout", "sharpe", "maxdd", "d vs best", "t", "rho"))
-        for c in sorted(rows, key=key)[:args.top]:
+        for c in rank(rows, key)[:args.top]:
             print("%-52s %9.6f %8.4f %8.4f %+11.6f %6.2f %5.2f"
                   % (" + ".join(m.replace("deployed:", "") for m in c["members"]),
                      c["payout"], c["sharpe"], c["maxdd"], c["delta"], c["t"], c["rho"]))
         print()
-    show("by sharpe", lambda c: -c["sharpe"])
-    show("by max drawdown", lambda c: c["maxdd"])
+    show("by sharpe", "sharpe")
+    show("by max drawdown", "maxdd")
 
-    beat = [c for c in rows if c["t"] > 2]
+    beat = beat_their_best(rows)
     print("%d of %d ensembles beat their own best member on payout at |t| > 2"
           % (len(beat), len(rows)))
     if not beat:

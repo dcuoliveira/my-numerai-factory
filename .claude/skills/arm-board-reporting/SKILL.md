@@ -185,13 +185,47 @@ runner a `NO_MAIL=1` escape hatch so a dry run does not page anyone.
 
 ## Publishing a board
 
-`scripts/build_board.py` renders any set of runs as an HTML artifact: ranked
-table, correlation heatmap, ensemble candidates. It is model-agnostic — pass any
-`results/metrics/<tournament>/<model>/` runs.
+The default artifact is an interactive HTML file, and it runs all five checks
+above for you:
+
+```bash
+python3 -m src.analysis.report_html --model lgb --runs 'fe_lgb_reg_*' \
+    --out results/reports/crypto/fe_lgb.html
+```
+
+Sort any column, hide the ones you are not reading, filter rows, narrow the date
+range, toggle series in the chart. Narrowing the range re-ranks the table and
+re-screens the ensembles with it, so the sections never describe different
+windows. One file, no network.
+
+`report_pdf` takes the identical flags and produces the archival form:
+
+```bash
+python3 -m src.analysis.report_pdf --model lgb --runs 'fe_lgb_reg_*' \
+    --out results/reports/crypto/fe_lgb.pdf
+```
+
+Ranked table (one block per scored target, one common window per block, paired
+Newey-West deltas against the block's baseline), both correlation matrices,
+screened ensembles with the `run_ensemble` commands to price them, and cumulative
+backtested payout against the best single submitted slot. Every deployed slot is
+included by default, so an arm is ranked against the book and not just against
+its own study. Useful flags: `--window own` to reproduce `results_table` and the
+registry exactly, `--submitted on-account` to drop the components, `--baseline`
+to override the pick, `--no-corr` to skip the only expensive section.
+
+The arithmetic is shared, not reimplemented: both renderers read
+`src/analysis/report_data.py`, and `scripts/screen_ensembles.py` is a CLI over
+`src/analysis/ensemble_screen.py`, which is what they call. A screened number on
+the command line, one in the PDF and one in the browser cannot disagree.
+
+`scripts/build_board.py` renders the HTML variant. It does **not** take
+`--model/--runs/--baseline` — it consumes three hand-built JSON blobs, and it
+reads `board.css` from the directory of `--out`, not from its own:
 
 ```bash
 python3 .claude/skills/arm-board-reporting/scripts/build_board.py \
-    --model lgb --runs 'fe_lgb_reg_*' --baseline fe_lgb_reg_raw --out board.html
+    --arms arms.json --corr corr.json --ens ens.json --out board.html
 ```
 
 Group by whatever confound separates the arms (leaf size, cadence, search type)
