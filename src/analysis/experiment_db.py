@@ -910,19 +910,73 @@ STUDIES = {
         "prefix": "e48_", "scout_prefix": None,
         "models": ["rf"], "expected_arms": 192,
     },
+    "E49": {
+        "title": "LightGBM hyperparameter sensitivity (Kalfa-Timmermann-van der Zwan)",
+        "idea": "The 'Overhyped?' framework on the BOOSTER -- the lgb sibling of "
+                "E17 (mlp) and E48 (rf). A 4-axis num_leaves x learning_rate x "
+                "n_estimators x colsample factorial, 315 cells plus the "
+                "ktz_bridge_canonical arm the runner writes last, then the "
+                "paper's readings via src.analysis.hyper_sensitivity. "
+                "REGISTERED RETROSPECTIVELY: the sweep ran under the id E27, "
+                "which a concurrent session had already given to the FARM "
+                "combination study, so its 316 arms belonged to no entry here "
+                "and were invisible to this index -- the largest un-indexed "
+                "artifact set in the repo, and one a disk cleanup would have "
+                "read as orphaned. Its artifacts keep the ktz_ handle rather "
+                "than an e49_ one: the handle predates the numbering, "
+                "hyper_sensitivity is invoked as --prefix ktz_, and "
+                "results/reports/crypto/ktz_top10_vs_stacked.html is already "
+                "published under it. Findings were never written; until they "
+                "are, this study's forecasts are not reclaimable.",
+        "runner": "experiments/e27_hyperparam_sensitivity_crypto.sh",
+        "prefix": "ktz_", "scout_prefix": None,
+        "models": ["lgb"], "expected_arms": 316,
+    },
+    "E50": {
+        "title": "One LightGBM tune per book dataset, with the E49 priors (lgb_ktz)",
+        "idea": "The lgb twin of E28: one from-scratch tune per submitted-model "
+                "dataset, with the E49 sensitivity priors compiled into the "
+                "search grid. REGISTERED RETROSPECTIVELY -- the runner declares "
+                "EXPERIMENT=E29, but STUDIES' E29 is the subset-tuning/FARM "
+                "study whose runner is a different file, so these 9 arms "
+                "resolved to no entry. That mattered more than the count "
+                "suggests: e29_tenc_onehot is SACI_06's backtest_run in "
+                "src/live/registry.py, so an un-indexed run was backing a "
+                "deployed slot. Prefix e29_ in the lgb_ktz tree, which is what "
+                "separates it from E29's e28_* runs elsewhere.",
+        "runner": "experiments/e29_lgb_ktz_tune_crypto.sh",
+        "prefix": "e29_", "scout_prefix": None,
+        "models": ["lgb_ktz"], "expected_arms": 9,
+    },
 }
 
-def study_of(run_name):
+def study_of(run_name, model=None):
     """
-    Which numbered study wrote this run, from its prefix.
+    Which numbered study wrote this run, from its prefix and model tree.
 
     The prefix IS the study handle -- experiments/EXPERIMENTS.md's naming rule
     exists so that `e13_*` retrieves one study years later, and this is the
     lookup that rule buys. Longest prefix first, so `e13scout_` is never read as
     `e13_`.
 
+    A prefix alone is not always enough. E28 and E29 both write `e28_*`: E29
+    launched as "E28" and a concurrent session had taken the id. Their ARTIFACTS
+    never collided, because scan_arms separates studies by model tree as well --
+    E28 owns mlp_ktz, E29 owns ridge_glmnet/mlp/lgb/gen_ridge. This function was
+    the one place that looked at the prefix alone, so it answered E29 for both
+    and test_every_declared_study_resolves_its_own_prefix failed for E28.
+    Passing `model` applies the rule scan_arms already used. Renaming one
+    study's runs would have been the alternative and is not available: E29's
+    sibling e29_tenc_onehot is SACI_06's backtest_run in src/live/registry.py,
+    and a rename breaks a live pointer.
+
     :param run_name: e.g. "e14_adl", "w6r6_fixed_reg"
     :type run_name: str
+    :param model: the model tree the run lives in, e.g. "mlp_ktz". Optional, but
+        REQUIRED to disambiguate a shared prefix -- with model=None a shared
+        prefix resolves to whichever study declares it first, which is a coin
+        flip. Callers that have the tree should pass it.
+    :type model: str or None
     :return: ("E14", False) for a full arm, ("E14", True) for a scout, or
              (None, False) for a run that belongs to no numbered study --
              every deployed slot's backtest, and everything predating E01
@@ -930,6 +984,8 @@ def study_of(run_name):
     """
     candidates = []
     for study_id, spec in STUDIES.items():
+        if model is not None and model not in spec["models"]:
+            continue
         candidates.append((spec["prefix"], study_id, False))
         if spec.get("scout_prefix"):
             candidates.append((spec["scout_prefix"], study_id, True))

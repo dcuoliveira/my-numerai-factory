@@ -32,8 +32,12 @@ class TestStudiesTable(unittest.TestCase):
     def test_prefixes_are_unique_and_scouts_do_not_collide(self):
         # e08_ must not swallow e08scout_. The scan sorts prefixes longest-first
         # for exactly this reason; this pins the property it relies on.
-        full = [s["prefix"] for s in edb.STUDIES.values()]
-        self.assertEqual(len(full), len(set(full)), "duplicate prefix")
+        #
+        # The identifying key is (prefix, model tree), not the prefix alone --
+        # E28 and E29 both write e28_ and are separated by tree, which is how
+        # scan_arms has always read them. The uniqueness assertion lives in
+        # test_no_two_studies_share_a_prefix_and_a_model_tree; a bare-prefix
+        # assertion here would encode a rule the scan does not use.
         for study_id, spec in edb.STUDIES.items():
             scout = spec.get("scout_prefix")
             if scout:
@@ -160,8 +164,39 @@ class TestStudyOf(unittest.TestCase):
             self.assertEqual(edb.study_of(run), (None, False), run)
 
     def test_every_declared_study_resolves_its_own_prefix(self):
+        # Pass the tree: E28 and E29 share the prefix e28_, and the tree is what
+        # separates them -- the same rule scan_arms has always applied.
         for study_id, spec in edb.STUDIES.items():
-            self.assertEqual(edb.study_of(spec["prefix"] + "x")[0], study_id)
+            got = edb.study_of(spec["prefix"] + "x", model=spec["models"][0])[0]
+            self.assertEqual(got, study_id, study_id)
+
+    def test_a_shared_prefix_is_split_by_model_tree(self):
+        # E29 launched as "E28" while a concurrent session held the id. The
+        # artifacts never collided because they live in different trees; this is
+        # that fact made available to the name lookup.
+        self.assertEqual(edb.study_of("e28_allfeat", model="mlp_ktz")[0], "E28")
+        self.assertEqual(edb.study_of("e28_allfeat", model="ridge_glmnet")[0], "E29")
+
+    def test_no_two_studies_share_a_prefix_and_a_model_tree(self):
+        # A genuine collision -- same prefix AND same tree -- is unresolvable by
+        # any rule, so it has to fail here rather than silently mis-attribute.
+        seen = {}
+        for study_id, spec in edb.STUDIES.items():
+            for model in spec["models"]:
+                key = (spec["prefix"], model)
+                self.assertNotIn(
+                    key, seen, "%s collides with %s on %s" % (study_id, seen.get(key), key))
+                seen[key] = study_id
+
+    def test_the_retrospectively_registered_studies_resolve(self):
+        # Both ran under an id another study already held, so their artifacts
+        # belonged to no entry and read as orphaned. E50 matters beyond the
+        # count: e29_tenc_onehot is SACI_06's backtest_run.
+        self.assertEqual(edb.study_of("ktz_nl0031_lr0p001_ne02000_cs0p20", model="lgb")[0], "E49")
+        self.assertEqual(edb.study_of("e29_tenc_onehot", model="lgb_ktz")[0], "E50")
+        # ktz_ is a RUN prefix, not a tree name -- it must not swallow the
+        # ktz_farm tree, whose runs belong to E46.
+        self.assertEqual(edb.study_of("e46_pool_a", model="ktz_farm")[0], "E46")
 
 
 class TestRunningDetection(unittest.TestCase):

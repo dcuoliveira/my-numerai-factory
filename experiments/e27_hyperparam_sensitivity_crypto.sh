@@ -91,7 +91,7 @@
 set -uo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$REPO"; mkdir -p logs
 
-EXPERIMENT="${EXPERIMENT:-E27}"
+EXPERIMENT="${EXPERIMENT:-E49}"
 KTZ_DATA="${KTZ_DATA:-crypto/v2.0}"
 KTZ_WINDOW="${KTZ_WINDOW:-6month}"
 KTZ_REFIT="${KTZ_REFIT:-6month}"
