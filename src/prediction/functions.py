@@ -29,7 +29,7 @@ yourself with a leaky score:
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.model_selection import RandomizedSearchCV
+from sklearn.model_selection import KFold, RandomizedSearchCV
 
 from src.data_mani.utils import (
     META_PROXY_COL,
@@ -376,13 +376,20 @@ def grid_bounds(param_grid):
         for k, v in sub.items():
             flat.setdefault(k, []).append(v)
     for name, group in flat.items():
-        values = np.concatenate([np.asarray(v, dtype="float64")
-                                 for v in group if not hasattr(v, "rvs")]) \
-                 if any(not hasattr(v, "rvs") for v in group) else group[0]
+        explicit = [v for v in group if not hasattr(v, "rvs")]
         try:
+            # The concatenate belongs INSIDE the guard, not before it. A grid may
+            # pin a parameter whose values are themselves sequences -- the MLP's
+            # hidden_layer_sizes is one tuple per architecture -- and stacking
+            # (32,) against (64, 32) raises here rather than producing something
+            # np.asarray can reject downstream. Such a parameter has no numeric
+            # span to record, which is the same answer a distribution gets.
+            values = (np.concatenate([np.asarray(v, dtype="float64")
+                                      for v in explicit])
+                      if explicit else group[0])
             numeric = np.asarray(values, dtype="float64")
         except (TypeError, ValueError):
-            continue                      # a distribution, not an explicit list
+            continue                      # a distribution, or a non-numeric grid
         if numeric.ndim == 0:
             continue
         if numeric.ndim == 1 and numeric.size:
@@ -397,7 +404,8 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
                         n_jobs, seed, verbose, search_jobs=1,
                         metric2=None, metric_weight=1.0, min_train_size=0,
                         score_target_col=None, search_type="random",
-                        bayes_init_points=0, fixed_params=None):
+                        bayes_init_points=0, fixed_params=None,
+                        inner_cv="purged", period=None):
     """
     Search hyperparameters on one training block, scoring with the chosen metric.
 
@@ -444,6 +452,10 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
     :param bayes_init_points: random warm-up draws per sub-grid before the
                               surrogate is first fitted, 0 for auto
     :type bayes_init_points: int
+    :param period: the period of each training row, positional. Forwarded to the
+                   estimator's fit() ONLY for a wrapper declaring WANTS_PERIOD;
+                   every other wrapper is called exactly as before
+    :type period: np.ndarray or None
     :return: the fitted search object
     """
     if wrapper.search_type != "random":
@@ -456,6 +468,10 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
         raise ValueError(
             "unknown search_type '{}', expected 'random' or 'bayes'".format(
                 search_type)
+        )
+    if inner_cv not in ("purged", "kfold"):
+        raise ValueError(
+            "unknown inner_cv '{}', expected 'purged' or 'kfold'".format(inner_cv)
         )
 
     if fixed_params:
@@ -474,13 +490,32 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
     else:
         param_grid = wrapper.param_grid
 
-    folds = purged_period_splits(
-        meta.loc[X.index, period_col].to_numpy(),
-        n_splits=n_splits,
-        embargo=embargo,
-        scheme=scheme,
-        train_window=train_window,
-    )
+    if inner_cv == "kfold":
+        # Wolpert's original stacked generalization tunes the level-1 model with
+        # ORDINARY k-fold cross-validation: the training rows are shuffled and
+        # partitioned at random, with no embargo and no chronological order. That
+        # is the whole point of this branch. The level-1 features are already the
+        # base models' out-of-sample predictions -- the time structure was spent
+        # generating them -- so the meta-model is tuned the way Wolpert tuned it.
+        #
+        # This DOES let a 20-day forward target straddle a fold's train/val
+        # boundary, which purged_period_splits exists to forbid. It is accepted
+        # here by design and confined to hyperparameter SELECTION: the OUTER
+        # walk-forward is untouched, so the predictions the run is scored on are
+        # still trained strictly in the past and remain pseudo-OOS. Only which
+        # hyperparameter wins is decided under k-fold. embargo/scheme/
+        # train_window/min_train_size are inner-CV knobs and do not apply here.
+        folds = list(
+            KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X)
+        )
+    else:
+        folds = purged_period_splits(
+            meta.loc[X.index, period_col].to_numpy(),
+            n_splits=n_splits,
+            embargo=embargo,
+            scheme=scheme,
+            train_window=train_window,
+        )
 
     # Multi-metric scoring. "objective" is what the search refits on; corr and
     # bmc ride along so the report can show CV train *and* validation scores for
@@ -541,7 +576,28 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
         )
         search.searched_bounds_ = grid_bounds(param_grid)
 
-    search.fit(X, y)
+    # Route the ROW PERIOD to fit(), but only for a wrapper that declares it
+    # wants one. This gate is load-bearing rather than defensive: measured on all
+    # nine wrappers, ridge / ridge_glmnet / lgb / xgb / catboost all ACCEPT a fit
+    # param and would silently change their fits, while mlp / torch_mlp /
+    # torch_mlp_emb are Pipelines that REJECT one outright with "Pipeline.fit
+    # does not accept the sample_weight parameter". An unconditional fit param
+    # would therefore break three models and quietly alter five.
+    #
+    # The DATE is routed rather than a precomputed weight vector, so that the
+    # decay's half-life stays an estimator hyperparameter -- searchable,
+    # recorded in best_params_, and pinnable through --fixed-params for a live
+    # slot. sklearn slices fit params by POSITION, so this must be positional.
+    fit_params = {}
+    if period is not None and getattr(wrapper, "WANTS_PERIOD", False):
+        period = np.asarray(period)
+        if len(period) != len(X):
+            raise ValueError(
+                "period has %d entries but X has %d rows; it must be positional"
+                % (len(period), len(X)))
+        fit_params["period"] = period
+
+    search.fit(X, y, **fit_params)
 
     # If every candidate came back unscorable the search learned nothing and
     # "best" is just whichever one happened to be first. That is far worse than
@@ -573,7 +629,7 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
                                  search_jobs=1, metric2=None, metric_weight=1.0,
                                  extra_cols=(), min_train=0, train_target_col=None,
                                  search_type="random", bayes_init_points=0,
-                                 fixed_params=None):
+                                 fixed_params=None, inner_cv="purged"):
     """
     Refit periodically and predict forward over the validation block.
 
@@ -657,6 +713,26 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
     predictions = []
     refits = []
     skipped = []
+    training_dynamics = []   # per-refit per-epoch loss curves (nn arms; else empty)
+
+    # A wrapper can ask (via FIT_APPEND) for extra df columns to ride along with
+    # the features as TRAILING passthrough columns -- torch_mlp_loss needs a
+    # per-period code and, for the bmc family, the reference series, which its
+    # loss reads and its estimator peels off before the network. Gated here so no
+    # other model is affected. The period code is a single chronological
+    # pd.factorize over all periods (calmar's cumulative relies on the order).
+    fit_append = tuple(getattr(wrapper, "FIT_APPEND", ()) or ())
+    append_cols = []
+    if "period" in fit_append:
+        df["__mlp_period_code__"] = pd.factorize(df[period_col])[0].astype("float64")
+        append_cols.append("__mlp_period_code__")
+    if "reference" in fit_append:
+        if reference_col is None or reference_col not in df.columns:
+            raise ValueError(
+                "wrapper's loss needs a reference series but no reference column "
+                "is available; pass --bmc-reference (benchmark or meta_proxy)")
+        append_cols.append(reference_col)
+    fit_features = list(features) + append_cols   # order: [features | period | reference]
 
     # Say how the Bayesian budget divides BEFORE the first search runs. Reported
     # afterwards it would arrive an hour into a booster run, too late to act on;
@@ -705,11 +781,14 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
         train_mask = df[period_col].isin(train_periods)
         block_mask = df[period_col].isin(block)
 
-        X_train = df.loc[train_mask, features]
+        # fit_features == features unless the wrapper asked for trailing
+        # passthrough columns (torch_mlp_loss). The estimator peels those; the
+        # scorer and everything downstream still see only the real features.
+        X_train = df.loc[train_mask, fit_features]
         # Fit on the (possibly binarised) training target; everything downstream
         # still reports and scores the original one.
         y_train = df.loc[train_mask, train_target_col or target_col]
-        X_block = df.loc[block_mask, features]
+        X_block = df.loc[block_mask, fit_features]
 
         if len(X_train) == 0 or len(X_block) == 0:
             continue
@@ -717,6 +796,13 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
         if verbose:
             print("refit {}: train {:,} rows / {} periods -> predict {} periods".format(
                 refit_index, len(X_train), len(train_periods), len(block)))
+
+        # The period of each TRAINING row, positional. Taken from the same
+        # df.loc[train_mask] slice as X_train, so the two are aligned by
+        # construction rather than by trusting row order -- the loader ends in a
+        # bare reset_index(drop=True) with no sort, so chronological row order
+        # holds on today's parquets and is enforced nowhere.
+        train_period = df.loc[train_mask, period_col].to_numpy()
 
         search = hyper_params_search(
             X=X_train, y=y_train, wrapper=wrapper, meta=meta, metric=metric,
@@ -727,6 +813,7 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
             metric_weight=metric_weight, min_train_size=min_train,
             score_target_col=target_col, search_type=search_type,
             bayes_init_points=bayes_init_points, fixed_params=fixed_params,
+            inner_cv=inner_cv, period=train_period,
         )
 
         block_predictions = predict_signal(search.best_estimator_, X_block, task)
@@ -781,6 +868,36 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
                 getattr(search, "searched_bounds_", {}).items()
             },
         }
+        # Diagnostics an estimator chose to expose about the fit it just did.
+        # Without these on disk a constrained arm whose bounds never bind is
+        # indistinguishable from a genuine null: both report a small t against
+        # the control, and only n_binding_ says the treatment was never applied.
+        # Read off the fitted estimator rather than best_params_, because these
+        # are OUTCOMES of the fit, not settings that went into it.
+        for name in ("n_binding_", "n_constrained_", "n_live_features_",
+                     "solver_", "half_life_"):
+            value = getattr(search.best_estimator_, name, None)
+            if value is not None:
+                record[name.rstrip("_")] = _jsonable(value)
+
+        # Neural-net training-dynamics diagnostics (torch_mlp / torch_mlp_loss).
+        # They live on the estimator INSIDE a Pipeline, so reach through
+        # named_steps. Scalars go on the refit record (clean csv columns + json);
+        # the variable-length per-epoch loss curve goes to a separate
+        # training_dynamics list so a list-valued cell never stringifies the csv.
+        estimator = search.best_estimator_
+        mlp = (estimator.named_steps["mlp"]
+               if hasattr(estimator, "named_steps") and "mlp" in estimator.named_steps
+               else estimator)
+        for name in ("n_iter_", "best_loss_", "final_loss_", "pred_std_", "diverged_"):
+            value = getattr(mlp, name, None)
+            if value is not None:
+                record[name.rstrip("_")] = _jsonable(value)
+        curve = getattr(mlp, "loss_curve_", None)
+        if curve is not None:
+            training_dynamics.append(
+                {"refit": refit_index, "loss_curve": [float(v) for v in curve]})
+
         for name in ("objective", "corr", "bmc"):
             for split in ("train", "test"):
                 key = "mean_{}_{}".format(split, name)
@@ -794,7 +911,7 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
         raise ValueError("walk-forward produced no predictions; check refit_every "
                          "and embargo against the number of periods")
 
-    return pd.concat(predictions, ignore_index=True), refits, skipped
+    return pd.concat(predictions, ignore_index=True), refits, skipped, training_dynamics
 
 
 # --------------------------------------------------------------------------- #
@@ -848,7 +965,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
              bmc_reference="benchmark", proxy_alpha=1.0, min_train=0,
              feature_include=None, feature_exclude=None,
              search_type="random", bayes_init_points=0, target=None,
-             fixed_params=None):
+             fixed_params=None, model_options=None, inner_cv="purged"):
     """
     Run one evaluation: load, walk forward, score.
 
@@ -985,9 +1102,10 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     meta_cols = [period_col, target_col] + ([reference_col] if reference_col else [])
     meta = df[meta_cols].copy()
 
-    wrapper = build_wrapper(model_name, task=task, seed=seed, n_jobs=n_jobs)
+    wrapper = build_wrapper(model_name, task=task, seed=seed, n_jobs=n_jobs,
+                            **(model_options or {}))
 
-    predictions, refits, skipped = walk_forward_fit_and_predict(
+    predictions, refits, skipped, training_dynamics = walk_forward_fit_and_predict(
         df=df, wrapper=wrapper, features=features, target_col=target_col,
         period_col=period_col, id_col=id_col, meta=meta,
         reference_col=reference_col, task=task, metric=metric,
@@ -998,13 +1116,18 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         extra_cols=(meta_model_col,), min_train=min_train,
         train_target_col=train_target_col,
         search_type=search_type, bayes_init_points=bayes_init_points,
-        fixed_params=fixed_params,
+        fixed_params=fixed_params, inner_cv=inner_cv,
     )
 
     results = evaluate(
         predictions, target_col=target_col, period_col=period_col,
         reference_col=reference_col, meta_model_col=meta_model_col,
     )
+    # Per-epoch learning curves (nn arms only; empty otherwise). Kept in the
+    # metrics json -- a variable-length series has no clean home in the flat
+    # per-refit hyperparams csv. Read by src/analysis/loss_dynamics.py.
+    if training_dynamics:
+        results["training_dynamics"] = training_dynamics
 
     # Per-period corr / bmc / mmc / pnl -- everything a report needs to draw
     # cumulative curves without recomputing anything.
@@ -1035,7 +1158,19 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         # 812 features for every arm in the study.
         "feature_include": feature_include, "feature_exclude": feature_exclude,
         "refit_every": refit_every, "embargo": embargo, "cv_scheme": scheme,
-        "train_window": train_window, "n_iter": n_iter, "n_splits": n_splits,
+        "train_window": train_window,
+        # The EFFECTIVE draw count. --fixed-params collapses the grid to one
+        # candidate and hyper_params_search forces n_iter to 1, so recording the
+        # argument here would describe a 50-draw search that never happened --
+        # and a reader comparing a pinned arm to a searched one would have no way
+        # to see the difference from the artifact.
+        "n_iter": 1 if fixed_params else n_iter,
+        "n_splits": n_splits,
+        # How the inner hyperparameter CV partitioned the training block:
+        # "purged" (chronological, embargoed) or "kfold" (shuffled, Wolpert's
+        # original). Recorded because two arms can differ ONLY in this and their
+        # hyperparameters -- and therefore their scores -- will diverge.
+        "inner_cv": inner_cv,
         "seed": seed, "search_jobs": search_jobs, "metric2": metric2,
         # Which optimiser produced these hyperparameters. Without it a bayes run
         # and a random run are indistinguishable in the results tree, and they
@@ -1044,6 +1179,9 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         # indistinguishable from a searched one in the results tree.
         "fixed_params": fixed_params,
         "search_type": search_type,
+        # Recorded so the run is reproducible from its own artifact: a
+        # pinned embed_dim is invisible in every other config field.
+        "model_options": dict(model_options or {}),
         "bayes_init_points": bayes_init_points if search_type == "bayes" else None,
         "metric_weight": metric_weight if metric2 else None,
         "bmc_reference": bmc_reference, "proxy_alpha": proxy_alpha,

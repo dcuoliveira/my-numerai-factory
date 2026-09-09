@@ -375,6 +375,39 @@ def predict_rows(model, loader, device, n_rows):
     return predictions, counts
 
 
+def build_optimizer(model, config):
+    """
+    Build the optimizer, including the weight decay the network never had.
+
+    Until now this was a bare `Adam(params, lr=...)`, so weight_decay was 0 and the
+    only regularisers were dropout and early stopping. The MLP that beats this model
+    wins on L2 alone, so the penalty has to be reachable from the config.
+
+    "adam" adds the penalty to the gradient, which Adam's per-parameter scaling then
+    rescales -- the same coupling sklearn's `alpha` has. "adamw" decouples it. Both
+    are offered because they are not the same regulariser and it is not obvious in
+    advance which one this objective wants.
+
+    :param model: the network
+    :type model: torch.nn.Module
+    :param config: keys lr, weight_decay, optimizer
+    :type config: dict
+    :return: the optimizer
+    :rtype: torch.optim.Optimizer
+    """
+    weight_decay = float(config.get("weight_decay", 0.0) or 0.0)
+    name = str(config.get("optimizer", "adam")).lower()
+    if name == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(), lr=config["lr"], weight_decay=weight_decay
+        )
+    if name != "adam":
+        raise ValueError("unknown optimizer '{}'; use adam or adamw".format(name))
+    return torch.optim.Adam(
+        model.parameters(), lr=config["lr"], weight_decay=weight_decay
+    )
+
+
 def train_until_early_stop(model, train_loader, val_loader, loss_fn, config,
                            device, verbose=True, tag=""):
     """
@@ -401,7 +434,7 @@ def train_until_early_stop(model, train_loader, val_loader, loss_fn, config,
     :rtype: dict
     """
     model = model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    optimizer = build_optimizer(model, config)
 
     best_val_loss = float("inf")
     best_state = clone_state(model)     # so an un-improved run still returns weights
@@ -768,8 +801,18 @@ def walk_forward(frame, features, target_col, period_col, id_col, bin_values,
 
         # The early-stopping slice is carved off the END of the training block, with
         # its own embargo, so it is the closest thing to the block being predicted.
+        # The early-stopping slice is sized by --stop-frac when it is given, and by
+        # --val-frac otherwise. They are two different things that used to share one
+        # dial: --val-frac also sets the OUTER train/validation split of the panel,
+        # so "carve no early-stopping slice and fit on the whole block" -- which
+        # costs 45% of a block's periods when it is on -- was simply unreachable from
+        # the command line. It is a hyperparameter, so the search has to be able to
+        # move it. None means "inherit", which reproduces the old behaviour exactly.
+        stop_frac = config.get("stop_frac")
+        if stop_frac is None:
+            stop_frac = config["val_frac"]
         fit_periods, stop_periods = chronological_split(
-            train_periods, config["val_frac"], embargo
+            train_periods, stop_frac, embargo
         )
         if not fit_periods or not stop_periods:
             fit_periods, stop_periods = list(train_periods), []

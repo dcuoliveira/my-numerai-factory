@@ -343,9 +343,12 @@ def nn_forecast(tournament, config, verbose=True):
         # Sequence
         "seq_length": config["seq_length"], "overlapping": config["overlapping"],
         "batch_size": config["batch_size"], "train_buffer": config["train_buffer"],
+        "stop_frac": config.get("stop_frac"),
         # Optimisation
         "lr": config["lr"], "epochs": config["epochs"],
         "patience": config["patience"], "max_grad_norm": config["max_grad_norm"],
+        "weight_decay": config.get("weight_decay", 0.0),
+        "optimizer": config.get("optimizer", "adam"),
         "warm_start": config.get("warm_start", False),
         # Loss. The weights are independent multipliers, NOT build_scorer's convex
         # metric_weight -- recorded under their own names so the two conventions can

@@ -152,6 +152,24 @@ def to_dimension(name, value):
             return Categorical([float(low)])
         return Real(float(low), float(high))
 
+    # A grid whose entries are THEMSELVES sequences stays categorical. An MLP's
+    # hidden_layer_sizes is one tuple per architecture, and the ravel below would
+    # flatten [(128, 64), (256, 128)] into [128, 64, 256, 128] and hand back an
+    # Integer over 64..256 -- so the search would propose a plain int where the
+    # estimator needs a tuple. That does not fail here: it fails inside every
+    # candidate fit, each one scores UNSCORABLE, and the run completes having
+    # selected nothing. Checked against `value` rather than the raveled list,
+    # because raveling is what destroys the evidence.
+    if isinstance(value, (list, tuple)) and any(
+        isinstance(entry, (list, tuple, np.ndarray)) for entry in value
+    ):
+        # Normalised to tuples so the categories are hashable whatever the grid
+        # was written with -- a list entry or an ndarray entry is not.
+        return Categorical([
+            tuple(entry) if isinstance(entry, (list, tuple, np.ndarray)) else entry
+            for entry in value
+        ])
+
     raw = np.asarray(value).ravel().tolist()
     if not raw:
         raise ValueError("empty grid for '{}'".format(name))
@@ -295,6 +313,15 @@ def space_bounds(spaces):
                     values = np.asarray(dim.categories, dtype="float64")
                 except (TypeError, ValueError):
                     continue                        # non-numeric: nothing to bound
+                # A Categorical over SEQUENCES needs the ndim check as well as
+                # the except. An MLP's hidden_layer_sizes is one tuple per
+                # architecture: ragged entries raise above and are caught, but
+                # equal-length ones coerce to a 2-D array instead, and its min
+                # and max would be over layer widths pooled across architectures
+                # -- a bound on nothing. The scalar update below would then fail
+                # on a whole row rather than a value.
+                if values.ndim != 1 or not values.size:
+                    continue
                 lo, hi = float(values.min()), float(values.max())
             else:
                 lo, hi = float(dim.low), float(dim.high)
@@ -321,6 +348,37 @@ def space_bounds(spaces):
             size = len(state["values"])             # distinct pins, e.g. 6 depths
         bounds[name] = (state["lo"], state["hi"], size)
     return bounds
+
+
+def sequence_valued_params(param_grid):
+    """
+    Names in a grid whose VALUES are sequences, which skopt cannot search.
+
+    An MLP's hidden_layer_sizes is one tuple per architecture. to_dimension()
+    translates that correctly, into a Categorical whose categories are tuples --
+    but skopt cannot round-trip such a dimension. Even a single-category one
+    fails inside BayesSearchCV.fit() with "can only convert an array of size 1
+    to a Python scalar", because its transformer assumes a category is a scalar.
+
+    That is a limitation of the optimiser, not of the translation, so it is
+    reported rather than worked around: encoding architectures behind an integer
+    index would need a custom estimator, to buy a search strategy that the
+    random one already covers.
+
+    :param param_grid: a dict, or a list of sub-grids, in the wrapper dialect
+    :return: the offending parameter names, sorted
+    :rtype: [str]
+    """
+    names = set()
+    for grid in (param_grid if isinstance(param_grid, list) else [param_grid]):
+        for name, value in grid.items():
+            if hasattr(value, "rvs"):
+                continue
+            if isinstance(value, (list, tuple)) and any(
+                isinstance(entry, (list, tuple, np.ndarray)) for entry in value
+            ):
+                names.add(name)
+    return sorted(names)
 
 
 def build_bayes_search(estimator, param_grid, n_iter, cv, scoring, refit,
@@ -355,6 +413,17 @@ def build_bayes_search(estimator, param_grid, n_iter, cv, scoring, refit,
         from skopt import BayesSearchCV
     except ImportError as exc:                      # pragma: no cover - env dependent
         raise ImportError(INSTALL_HINT) from exc
+
+    unsupported = sequence_valued_params(param_grid)
+    if unsupported:
+        raise ValueError(
+            "--search-type bayes cannot search {}: skopt has no representation "
+            "for a parameter whose values are sequences (an MLP's "
+            "hidden_layer_sizes is one tuple per architecture), and it fails "
+            "inside the fit rather than here. Use --search-type random, which "
+            "is the default and searches this grid exactly as written.".format(
+                ", ".join(unsupported))
+        )
 
     grids = param_grid if isinstance(param_grid, list) else [param_grid]
     budgets = split_budget(len(grids), n_iter)
