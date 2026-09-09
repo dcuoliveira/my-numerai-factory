@@ -144,16 +144,37 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        # ~27 min of walk-forward work, but a LIVE refit is one
                        # block, so ~110 s is the like-for-like estimate.
                        "IA_01": 110,
+                       # IA_02 PINS the E33 top-cell config (128,64/relu/a10), so
+                       # one MLP fit + 5-fold CV, ~60 s measured -- much cheaper
+                       # than IA_01's 50-draw search, so it runs earlier.
+                       "IA_02": 70,
+                       # IA_03/IA_04 PIN their MLP config (tenc 23 / interact 36),
+                       # one fit each, ~70-80 s like IA_02 -- the pinned MLP legs
+                       # of IU_IA_01.
+                       "IA_03": 75, "IA_04": 80,
                        # catboost_ktz sweeping its 12-cell grid on 44 columns.
                        # e32_sel_fenccausal took 21.6 min over ~4 backtest refits,
                        # ~300 s for one live block. Between SACI_02 (120) and
                        # CURUPIRA_05 (440) in the cheapest-first order.
                        "IAUARETE_01": 300,
+                       # IAUARETE_02: catboost_ktz sweeping the same 12-cell grid on
+                       # 788 allfeat columns; low rsm keeps trees cheap, so
+                       # e32_sel_allfeat (17.3 min / ~4 refits ~= 260 s live) sits
+                       # near IAUARETE_01. 320 with headroom.
+                       "IAUARETE_02": 320,
                        "CU_SA_IA_BO_01": 1,
                        # Slot blends of already-fitted slots -- zero fit cost, run
                        # last after their members.
                        "CURUPIRA_BOITATA_01": 1,
-                       "CURUPIRA_CAIPORA_01": 1}
+                       "CURUPIRA_CAIPORA_01": 1,
+                       # CU_SA_IA_BO_02 = IA_02 + CURUPIRA_05_60 + CU_SA_IA_BO_01;
+                       # CU_CA_IA_01 = IA_02 + IAUARETE_01 + CURUPIRA_05_60. Both
+                       # zero-fit slot blends, run last after their members.
+                       "CU_SA_IA_BO_02": 1,
+                       "CU_CA_IA_01": 1,
+                       # IU_IA_01 = IAUARETE_01 + IAUARETE_02 + IA_03 + IA_04, all
+                       # fitted above; zero-fit slot blend, run last.
+                       "IU_IA_01": 1}
 
 REPORT_DIR = "results/live"
 

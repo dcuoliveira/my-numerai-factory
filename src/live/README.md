@@ -237,10 +237,18 @@ otherwise the cached fit is used and the report says so.
 - **CURUPIRA_03 cold start.** 73 of 300 live symbols (24%) fall outside the
   one-hot vocabulary and are predicted from raw features alone. This matches the
   21–26% the backtest measured per refit.
-- **train/live gap.** `train.parquet` lags live by ~35 days because 20-day
-  targets must resolve first. Each round's live rows are appended to
-  `data/crypto/live/live_history.parquet` so rolling windows close the gap over
-  time. The report warns above 45 days.
+- **train/live gap.** `train.parquet` is downloaded every round, so the rolling
+  window actually rolls. It still lags live -- Numerai cannot publish a row until
+  its 20-day target resolves, which is ~30 days -- and each round's live rows are
+  appended to `data/crypto/live/live_history.parquet` so rolling windows close
+  the rest of the gap over time.
+
+  It was NOT downloaded at all until 2026-08-23, and that was the single largest
+  protocol divergence in the pipeline: every cached fit shared one training block
+  ending 2026-07-08 whatever day it was fitted, and the live embargo had drifted
+  to 32 periods against a backtested 20, widening by one every round. Refreshing
+  it cut the gap to 22 periods at once. Note the gap is ~30 CALENDAR days but 22
+  PERIODS -- the grid is weekdays only, and the two are not interchangeable.
 - **MMC coverage.** All backtest MMC figures rest on the 32.9% of rows the
   crypto meta model covers.
 

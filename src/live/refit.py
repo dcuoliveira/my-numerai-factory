@@ -95,12 +95,17 @@ def training_block(panel, columns, train_window, embargo, live_date,
     kept = periods[-train_window:]
     block = resolved[resolved[PERIOD].isin(set(kept))]
 
-    # Structural embargo check -- see the module docstring.
-    gap = (live_date - pd.Timestamp(kept[-1])).days
+    # Structural embargo check -- see the module docstring. Counted in PERIODS,
+    # because `embargo` is a period count: 20 periods span 28 calendar days on
+    # this weekday grid, so comparing it against a day count admitted any gap of
+    # 20 days = 14 periods and left the guard ~30% under-strength. It has never
+    # actually let anything through -- real gaps are far larger -- but the one
+    # assertion the design calls structural was sized for the wrong unit.
+    gap = periods_between(kept[-1], live_date)
     if gap < embargo:
         raise ValueError(
-            "only %d days between the last training period (%s) and the live "
-            "date (%s); the %d-day target horizon requires at least %d. "
+            "only %d periods between the last training period (%s) and the live "
+            "date (%s); the %d-period target horizon requires at least %d. "
             "Training rows would overlap the prediction window."
             % (gap, pd.Timestamp(kept[-1]).date(), live_date.date(), embargo, embargo))
 
@@ -108,6 +113,26 @@ def training_block(panel, columns, train_window, embargo, live_date,
     y = block[target_col]
     meta = block[[PERIOD]].copy()
     return X, y, meta, kept, gap
+
+
+def periods_between(start, end):
+    """
+    How many trading periods separate two dates.
+
+    The crypto grid is weekday-only -- the panel holds 1719 dates across a span
+    of 1733 business days, 99.2% of them -- so a calendar-day count is not a
+    period count and the two diverge by ~40%: 130 periods is 182 calendar days,
+    and 130 calendar days is 93 periods.
+
+    Counted on the business-day CALENDAR rather than on the panel's own dates,
+    because the panel is not contiguous where it matters most. train.parquet
+    ends ~30 days before the live date and live_history fills that stretch one
+    date per round, so today the panel holds 8 rows across a 22-period gap.
+    Counting rows would have called that gap 8 and made the embargo guard reject
+    every refit. What the embargo means is trading days elapsed, which is what
+    this measures.
+    """
+    return len(pd.bdate_range(pd.Timestamp(start), pd.Timestamp(end))) - 1
 
 
 def feature_signature(columns):
@@ -122,7 +147,7 @@ def feature_signature(columns):
     return hashlib.sha1("|".join(columns).encode()).hexdigest()[:12]
 
 
-def load_slot_blend(name, panel):
+def load_slot_blend(name, panel, seen=None):
     """
     Assemble a slot that rank-averages OTHER slots.
 
@@ -132,11 +157,27 @@ def load_slot_blend(name, panel):
 
     RankBlend nests naturally -- a member that is itself a blend receives the
     frame and does its own per-member selection inside.
+
+    A member that is itself a SLOT blend has to be assembled here rather than
+    loaded, because slot blends fit nothing and so persist no joblib. Sending one
+    to load_cached returns (None, None) and the whole blend reports it as having
+    "no cached fit" -- which is precisely how CURUPIRA_SACI_03 came to upload
+    Numerai's example predictions every round from 1338 onward, its member
+    CURUPIRA_08 being the only nested slot blend in ORDER. load_cached's own
+    docstring asserts slot blends "never reach here"; that invariant was true
+    only until a blend was made a member of another blend.
     """
     from src.live.blend import RankBlend
     from src.live.features import build_features
 
     spec = registry.get(name)
+    # A blend cannot be its own member, directly or through a chain. Nothing in
+    # ORDER does that today, but the recursion below would not survive it.
+    seen = set(seen or ())
+    if name in seen:
+        return None, {"missing": ["%s (circular membership)" % name]}
+    seen = seen | {name}
+
     members, missing = [], []
     for entry in spec["slot_members"]:
         member_spec = registry.get(entry["name"])
@@ -146,15 +187,30 @@ def load_slot_blend(name, panel):
         except Exception as error:
             missing.append("%s (feature build: %s)" % (entry["name"], error))
             continue
-        estimator, member_meta = load_cached(entry["name"], member_columns)
-        if estimator is None:
-            missing.append("%s (no cached fit)" % entry["name"])
-            continue
+
+        if registry.is_slot_blend(member_spec):
+            estimator, member_meta = load_slot_blend(entry["name"], panel, seen)
+            if estimator is None:
+                missing.append("%s (%s)" % (entry["name"], "; ".join(
+                    (member_meta or {}).get("missing") or ["unavailable"])))
+                continue
+            # Its own union, so the outer blend hands it every column it needs.
+            member_columns = estimator.columns
+        else:
+            estimator, member_meta = load_cached(entry["name"], member_columns)
+            if estimator is None:
+                missing.append("%s (no cached fit)" % entry["name"])
+                continue
+
         members.append((entry["name"], estimator, member_columns, entry["weight"]))
 
     if missing:
         print("   %s cannot be assembled: %s" % (name, "; ".join(missing)))
-        return None, None
+        # Hand the real list back. The caller used to report EVERY declared
+        # member as unavailable, so round 1338 blamed SACI_04 and CURUPIRA_05 --
+        # both of which had fitted fine in the same pass -- for a fault that was
+        # CURUPIRA_08's alone, and that misdiagnosis reached CLAUDE.md.
+        return None, {"missing": missing}
 
     metadata = {
         "model": name, "wrapper": "slot_blend",
@@ -195,16 +251,53 @@ def refit_due(metadata, live_date, refit_every, signature):
     """
     (due, reason). A model refits when it has never been fit, when the feature
     set changed under it, or when `refit_every` periods have passed.
+
+    TWO THINGS THAT WERE WRONG HERE, AND THEY COMPOUNDED.
+
+    The UNIT. registry.FIT declares `"refit_every": 130,  # periods between
+    refits` and this compared it against `.days`. The panel is weekday-only, so
+    130 calendar days is 93 periods -- a 29% short cadence, landing between the
+    r6m and r3m arms of the repo's own cadence sweep, whose stated conclusion is
+    that refitting more often is actively worse. `train_window`, from the same
+    dict, was consumed correctly as periods eight lines away.
+
+    The ANCHOR. It measured from `fitted_through`, the last TRAINING period,
+    rather than from when the fit happened. train.parquet lags live, so a model
+    refit today reported itself 44 days old the same afternoon: each fit's
+    counter started at the embargo instead of zero, making the effective cadence
+    `refit_every - gap` and shrinking it as the gap grew. The 60-day slots
+    started at 93 and 99, so their service life was set by their target horizon
+    rather than by the protocol.
+
     """
     if metadata is None:
         return True, "no cached fit"
     if metadata.get("feature_signature") != signature:
         return True, "feature set changed (vocabulary or columns)"
+    # Anchor at the live date the fit was made FOR, which is a panel date on the
+    # same grid as live_date -- unlike fitted_at, which is wall clock.
+    anchor = metadata.get("live_date") or metadata.get("fitted_through")
+    if anchor:
+        elapsed = periods_between(anchor, live_date)
+        if elapsed >= refit_every:
+            return True, "%d periods since last fit (cadence %d)" % (
+                elapsed, refit_every)
+        return False, "fit is %d of %d periods old" % (elapsed, refit_every)
+
+    if not metadata.get("fitted_through"):
+        # A slot blend fits nothing and records no training edge, so there is no
+        # cadence to be due against. Anything else with no edge has never been
+        # fitted properly and should be.
+        return (False, "assembled from members, never fitted") \
+            if metadata.get("wrapper") == "slot_blend" \
+            else (True, "cached fit records no training edge")
     fitted_through = pd.Timestamp(metadata["fitted_through"])
     elapsed = (live_date - fitted_through).days
     if elapsed >= refit_every:
-        return True, "%d days since last fit (cadence %d)" % (elapsed, refit_every)
-    return False, "fit is %d of %d days old" % (elapsed, refit_every)
+        return True, ("%d days since last fit (cadence %d periods, counted in "
+                      "DAYS -- no panel grid available)" % (elapsed, refit_every))
+    return False, ("fit is %d days old of a %d-period cadence, counted in DAYS "
+                   "-- no panel grid available" % (elapsed, refit_every))
 
 
 def fit_one(wrapper_name, X, y, meta, fit, verbose=False):
@@ -244,7 +337,7 @@ def refit_blend(name, panel, columns, live_date, verbose=True):
         panel, columns, fit["train_window"], fit["embargo"], live_date,
         target_col=fit["target"])
     if verbose:
-        print("   training block: %d rows, %d periods %s..%s (%d days before live)"
+        print("   training block: %d rows, %d periods %s..%s (%d periods before live)"
               % (len(X_all), len(periods), pd.Timestamp(periods[0]).date(),
                  pd.Timestamp(periods[-1]).date(), gap))
 
@@ -253,8 +346,21 @@ def refit_blend(name, panel, columns, live_date, verbose=True):
     for member in spec["members"]:
         member_columns = filter_features(columns, member["include"], None, verbose=False)
         # The backtest fitted these exact widths; a drift here means the live
-        # model is not the model that was measured.
-        if member["n_features"] and len(member_columns) != member["n_features"]:
+        # model is not the model that was measured. Unless the block's width is
+        # a property of the live universe rather than of the model -- the one-hot
+        # identity columns are one per qualifying symbol, so they legitimately
+        # grow, and pinning them meant the blend could never be refit again.
+        if member.get("n_features_varies"):
+            if not member_columns:
+                raise ValueError(
+                    "blend member '%s' selected no columns (pattern %r)"
+                    % (member["name"], member["include"]))
+            if verbose and len(member_columns) != member["n_features"]:
+                print("   member '%s': %d columns, %+d against the backtest's %d"
+                      % (member["name"], len(member_columns),
+                         len(member_columns) - member["n_features"],
+                         member["n_features"]))
+        elif member["n_features"] and len(member_columns) != member["n_features"]:
             raise ValueError(
                 "blend member '%s' selected %d columns, the backtest used %d "
                 "(pattern %r)" % (member["name"], len(member_columns),
@@ -286,7 +392,11 @@ def refit_blend(name, panel, columns, live_date, verbose=True):
         "live_date": str(live_date.date()),
         "train_rows": int(len(X_all)), "train_periods": int(len(periods)),
         "train_start": str(pd.Timestamp(periods[0]).date()),
-        "embargo_days_actual": int(gap),
+        # PERIODS, as the protocol's embargo is. The old
+        # "embargo_days_actual" held a calendar-day count beside a
+        # period-denominated protocol.embargo, which made a 32/20
+        # divergence read as 44/20.
+        "embargo_periods_actual": int(gap),
         "fit_seconds": round(elapsed, 1), "protocol": fit,
     }
     with open(registry.meta_path(name), "w") as handle:
@@ -351,7 +461,7 @@ def refit(name, panel, columns, live_date, verbose=True):
 
     if verbose:
         print("   training block: %d rows x %d features, %d periods %s..%s "
-              "(%d days before live)" % (len(X), len(columns), len(periods),
+              "(%d periods before live)" % (len(X), len(columns), len(periods),
                                          pd.Timestamp(periods[0]).date(),
                                          pd.Timestamp(periods[-1]).date(), gap))
 
@@ -384,7 +494,11 @@ def refit(name, panel, columns, live_date, verbose=True):
         "train_rows": int(len(X)),
         "train_periods": int(len(periods)),
         "train_start": str(pd.Timestamp(periods[0]).date()),
-        "embargo_days_actual": int(gap),
+        # PERIODS, as the protocol's embargo is. The old
+        # "embargo_days_actual" held a calendar-day count beside a
+        # period-denominated protocol.embargo, which made a 32/20
+        # divergence read as 44/20.
+        "embargo_periods_actual": int(gap),
         "best_params": {k: _jsonable(v) for k, v in search.best_params_.items()},
         "cv_objective": float(search.best_score_),
         "fit_seconds": round(elapsed, 1),
@@ -416,7 +530,11 @@ def main():
         description="Refit live models on the current rolling window.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--model", default=None, help="one slot; default is all")
-    parser.add_argument("--all", action="store_true")
+    # Accepted because the README and this module's docstring both show
+    # `--all --force`, and because saying it is clearer than omitting --model.
+    # It has always been the default: names falls back to the whole of ORDER.
+    parser.add_argument("--all", action="store_true",
+                        help="refit every slot in ORDER (the default)")
     parser.add_argument("--force", action="store_true",
                         help="refit even if the cadence does not require it")
     args = parser.parse_args()
@@ -424,19 +542,43 @@ def main():
     names = [args.model] if args.model else registry.ORDER
     panel, live_date, gap_days = load_panel()
 
+    failed = []
     for name in names:
         spec = registry.get(name)
         print("\n=== %s (%s, %s) ===" % (name, spec["wrapper"], spec["feature_set"]))
-        built, columns, diagnostics = build_features(panel.copy(), spec["feature_set"])
-        _, metadata = load_cached(name, columns)
-        due, reason = refit_due(metadata, live_date, spec["fit"]["refit_every"],
-                                feature_signature(columns))
-        print("   %s: %s" % ("REFIT" if (due or args.force) else "skip", reason))
-        if due or args.force:
-            if registry.is_blend(spec):
-                refit_blend(name, built, columns, live_date)
-            else:
-                refit(name, built, columns, live_date)
+
+        # A slot blend rank-averages OTHER slots and fits nothing of its own, so
+        # it has no wrapper to build. Sending it down the fitting path called
+        # build_wrapper(None, ...) and raised "unknown model 'None'" -- and with
+        # no try around this loop that killed the whole run on CURUPIRA_06,
+        # leaving CURUPIRA_07, _08 and all four CURUPIRA_SACI_* untouched and the
+        # cache half refreshed. That made `refit` useless as the operator remedy
+        # for exactly the blend faults it was needed for.
+        if registry.is_slot_blend(spec):
+            print("   skip: assembled from %s at predict time, fits nothing"
+                  % "+".join(m["name"] for m in spec["slot_members"]))
+            continue
+
+        try:
+            built, columns, diagnostics = build_features(panel.copy(),
+                                                        spec["feature_set"])
+            _, metadata = load_cached(name, columns)
+            due, reason = refit_due(metadata, live_date, spec["fit"]["refit_every"],
+                                    feature_signature(columns))
+            print("   %s: %s" % ("REFIT" if (due or args.force) else "skip", reason))
+            if due or args.force:
+                if registry.is_blend(spec):
+                    refit_blend(name, built, columns, live_date)
+                else:
+                    refit(name, built, columns, live_date)
+        except Exception as error:
+            # One bad slot must not cost the other seventeen their refit.
+            failed.append(name)
+            print("   FAILED: %s: %s" % (type(error).__name__, error))
+
+    if failed:
+        print("\n%d slot(s) failed to refit: %s" % (len(failed), ", ".join(failed)))
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -137,6 +137,12 @@ def parse_args(argv=None):
     parser.add_argument("--batch-size", type=int, default=32,
                         help="windows per batch. The loss is pooled over the whole "
                              "batch, so this also sets the correlation's sample size")
+    parser.add_argument("--stop-frac", type=float, default=None,
+                        help="fraction of each WALK-FORWARD training block used for "
+                             "early stopping. Defaults to --val-frac, which is what "
+                             "used to size it; 0 carves no slice at all and fits on "
+                             "the whole block (the slice plus its embargo costs 45%% "
+                             "of a 130-period block)")
     parser.add_argument("--train-buffer", type=int, default=20,
                         help="extra periods a run needs beyond --seq-length to be "
                              "used for training; iwtsf's slack")
@@ -152,6 +158,13 @@ def parse_args(argv=None):
                         help="epochs without improvement before stopping")
     parser.add_argument("--max-grad-norm", type=float, default=1.0,
                         help="gradient-norm cap; 0 disables clipping")
+    parser.add_argument("--weight-decay", type=float, default=0.0,
+                        help="L2 penalty. The tabular MLP that outscores this model "
+                             "wins on its L2 alone, so this is not a minor dial")
+    parser.add_argument("--optimizer", type=str, default="adam",
+                        choices=("adam", "adamw"),
+                        help="'adam' couples the L2 penalty to the adaptive step "
+                             "(sklearn's convention), 'adamw' decouples it")
     parser.add_argument("--warm-start", action="store_true",
                         help="carry weights between walk-forward blocks. Off by "
                              "default: it turns the back-test into one continuous "
@@ -313,11 +326,14 @@ def build_config(args):
         "overlapping": args.overlapping,
         "batch_size": args.batch_size,
         "train_buffer": args.train_buffer,
+        "stop_frac": args.stop_frac,
         "shuffle": not args.no_shuffle,
         "lr": args.lr,
         "epochs": args.epochs,
         "patience": args.patience,
         "max_grad_norm": args.max_grad_norm,
+        "weight_decay": args.weight_decay,
+        "optimizer": args.optimizer,
         "warm_start": args.warm_start,
         "loss": args.loss,
         "bmc_weight": args.bmc_weight,

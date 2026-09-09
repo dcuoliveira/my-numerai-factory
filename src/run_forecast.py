@@ -34,7 +34,7 @@ from src.data_mani.utils import (
 )
 from src.prediction import search_spaces
 from src.prediction.functions import METRICS, forecast
-from src.prediction.models import MODELS
+from src.prediction.models import MODELS, build_wrapper
 
 
 def parse_args():
@@ -100,6 +100,14 @@ def parse_args():
                              "pinned min_child_samples is not silently rewritten "
                              "from the block size. Use it to vary one thing (a "
                              "cadence, a feature set) with the model held fixed")
+    parser.add_argument("--model-options", type=str, default=None,
+                        help="JSON dict of constructor options for the WRAPPER, "
+                             "e.g. '{\"embed_dim\": 8}'. This configures the "
+                             "search SPACE, which --fixed-params cannot do: "
+                             "pinning a value there collapses the grid to a "
+                             "single candidate and disables the search. Use this "
+                             "to hold one dimension fixed while the rest is still "
+                             "searched. Recorded in the metrics json")
     parser.add_argument("--search-type", type=str, default="random",
                         choices=["random", "bayes"],
                         help="how the hyperparameter space is explored. 'random' "
@@ -162,6 +170,18 @@ def parse_args():
                              "rolling. This is the dial that varies how much data "
                              "the model actually trains on -- unlike --min-train, "
                              "which only drops blocks that fall short")
+    parser.add_argument("--inner-cv", type=str, default="purged",
+                        choices=["purged", "kfold"],
+                        help="how the INNER hyperparameter CV splits the training "
+                             "block. 'purged' is chronological with an embargo "
+                             "(the default, right for a forward target). 'kfold' "
+                             "is shuffled random k-fold with no embargo -- "
+                             "Wolpert's original stacked-generalization scheme, "
+                             "for tuning a meta-learner whose features are already "
+                             "out-of-sample base predictions. The outer "
+                             "walk-forward is unaffected either way, so scores "
+                             "stay pseudo-OOS; only hyperparameter selection "
+                             "changes")
 
     # Data
     parser.add_argument("--val-frac", type=float, default=0.3,
@@ -273,6 +293,24 @@ def check_args(args):
             import skopt                                        # noqa: F401
         except ImportError:
             raise SystemExit(search_spaces.INSTALL_HINT)
+
+        # Same reasoning, one step further: a grid skopt cannot represent must
+        # also fail here. build_bayes_search() raises on it, but that happens at
+        # the FIRST REFIT -- minutes of data loading later, and only for a run
+        # that was never going to work. Building the wrapper costs nothing; it
+        # fits no model.
+        if not args.fixed_params:
+            unsupported = search_spaces.sequence_valued_params(
+                build_wrapper(args.model, args.task).param_grid
+            )
+            if unsupported:
+                raise SystemExit(
+                    "--model {} cannot be searched with --search-type bayes: "
+                    "skopt has no representation for {}, whose values are "
+                    "sequences. Use --search-type random (the default), which "
+                    "searches this grid exactly as written.".format(
+                        args.model, ", ".join(unsupported))
+                )
     elif args.bayes_init_points:
         print("note: --bayes-init-points is ignored without --search-type bayes")
 
@@ -407,6 +445,20 @@ def main():
         args.task, args.metric, args.cv_scheme
     )
 
+    model_options = {}
+    if args.model_options:
+        try:
+            model_options = json.loads(args.model_options)
+        except ValueError as exc:
+            raise SystemExit("--model-options is not valid JSON: %s" % exc)
+        if not isinstance(model_options, dict):
+            raise SystemExit("--model-options must be a JSON object")
+        # Built here purely so a bad key fails NOW rather than at the first
+        # refit, after the data has loaded.
+        build_wrapper(args.model, args.task, seed=args.seed, **model_options)
+        print("model options: %s" % ", ".join(
+            "%s=%s" % kv for kv in sorted(model_options.items())))
+
     started = time()
     fixed_params = None
     if args.fixed_params:
@@ -422,6 +474,7 @@ def main():
     predictions, periods_table, results = forecast(
         tournament=args.tournament,
         model_name=args.model,
+        model_options=model_options,
         task=args.task,
         metric=args.metric,
         data_version=args.data_version,
@@ -434,6 +487,7 @@ def main():
         refit_every=refit_every,
         embargo=embargo,
         scheme=args.cv_scheme,
+        inner_cv=args.inner_cv,
         train_window=train_window,
         n_iter=args.n_iter,
         n_splits=args.n_splits,

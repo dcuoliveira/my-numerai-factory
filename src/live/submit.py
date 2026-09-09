@@ -42,6 +42,7 @@ Only the last is really a surrender, and it is still better than nothing.
 """
 
 import glob
+import json
 import os
 import time
 
@@ -52,6 +53,11 @@ from src.live import registry
 from src.live.features import PERIOD, SYMBOL, raw_features
 
 SUBMISSION_DIR = "results/live"
+
+# The stand-in every other slot falls back to: the only slot with no build step,
+# so if the raw features loaded at all it can run. run_round has to make sure it
+# is in context even on a pass that is not uploading it.
+SIBLING = "CURUPIRA_02"
 EXAMPLE_PREDS = "data/crypto/live/live_example_preds.csv"
 
 # Upload retry policy. The API occasionally 502s or times out under round-open
@@ -96,27 +102,83 @@ def submission_path(round_number, name):
     return os.path.join(directory, "%s.csv" % name)
 
 
+# Sources whose CSV is a genuine model prediction and may be re-served next
+# round. A file that was itself a fallback must not be, or the ladder launders
+# it forward under a cleaner label each hop.
+REUSABLE_SOURCES = ("model", "sibling")
+
+# The docstring's "consecutive dates overlap 95% on a 20-day target" argument
+# holds for ONE round. It does not hold for five.
+MAX_REUSE_GAP = 1
+
+
+def recorded_source(round_number, name):
+    """What produced this slot's CSV in a given round, per that round's report."""
+    path = os.path.join(SUBMISSION_DIR, str(round_number), "round_report.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as handle:
+            report = json.load(handle)
+    except Exception:
+        return None
+    if report.get("dry_run"):
+        return None
+    for slot in report.get("slots", []):
+        if slot.get("name") == name:
+            return slot.get("source")
+    return None
+
+
 def previous_submission(name, round_number):
-    """Most recent successfully written CSV for this slot, from an older round."""
+    """
+    The most recent earlier CSV for this slot -- but only a genuine one, and only
+    from the round just gone.
+
+    Both limits were learned the same way. This used to take max() over every
+    earlier round with no check on what produced the file, so round 1338's
+    CURUPIRA_SACI_03.csv -- which WAS Numerai's example file, byte for byte --
+    came back in round 1339 under source "previous_round". That launders the
+    benchmark forward under a clean label and defeats CLAUDE.md's own detection
+    recipe, which is to grep the report for "source": "example". Each hop also
+    re-intersects with the live universe without padding, so the book shrinks:
+    280 rows, then 275, then fewer.
+    """
     candidates = []
     for path in glob.glob(os.path.join(SUBMISSION_DIR, "*", "%s.csv" % name)):
         try:
             other = int(os.path.basename(os.path.dirname(path)))
         except ValueError:
             continue
-        if other < round_number:
-            candidates.append((other, path))
+        if not 0 < round_number - other <= MAX_REUSE_GAP:
+            continue
+        if recorded_source(other, name) not in REUSABLE_SOURCES:
+            continue
+        candidates.append((other, path))
     if not candidates:
         return None
     return max(candidates)[1]
 
 
 def load_example_predictions(live_symbols):
-    """Numerai's own example predictions, restricted to today's universe."""
+    """
+    Numerai's own example predictions, restricted to today's universe.
+
+    Refuses a short book. write_csv checks for NaN, duplicates and range but
+    never for COVERAGE, so a stale example file uploads clean and Numerai accepts
+    it: round 1339 submitted 279 of 300 symbols this way and was recorded
+    on-time. A rung that cannot cover the universe has not worked, and saying so
+    lets the report show it.
+    """
     if not os.path.exists(EXAMPLE_PREDS):
         raise FileNotFoundError(EXAMPLE_PREDS)
     frame = pd.read_csv(EXAMPLE_PREDS)
-    frame = frame[frame[SYMBOL].isin(set(live_symbols))]
+    universe = set(live_symbols)
+    frame = frame[frame[SYMBOL].isin(universe)]
+    if len(frame) < len(universe):
+        raise ValueError(
+            "example predictions cover %d of %d live symbols; the file is stale"
+            % (len(frame), len(universe)))
     return frame[[SYMBOL, "prediction"]]
 
 
@@ -145,13 +207,13 @@ def build_predictions(name, context):
         except Exception as error:
             errors.append("own model: %s" % error)
 
-    sibling = context["estimators"].get("CURUPIRA_02")
-    if sibling is not None and name != "CURUPIRA_02":
+    sibling = context["estimators"].get(SIBLING)
+    if sibling is not None and name != SIBLING:
         estimator, columns, panel, _ = sibling
         try:
             frame = predict(estimator, panel, columns, context["live_date"])
-            return frame, "sibling", ("ran CURUPIRA_02 (raw 22 features) as a "
-                                      "stand-in; %s" % "; ".join(errors))
+            return frame, "sibling", ("ran %s (raw 22 features) as a "
+                                      "stand-in; %s" % (SIBLING, "; ".join(errors)))
         except Exception as error:
             errors.append("sibling: %s" % error)
 

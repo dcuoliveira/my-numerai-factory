@@ -990,6 +990,42 @@ MODELS = {
         ],
     },
 
+    "IA_02": {
+        "wrapper": "mlp",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "e33_fenc_a128_64_relu_lre3_al10",
+        "why":
+            "The second neural slot: the top-payout cell of the E33 wider-alpha MLP "
+            "sweep on fenccausal (hidden 128,64, relu, lr 1e-3, ALPHA 10 -- the "
+            "regularisation E17's 0.1 ceiling could not reach, and where E33 showed "
+            "the fenc MLP peaks). A NOT_SUBMITTED component, fitted so "
+            "CU_SA_IA_BO_02 and CU_CA_IA_01 can rank-average it, never uploaded "
+            "alone.\n\n"
+            "Unlike IA_01 it PINS its config (fit_override fixed_params) rather than "
+            "searching, so the live fit reproduces the E33 backtest cell exactly. It "
+            "does NOT beat IA_01 standalone (payout 0.09492 vs 0.09866); its value is "
+            "a second, differently-regularised neural draw for the blends.",
+        "backtest": {"corr": 0.159449, "corr_sharpe": 1.7413, "corr_max_dd": 0.7142, "mmc": 0.078977, "mmc_sharpe": 1.1697, "payout": 0.094921, "payout_sharpe": 1.2686, "payout_max_dd": 1.1772, "n_periods": 510},
+        # PINNED, not searched: refit.py passes fixed_params straight through, so
+        # the live fit is the E33 sweep's top fenccausal cell, not a 50-draw search.
+        "fit_override": {
+            "fixed_params": {
+                "mlp__hidden_layer_sizes": [128, 64], "mlp__activation": "relu",
+                "mlp__learning_rate_init": 0.001, "mlp__alpha": 10,
+                "mlp__batch_size": 1024,
+            },
+        },
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "One configuration, one seed (the E33 sweep pinned each cell at "
+            "n_splits 2). Like IA_01's 0.16172, treat as promising, not established.",
+            "Same live path as IA_01: fenccausal is live-buildable "
+            "(src/live/features.py:add_fenccausal, causal shrinkage from non-live "
+            "rows), so today's features cannot move a historical encoding.",
+        ],
+    },
+
     "CU_SA_IA_BO_01": {
         "wrapper": None,
         "scored_under": "lgb",
@@ -1030,6 +1066,41 @@ MODELS = {
             "The torch LSTM is deliberately absent. Adding it at 20% scored payout "
             "0.10955 in backtest, but src/live/ has no torch path at all, so that "
             "blend cannot be produced for a live round.",
+        ],
+    },
+    "CU_SA_IA_BO_02": {
+        "wrapper": None,
+        "scored_under": "lgb",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e47_cusaiabo02",
+        "why":
+            "CU_SA_IA_BO_01 + the second neural draw IA_02 + the 60-day ridge blend "
+            "CURUPIRA_05_60, rank-averaged 1/3 each. Same creature footprint as "
+            "CU_SA_IA_BO_01 (Curupira + Saci + Iara) -- it adds a second neural leg "
+            "and a Curupira on top of the slot it wraps, no new family -- so it is a "
+            "version bump, not a new composite.\n\n"
+            "Priced as a real rank-average over 470 periods: it MATCHES its best "
+            "member CU_SA_IA_BO_01 on payout (0.10635 vs 0.10712, -0.0008, inside "
+            "the noise) and improves every risk metric -- c.sharpe 2.03 vs 1.92, "
+            "dd(pay) 1.02 vs 1.16, calmar 0.104 vs 0.093, burn 30 vs 38 of 470. "
+            "Deploy it for the risk profile, not for level.",
+        "backtest": {"corr": 0.161177, "corr_sharpe": 2.0298, "corr_max_dd": 0.6582, "mmc": 0.090233, "mmc_sharpe": 1.4882, "payout": 0.106350, "payout_sharpe": 1.5869, "payout_max_dd": 1.0211, "n_periods": 470},
+        "slot_members": [
+            {"name": "IA_02", "weight": 1.0 / 3},
+            {"name": "CURUPIRA_05_60", "weight": 1.0 / 3},
+            {"name": "CU_SA_IA_BO_01", "weight": 1.0 / 3},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "It NESTS CU_SA_IA_BO_01, which inherits CURUPIRA_SACI_03's "
+            "example-fallback risk; if that member falls through to Numerai's "
+            "example predictions, so does this slot. Check the round report's "
+            "source before trusting a live score.",
+            "Payout parity with CU_SA_IA_BO_01 is not a gain: -0.0008 on ~23 "
+            "effective independent windows is noise. Its case is risk, not level.",
+            "Carries the 60-day member CURUPIRA_05_60, so it is scored on 470 "
+            "periods, not 510.",
         ],
     },
     "CURUPIRA_BOITATA_01": {
@@ -1129,6 +1200,77 @@ MODELS = {
             "are indicative of the protocol, not a promise of the exact estimator.",
         ],
     },
+
+    "IAUARETE_02": {
+        # The CatBoost-on-allfeat leg of IU_IA_01. A NOT_SUBMITTED component, the
+        # allfeat sibling of IAUARETE_01 (which is on fenccausal).
+        "wrapper": "catboost_ktz",
+        "feature_set": "allfeat",
+        "n_features": 788,
+        "backtest_run": "e32_sel_allfeat",
+        "why": (
+            "The second CatBoost leg of IU_IA_01: catboost_ktz on the 788-column "
+            "allfeat set (tenc + onehot + spread + interact). Like IAUARETE_01 it "
+            "SWEEPS the 12-cell E27/KTZ grid live (fit_override n_iter=12) and "
+            "CV-picks one each refit, reproducing the e32_sel_allfeat protocol. "
+            "NOT ON THE ACCOUNT -- fitted only so IU_IA_01 can rank-average it."
+        ),
+        "backtest": {"corr": 0.148445, "corr_sharpe": 1.8526, "corr_max_dd": 0.69814, "mmc": 0.074496, "mmc_sharpe": 1.2125, "payout": 0.089340, "payout_sharpe": 1.32, "payout_max_dd": 0.96, "n_periods": 510},
+        "fit_override": {"n_iter": 12},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Its CV picks one of the 12 cells each refit, so a live fit can select "
+            "a different cell than e32 did -- the numbers are indicative of the "
+            "protocol, not the exact estimator, exactly as IAUARETE_01.",
+        ],
+    },
+
+    "IA_03": {
+        # The MLP-on-tenc leg of IU_IA_01. PINNED (fit_override fixed_params), like
+        # IA_02, so the live refit is one MLP not an 80-draw mlp_ktz2 search
+        # (~40 min/refit, which would blow the round budget).
+        "wrapper": "mlp",
+        "feature_set": "tenc",
+        "n_features": 23,
+        "backtest_run": "iu_mlp_tenc_pin",
+        "why": (
+            "The tenc MLP leg of IU_IA_01. The mlp_ktz2 E34 search on tenc varies "
+            "its config every refit and costs ~40 min/refit live, so this PINS the "
+            "search's primary pick -- hidden (32,16), relu, lr 1e-3, alpha 10 -- and "
+            "the live refit reproduces iu_mlp_tenc_pin exactly (backtest == live). "
+            "NOT ON THE ACCOUNT; fitted only for IU_IA_01."
+        ),
+        "backtest": {"corr": 0.151469, "corr_sharpe": 1.8953, "corr_max_dd": 0.53239, "mmc": 0.072850, "mmc_sharpe": 1.2854, "payout": 0.088000, "payout_sharpe": 1.40, "payout_max_dd": 1.06, "n_periods": 510},
+        "fit_override": {"fixed_params": {"mlp__hidden_layer_sizes": [32, 16], "mlp__activation": "relu", "mlp__learning_rate_init": 0.001, "mlp__alpha": 10, "mlp__batch_size": 1024}},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "PINNED to one config, not the E34 search -- chosen as the search's "
+            "primary (refit-0) pick. One config, one seed; a blend member, not a "
+            "solo bet.",
+        ],
+    },
+
+    "IA_04": {
+        # The MLP-on-interact leg of IU_IA_01. PINNED like IA_03.
+        "wrapper": "mlp",
+        "feature_set": "interact",
+        "n_features": 36,
+        "backtest_run": "iu_mlp_interact_pin",
+        "why": (
+            "The interact MLP leg of IU_IA_01. Same reasoning as IA_03 -- the "
+            "mlp_ktz2 E34 search is too expensive live, so this PINS its primary "
+            "pick: hidden (128,64), relu, lr 3.16e-3, alpha 10. Live == "
+            "iu_mlp_interact_pin. NOT ON THE ACCOUNT; fitted only for IU_IA_01."
+        ),
+        "backtest": {"corr": 0.152692, "corr_sharpe": 1.8517, "corr_max_dd": 0.66237, "mmc": 0.071461, "mmc_sharpe": 1.2079, "payout": 0.086730, "payout_sharpe": 1.32, "payout_max_dd": 1.07, "n_periods": 510},
+        "fit_override": {"fixed_params": {"mlp__hidden_layer_sizes": [128, 64], "mlp__activation": "relu", "mlp__learning_rate_init": 0.0031622776601683794, "mlp__alpha": 10, "mlp__batch_size": 1024}},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "PINNED to one config, not the E34 search. One config, one seed; a "
+            "blend member, not a solo bet.",
+        ],
+    },
+
     "CURUPIRA_CAIPORA_01": {
         # CURUPIRA_05 + CURUPIRA_08 + the CatBoost leg IAUARETE_01, 1/3 each. A
         # zero-fit slot blend; the three members are fitted for their own sake.
@@ -1173,6 +1315,95 @@ MODELS = {
             "degrades through the members' raw fallback.",
         ],
     },
+    "CU_CA_IA_01": {
+        # Curupira + Caipora + Iara: CURUPIRA_05_60 (ridge) + the CatBoost leg
+        # IAUARETE_01 + the neural draw IA_02, 1/3 each. CURUPIRA_CAIPORA's
+        # footprint plus a neural leg, so a fresh _01. IA is the neural family;
+        # the CatBoost leg is Caipora/CA (never IA, which would collide), exactly
+        # as CURUPIRA_CAIPORA_01 names IAUARETE_01. Matches the account slot
+        # cu_ca_ia_01.
+        "wrapper": None,
+        "scored_under": "ridge_glmnet",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e47_cucaia01",
+        "why":
+            "Curupira + Caipora + Iara: the ridge blend CURUPIRA_05_60 + the "
+            "CatBoost leg IAUARETE_01 + the neural draw IA_02, rank-averaged 1/3 "
+            "each. A new creature footprint (CURUPIRA_CAIPORA's members plus a "
+            "neural leg), so a fresh _01.\n\n"
+            "Priced over 470 periods, it OUT-LEVELS all three members (payout "
+            "0.10422 against ~0.095 each) AND improves risk -- c.sharpe 2.05, "
+            "calmar 0.097, burn 31 of 470. The three legs (mlp / catboost / ridge) "
+            "are genuinely diverse, so blending adds level here, not only stability.",
+        "backtest": {"corr": 0.160034, "corr_sharpe": 2.0511, "corr_max_dd": 0.6716, "mmc": 0.088221, "mmc_sharpe": 1.4630, "payout": 0.104225, "payout_sharpe": 1.5664, "payout_max_dd": 1.0766, "n_periods": 470},
+        "slot_members": [
+            {"name": "IA_02", "weight": 1.0 / 3},
+            {"name": "IAUARETE_01", "weight": 1.0 / 3},
+            {"name": "CURUPIRA_05_60", "weight": 1.0 / 3},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "The level gain over its members is a point estimate, not a paired "
+            "|t| >= 2 result on ~23 effective windows; deploy for diversification "
+            "and risk as much as for level.",
+            "IA_02 and IAUARETE_01 are each single-config, single-seed; if either "
+            "cannot be fit or the fenccausal build fails, the blend degrades through "
+            "the members' raw fallback.",
+            "Carries the 60-day member CURUPIRA_05_60, so it is scored on 470 "
+            "periods, not 510.",
+        ],
+    },
+
+    "IU_IA_01": {
+        # Iauarete + Iara: the two CatBoost legs (IAUARETE_01 fenc + IAUARETE_02
+        # allfeat) + the two MLP legs (IA_03 tenc + IA_04 interact), 1/4 each. The
+        # book's first pure catboost x MLP blend, no lgb -- reads as CU_IU_IA_01
+        # minus the Curupira. Fills the account slot iu_ia_01 (renamed from the
+        # idle IARA_01). E46.
+        "wrapper": None,
+        "scored_under": "ktz_farm",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "iu_ia_01_deployable",
+        "why": (
+            "A 1/4-each rank-average of four ktz-tuned singles across two model "
+            "families and four feature sets: catboost on fenccausal (IAUARETE_01) "
+            "and allfeat (IAUARETE_02), MLP on tenc (IA_03) and interact (IA_04). "
+            "The best curated subset of the 27 ktz search-pick models (E46). This "
+            "is the DEPLOYABLE version -- catboost legs SEARCH live, MLP legs "
+            "PINNED -- and pays 0.09484 (c.sharpe 1.97, burn 38 of 510), ~0.002 "
+            "under the all-searched backtest (0.09695); pinning the MLP is what "
+            "costs that, and it is what keeps the round inside its 60-min budget.\n\n"
+            "Against the deployed book (common 470) it is a MID-BOOK slot: it beats "
+            "every free leaf and the weaker staked slots, ties CURUPIRA_07 / SACI_06, "
+            "and sits below the CU_SA_IA_BO / BOITATA / CAIPORA top tier. Deploy for "
+            "the diversification (catboost x MLP, no lgb) and the low burn, not for "
+            "a top-of-book level."
+        ),
+        "backtest": {"corr": 0.164086, "corr_sharpe": 1.9727, "corr_max_dd": 0.60767, "mmc": 0.078432, "mmc_sharpe": 1.3356, "payout": 0.094841, "payout_sharpe": 1.46, "payout_max_dd": 1.09, "n_periods": 510},
+        "slot_members": [
+            {"name": "IAUARETE_01", "weight": 0.25},
+            {"name": "IAUARETE_02", "weight": 0.25},
+            {"name": "IA_03", "weight": 0.25},
+            {"name": "IA_04", "weight": 0.25},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "The MLP legs are PINNED, not searched: the live blend is the 0.09484 "
+            "deployable, not the 0.09695 all-searched backtest. Live == backtest by "
+            "construction.",
+            "Its members share families with IAUARETE_01 / IA_02 / CAIPORA / "
+            "CU_CA_IA_01, so its marginal contribution to the BOOK may be less than "
+            "its standalone payout -- the prediction-correlation check against the "
+            "deployed slots was NOT run before wiring.",
+            "Mid-book, not top: CU_SA_IA_BO_01 beats it at t -2.04 over 470 periods. "
+            "Deploy for diversification and low burn, not established top-of-book level.",
+            "Four members fit each refit (two catboost_ktz searches + two pinned "
+            "MLPs); on a cold first round with no member cache the blend needs all "
+            "four to fit within the deadline or it degrades to the raw fallback.",
+        ],
+    },
 }
 
 # Order matters: this is the order slots are refit and submitted in, so the
@@ -1189,12 +1420,19 @@ MODELS = {
 # CURUPIRA_06 fits nothing, so it is cheapest -- but it must run AFTER the
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
-ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_04", "SACI_01",
+ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SACI_01",
+         # IA_02/IA_03/IA_04 PIN their MLP config (no 50-draw search), so they are
+         # cheaper (~70-80 s) than IA_01's 110 s search and sit early in the
+         # cheapest-first order. IA_03/IA_04 are the two pinned MLP legs of IU_IA_01.
          "CURUPIRA_03", "SACI_05",
          "CURUPIRA_04", "SACI_03", "IA_01", "SACI_02",
          # IAUARETE_01 is a catboost_ktz search: ~300 s, between SACI_02 (120)
          # and CURUPIRA_05 (440), so the fitting slots stay cheapest-first.
          "IAUARETE_01",
+         # IAUARETE_02: the catboost_ktz search on allfeat (788 feat), the second
+         # IU_IA_01 leg -- ~320 s, just after IAUARETE_01 (300) and before
+         # CURUPIRA_05 (440).
+         "IAUARETE_02",
          "CURUPIRA_05", "CURUPIRA_05_60", "SACI_06", "CURUPIRA_06", "CURUPIRA_07",
          "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02",
          "CURUPIRA_SACI_03", "CURUPIRA_SACI_04", "CU_SA_IA_BO_01",
@@ -1202,14 +1440,23 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "SACI_04", "SACI_01",
          # must run AFTER their members -- last in the order, like CURUPIRA_06/07.
          # CURUPIRA_BOITATA_01 = C08 + CU_SA_IA_BO_01; CURUPIRA_CAIPORA_01 =
          # CURUPIRA_05 + CURUPIRA_08 + IAUARETE_01.
-         "CURUPIRA_BOITATA_01", "CURUPIRA_CAIPORA_01"]
+         # CU_SA_IA_BO_02 nests CU_SA_IA_BO_01, so it must follow it here;
+         # CU_CA_IA_01 = IA_02 + IAUARETE_01 + CURUPIRA_05_60, all fitted above.
+         "CURUPIRA_BOITATA_01", "CURUPIRA_CAIPORA_01",
+         # IU_IA_01 = IAUARETE_01 + IAUARETE_02 + IA_03 + IA_04, all fitted above;
+         # a zero-fit slot blend, last with the other blends. Fills account slot
+         # iu_ia_01 (renamed from IARA_01).
+         "CU_SA_IA_BO_02", "CU_CA_IA_01", "IU_IA_01"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
 # the worst-scoring arm in the study. IA_01 and IAUARETE_01 are the neural and
 # CatBoost legs of CU_SA_IA_BO_01 and CURUPIRA_CAIPORA_01 respectively -- fitted
 # so a blend can reuse them, never uploaded alone.
-NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IAUARETE_01"}
+NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IA_02", "IAUARETE_01",
+                 # The three IU_IA_01 legs that are not themselves on the account:
+                 # IAUARETE_02 (catboost allfeat), IA_03/IA_04 (pinned MLPs).
+                 "IAUARETE_02", "IA_03", "IA_04"}
 
 
 def is_blend(spec):

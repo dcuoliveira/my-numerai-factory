@@ -62,11 +62,25 @@ def render(report):
         return ("%s %s" % (SUBJECT_PREFIX, report.get("round", "report")),
                 report["report_body"])
 
+    from src.live import registry
+
     slots = report["slots"]
-    failed = [s for s in slots if s["status"] == "failed"]
-    fell_back = [s for s in slots if s["status"] == "submitted"
-                 and s["source"] != "model"]
-    submitted = [s for s in slots if s["status"] == "submitted"]
+    # .get throughout: render() is called OUTSIDE send()'s try, so a record
+    # missing a key would escape the "never raises" promise at the top of this
+    # module and take the whole mail with it.
+    failed = [s for s in slots if s.get("status") == "failed"]
+    # "not-submitted" is a slot doing exactly what it was configured to do, so it
+    # is not a fallback. Counting it as one meant a clean round could never print
+    # a plain OK -- rounds 1335 and 1336 both mailed "OK with fallbacks (1/8)"
+    # with nothing whatsoever having fallen back.
+    fell_back = [s for s in slots if s.get("status") == "submitted"
+                 and s.get("source") not in ("model", "not-submitted")]
+    submitted = [s for s in slots if s.get("status") == "submitted"]
+
+    # A degraded slot that other slots reuse is the one to look at first.
+    reused = registry.reused_slots()
+    cascading = sorted({s["name"] for s in fell_back + failed
+                        if s.get("name") in reused})
 
     if report.get("crash"):
         verdict = "CRASHED -- NOTHING SUBMITTED"
@@ -78,12 +92,21 @@ def render(report):
         # Set only when Numerai itself reports status "late" for a slot -- never
         # from local clock arithmetic. See run_round.confirm_statuses.
         verdict = "LATE -- Numerai flagged the submission"
+    elif fell_back and failed:
+        # A stand-in outranks a plain failure: a slot uploading Numerai's own
+        # predictions under your name is worse than one uploading nothing, and
+        # for two rounds the subject blamed the benign failures instead.
+        verdict = "DEGRADED (%d on a stand-in, %d failed)" % (
+            len(fell_back), len(failed))
+    elif fell_back:
+        verdict = "DEGRADED (%d/%d on a stand-in)" % (len(fell_back), len(slots))
     elif failed:
         verdict = "FAILED (%d/%d slots)" % (len(failed), len(slots))
-    elif fell_back:
-        verdict = "OK with fallbacks (%d/%d)" % (len(fell_back), len(slots))
     else:
         verdict = "OK (%d/%d)" % (len(submitted), len(slots))
+
+    if cascading:
+        verdict += " -- %s feeds other slots" % ", ".join(cascading)
 
     subject = "%s round %s -- %s" % (SUBJECT_PREFIX, report["round"], verdict)
 
@@ -115,17 +138,18 @@ def render(report):
     ]
     for slot in slots:
         lines.append("%-13s %-9s %-14s %-8s %6.1f  %s" % (
-            slot["name"], slot["status"], slot.get("source", "-"),
+            slot.get("name", "?"), slot.get("status", "?"), slot.get("source", "-"),
             "yes" if slot.get("refit") else "no",
             slot.get("seconds", 0.0), slot.get("detail", "") or ""))
 
     # Anything that fell back or failed gets its reason spelled out in full --
     # the table truncates, and the reason is the only actionable part.
-    notable = [s for s in slots if s.get("note") or s["status"] == "failed"]
+    notable = [s for s in slots if s.get("note") or s.get("status") == "failed"]
     if notable:
         lines += ["", "-" * 78, "WHY:", "-" * 78]
         for slot in notable:
-            lines.append("%s: %s" % (slot["name"], slot.get("note") or slot.get("error")))
+            lines.append("%s: %s" % (slot.get("name", "?"),
+                                     slot.get("note") or slot.get("error")))
 
     if report.get("diagnostics"):
         lines += ["", "-" * 78, "FEATURE BUILD:", "-" * 78]
@@ -133,7 +157,6 @@ def render(report):
             lines.append("%-13s %s" % (name, diagnostics))
 
     lines += ["", "-" * 78, "WHAT THESE MODELS ARE:", "-" * 78]
-    from src.live import registry
     lines.append(registry.describe())
 
     if report.get("warnings"):

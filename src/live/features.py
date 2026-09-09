@@ -85,8 +85,15 @@ ROLL_WINDOWS = [5, 20, 60]
 # coefficient, and the column would be noise with a name.
 ONEHOT_MIN_DATES = 130
 
-FEATURE_SETS = ("raw", "tenc", "interact", "tenc_onehot", "onehot_roll",
-                "allfeat", "allfeat_pp")
+FEATURE_SETS = ("raw", "tenc", "interact", "cumlag3", "fenccausal", "tenc_onehot",
+                "onehot_roll", "allfeat", "allfeat_pp", "allfeat_pp_lag3",
+                "allfeat_pp_fenc")
+
+#: Shrinkage weight for the causal feature encoding. Must match the value
+#: data/crypto/v2.0-fenccausal was BUILT with (build_feature_encoding's
+#: --smoothing default), or the live columns mean something different from the
+#: ones every fenccausal backtest was fitted on.
+FENC_SMOOTHING = 50.0
 
 
 def raw_features(frame):
@@ -117,7 +124,25 @@ def append_live_history(live, path=LIVE_HISTORY):
 
     history = history.sort_values([SYMBOL, PERIOD]).reset_index(drop=True)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    history.to_parquet(path, index=False)
+
+    # Staged, then swapped -- never written in place. This file is the ONLY copy
+    # of the accumulated live history, and it is rebuilt one date per round, so a
+    # half-written file costs weeks. On 2026-09-04 the user's disk quota ran out
+    # mid-round and to_parquet's failure took three weeks of dates with it,
+    # leaving a single date behind. os.replace is atomic on the same filesystem,
+    # so a failure now leaves the previous good file exactly where it was.
+    # download_live has always done this; this writer had not.
+    staging = path + ".partial"
+    try:
+        history.to_parquet(staging, index=False)
+        os.replace(staging, path)
+    except Exception:
+        if os.path.exists(staging):
+            try:
+                os.remove(staging)
+            except OSError:
+                pass
+        raise
     return history
 
 
@@ -290,6 +315,91 @@ def add_interact(panel):
     return pd.concat([panel, derived], axis=1), list(derived.columns)
 
 
+def add_cumlags(panel, through=3):
+    """
+    Add every lag 1..through of the raw features, mirroring build_lagged.
+
+    Delegates the shift to build_lagged.add_lag so the live columns cannot drift
+    from the offline dataset the backtest used.
+
+    The shift is taken WITHIN each symbol after sorting by date. Shifting the
+    frame as a whole would hand one token's history to another -- not a lag but
+    a data error, and one that announces itself nowhere in any score.
+
+    A lag reaches strictly backwards: row (symbol, t) receives that symbol's own
+    value from t - p, which was observable at t. No target is touched and no
+    resolution lag is needed, so unlike the target encoding there is no waiting
+    period to get wrong.
+
+    A token's first `through` rows have no such history and come back NaN;
+    build_features fills them with the neutral 0.5, which is the right reading
+    -- a token listed yesterday has nothing to say about its value three days
+    ago. Live rows are the LATEST periods, so they are the best-covered rows in
+    the panel, not the worst.
+    """
+    from src.data_mani.build_lagged import add_lag
+    base = raw_features(panel)
+    added = []
+    for lag in range(1, through + 1):
+        panel, shifted = add_lag(panel, base, lag, symbol_col=SYMBOL, period_col=PERIOD)
+        panel = pd.concat([panel, shifted.astype("float32")], axis=1)
+        added += list(shifted.columns)
+    return panel, added
+
+
+def add_fenccausal(panel, smoothing=FENC_SMOOTHING):
+    """
+    Add the causal per-symbol feature means, mirroring build_feature_encoding.
+
+    Delegates to build_feature_encoding.causal_feature_means so the live columns
+    cannot drift from the offline dataset the backtest was fitted on -- the same
+    argument add_cumlags makes for delegating its shift to build_lagged.add_lag.
+
+    WHY THIS IS CAUSAL, AND WHY IT NEEDS NO EMBARGO. The encoding is an expanding
+    mean of a symbol's OWN PAST feature values: the builder takes each symbol's
+    cumulative sum and subtracts the row's own value, so a row never contributes
+    to its own encoding. No target is touched anywhere, and a feature is
+    observable at its own date -- so, exactly as for the lags, there is no
+    resolution lag to wait out. That is the whole difference from add_tenc, whose
+    target encoding must lag 20 periods and whose NaN handling is the reason this
+    module carries a non-finite guard.
+
+    Contrast build_feature_encoding's OTHER mode, `global`, which uses the
+    whole-sample per-symbol mean. That one is lookahead by construction and its
+    own module docstring calls it "a diagnostic upper bound, not a candidate".
+    It is deliberately not offered here, and the gap between the two is large --
+    on lgb, payout 0.06411 causal against 0.16286 global.
+
+    ONE HONEST CAVEAT. The shrinkage prior is the overall mean of each feature
+    across the frame it is handed, so it is a whole-frame statistic. On this panel
+    it is inert: the features are rank-binned within each date, so every one of
+    the 22 means sits in 0.4998-0.5000. It is a prior for symbols with no history
+    yet, not a signal.
+
+    :param panel: train + live rows, as returned by load_panel
+    :type panel: pd.DataFrame
+    :param smoothing: shrinkage weight; must match the offline build
+    :type smoothing: float
+    :return: (panel with the columns added, the added column names)
+    :rtype: (pd.DataFrame, [str])
+    """
+    from src.data_mani.build_feature_encoding import causal_feature_means
+
+    base = raw_features(panel)
+
+    # The shrinkage prior is computed from NON-LIVE rows only. Left to its default
+    # it would be the mean over the whole frame, live rows included, which makes
+    # every historical row's encoding depend on today's data -- small here (~6e-6,
+    # because the features are rank-binned to a mean of 0.5) but wrong in kind.
+    prior = panel.loc[~panel["is_live"], base].mean()
+
+    encoded, no_history = causal_feature_means(
+        panel, base, SYMBOL, PERIOD, smoothing, prior=prior)
+
+    panel = pd.concat([panel, encoded.astype("float32")], axis=1)
+    return panel, list(encoded.columns)
+
+
 def build_features(panel, feature_set, verbose=True):
     """
     Return (panel, feature_columns, diagnostics) for one feature set.
@@ -316,6 +426,20 @@ def build_features(panel, feature_set, verbose=True):
         panel, added = add_interact(panel)
         columns += added
         diagnostics["n_interact"] = len(added)
+
+    elif feature_set == "cumlag3":
+        panel, added = add_cumlags(panel, through=3)
+        columns += added
+        live = panel.loc[panel["is_live"], added]
+        diagnostics.update(n_lags=len(added),
+                           lag_live_missing=int(live.isna().to_numpy().sum()))
+
+    elif feature_set == "fenccausal":
+        panel, added = add_fenccausal(panel)
+        columns += added
+        live = panel.loc[panel["is_live"], added]
+        diagnostics.update(n_symmean=len(added),
+                           fenc_live_missing=int(live.isna().to_numpy().sum()))
 
     elif feature_set == "tenc_onehot":
         # raw + the target encoding + the 740 identity columns; no rolling means
@@ -367,6 +491,75 @@ def build_features(panel, feature_set, verbose=True):
         live_support = panel.loc[panel["is_live"], "_tenc_support"]
         diagnostics.update(n_derived=len(derived), n_rolling=len(rolled),
                            onehot_vocabulary=vocab, live_cold_start=cold,
+                           tenc_median_support=float(live_support.median()))
+
+    elif feature_set == "allfeat_pp_fenc":
+        # allfeat_pp PLUS the 22 causal per-symbol means: 834 columns.
+        #
+        # Exists for CU_SA_IA_BO_01, which rank-averages CURUPIRA_SACI_03
+        # (allfeat_pp) with IA_01 (fenccausal). Same reason allfeat_pp_lag3
+        # exists: load_slot_blend builds ONE frame from the blend's declared
+        # feature set and promises it is a superset of every member's columns,
+        # and allfeat_pp calls add_fenccausal from nowhere. Without this set the
+        # blend would raise on 22 missing columns and fall through to Numerai's
+        # example predictions -- exactly how CURUPIRA_SACI_04 broke.
+        #
+        # A separate set rather than widening allfeat_pp, for the reason given
+        # there: allfeat_pp is pinned by
+        # test_allfeat_pp_is_the_union_of_every_other_slot_plus_derived and
+        # eleven cached fits carry its feature signature.
+        #
+        # The symmean columns go on LAST, after the one-hot block, so allfeat_pp's
+        # columns keep their positions -- feature_signature hashes identity AND
+        # order.
+        panel, added = add_tenc(panel)
+        columns += added
+        panel, derived = add_derived(panel)
+        columns += derived
+        panel, rolled = add_rolling(panel)
+        columns += rolled
+        panel, dummies, cold, vocab = add_onehot(panel, ~panel["is_live"])
+        columns += dummies
+        panel, symmeans = add_fenccausal(panel)
+        columns += symmeans
+        live_support = panel.loc[panel["is_live"], "_tenc_support"]
+        diagnostics.update(n_derived=len(derived), n_rolling=len(rolled),
+                           onehot_vocabulary=vocab, live_cold_start=cold,
+                           n_symmean=len(symmeans),
+                           tenc_median_support=float(live_support.median()))
+
+    elif feature_set == "allfeat_pp_lag3":
+        # allfeat_pp PLUS the 66 cumulative lags: 878 columns.
+        #
+        # It exists for CURUPIRA_SACI_04, which rank-averages SACI_05 (cumlag3)
+        # with CURUPIRA_05 (allfeat_pp). load_slot_blend builds ONE frame from
+        # the blend's declared feature set and promises it is a superset of every
+        # member's columns, but allfeat_pp calls add_cumlags from nowhere -- the
+        # lags are the only block outside the everything-at-once union. So the
+        # promise was false, RankBlend.predict raised on 66 missing columns, and
+        # the slot fell all the way to Numerai's example predictions.
+        #
+        # A separate set rather than widening allfeat_pp: allfeat_pp is pinned by
+        # test_allfeat_pp_is_the_union_of_every_other_slot_plus_derived as
+        # exactly raw|tenc|onehot_roll plus derived, and eleven cached fits carry
+        # its feature signature. Widening it would refit all of them.
+        #
+        # The lags go on LAST, after the one-hot block, so the columns of
+        # allfeat_pp keep their positions and order -- feature_signature hashes
+        # identity AND order.
+        panel, added = add_tenc(panel)
+        columns += added
+        panel, derived = add_derived(panel)
+        columns += derived
+        panel, rolled = add_rolling(panel)
+        panel, dummies, cold, vocab = add_onehot(panel, ~panel["is_live"])
+        columns += rolled + dummies
+        panel, lags = add_cumlags(panel, through=3)
+        columns += lags
+        live_support = panel.loc[panel["is_live"], "_tenc_support"]
+        diagnostics.update(n_derived=len(derived), n_rolling=len(rolled),
+                           n_lags=len(lags), onehot_vocabulary=vocab,
+                           live_cold_start=cold,
                            tenc_median_support=float(live_support.median()))
 
     # Neutral fill last, so every derived column is covered by the same rule.
