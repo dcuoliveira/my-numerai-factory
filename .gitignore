@@ -14,7 +14,7 @@
 #   results/  forecasts, per-period tables, metrics (~770 MB, mostly forecasts)
 #   models/   fitted live estimators, rewritten every refit
 #   logs/     per-run build and training logs
-/data/
+/data/*
 /results/
 /models/
 /logs/
@@ -37,18 +37,18 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-env/
-build/
+/env/
+/build/
 develop-eggs/
-dist/
-downloads/
+/dist/
+/downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
-var/
+/var/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -93,7 +93,7 @@ instance/
 docs/_build/
 
 # PyBuilder
-target/
+/target/
 
 # IPython Notebook
 .ipynb_checkpoints
@@ -129,9 +129,48 @@ example_model.xgb
 
 .DS_Store
 
-v5.0/
-v5.1/
-v5.2/
-v5.3/
-crypto/
 .venv/
+
+# ---------------------------------------------------------------------------
+# Binary artifact EXTENSIONS -- the belt to the directory rules' braces
+# ---------------------------------------------------------------------------
+# The directory rules at the top are the primary guarantee. These exist for the
+# file that lands OUTSIDE data/ results/ models/ logs/ -- a scratch pickle at
+# the repo root, a checkpoint saved next to the script that wrote it. That is
+# the failure this repository's own history already contains: cached-pickles/
+# *.pkl, 26.6 MB plus ~11 copies at 13.2-13.4 MB, inherited from the upstream
+# numerai/example-scripts fork. Gone from every branch tip, still in the pack.
+*.pkl
+*.pickle
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+*.joblib
+*.h5
+*.hdf5
+*.onnx
+*.safetensors
+*.pdf
+*.ipynb
+cached-pickles/
+.pytest_cache/
+
+# ---------------------------------------------------------------------------
+# Negations: the inputs that are NOT regenerable
+# ---------------------------------------------------------------------------
+# FRED-MD is VENDORED, not downloaded: the canonical host
+# (files.stlouisfed.org) returns S3 403 from this box, so this copy came from a
+# mirror. 595 KB, the positive control for the FARM estimators, and it cannot
+# be re-fetched. The README beside it carries the mirror URL and the SHA256 --
+# which EXPERIMENTS.md already promises is tracked. Git will not descend into
+# an excluded directory, so the directory negation must come first.
+!/data/fredmd/
+!/data/fredmd/fred-md.csv
+!/data/fredmd/README.md
+
+# Cited BY PATH from the e17_ and e48_ runner headers as their method source,
+# so it is a dependency rather than an attachment. The other PDF in papers/ is
+# cited by author-year only and stays ignored.
+!papers/Hyped_ML_paper-21.pdf
