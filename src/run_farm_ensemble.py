@@ -110,6 +110,9 @@ def main():
     results["pnl"] = summarize(table["pnl"])
     results["config"] = {
         "tournament": args.tournament, "model": args.model,
+        # See run_ensemble: the config must carry the label too, so the row
+        # survives its forecast being reclaimed.
+        "target": target_col,
         "members": args.members, "method": args.method,
         "beta_method": args.beta_method, "update_every": args.update_every,
         "lag": args.lag, "min_history": args.min_history, "roll": args.roll,

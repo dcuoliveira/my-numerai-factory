@@ -175,6 +175,43 @@ def target_of(tournament, model, run):
     return None
 
 
+def scored_target(tournament, model, run):
+    """
+    target_of, with the metrics config as the fallback the forecast cannot supply.
+
+    Forecast header FIRST, because run_ensemble writes no `target` into a
+    blend's config and the config alone mislabels every 60-day blend. Config
+    SECOND, so that a run whose forecast has been reclaimed degrades to "the
+    config's word for it" rather than to None.
+
+    That fallback is what makes forecast pruning safe. report_data derives an
+    arm's target from this and build_blocks groups on `arm.target or "unknown"`,
+    so a missing forecast used to collapse 20-day and 60-day runs into one
+    "unknown" block -- a table that ranks the LABEL as much as the model, which
+    is the one thing CLAUDE.md forbids. results_table already had this fallback
+    and report_data did not, so the two disagreed despite being documented as
+    producing identical rows.
+
+    :param tournament: e.g. "crypto"
+    :type tournament: str
+    :param model: model tree under results/forecast/<tournament>/
+    :type model: str
+    :param run: run name
+    :type run: str
+    :return: the target column name, or None if neither source knows
+    :rtype: str or None
+    """
+    found = target_of(tournament, model, run)
+    if found:
+        return found
+    path = os.path.join("results", "metrics", tournament, model,
+                        "{}.json".format(run))
+    if not os.path.exists(path):
+        return None
+    with open(path) as handle:
+        return (json.load(handle).get("config") or {}).get("target")
+
+
 def row_from_frame(label, periods, target=None, cv=None):
     """
     Assemble one row from an already-sliced per-period frame.
@@ -276,7 +313,7 @@ def row_for(tournament, model, run):
 
     return row_from_frame(
         label, periods,
-        target=target_of(tournament, model, run) or config.get("target"),
+        target=scored_target(tournament, model, run),
         cv="{}/{}/{}".format(config.get("cv_scheme"), config.get("train_window"),
                              config.get("refit_every")))
 

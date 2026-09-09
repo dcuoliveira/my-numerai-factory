@@ -45,7 +45,8 @@ from src.analysis.ablation_report import newey_west
 from src.analysis.corr_heatmap import within_period_rank_corr
 from src.analysis.ensemble_screen import beat_their_best, rank, screen
 from src.analysis.results_table import (degenerate_periods, payout_series,
-                                        row_from_frame, short_target, target_of)
+                                        row_from_frame, scored_target,
+                                        short_target, target_of)
 from src.live import registry
 
 #: Newey-West lag by target. A 20-day label on daily dates overlaps ~95% between
@@ -200,7 +201,7 @@ def proposed_arms(tournament, pairs):
             dropped.append(("%s/%s" % (model, run), "no per-period file"))
             continue
         arms.append(Arm(label=run, model=model, run=run, kind="prop",
-                        target=target_of(tournament, model, run),
+                        target=scored_target(tournament, model, run),
                         frame=frame, payout=payout_series(frame).dropna(),
                         staked=False, live_status="-", note=None))
     return arms, dropped

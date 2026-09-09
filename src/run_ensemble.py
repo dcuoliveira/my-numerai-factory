@@ -141,6 +141,9 @@ def main():
     results["pnl"] = summarize(table["pnl"])
     results["config"] = {
         "tournament": args.tournament, "model": args.model,
+        # The forecast header is the primary record of the scored label, but a
+        # reclaimed forecast takes it with it -- so write the target here too.
+        "target": target_col,
         "members": args.members, "weights": weights,
         "combination": "per-period rank average",
     }

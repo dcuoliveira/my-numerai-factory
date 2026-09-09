@@ -19,7 +19,7 @@ import pandas as pd
 from src.analysis import ensemble_screen, report_data, report_pdf, slots
 from src.analysis.ablation_report import newey_west as canonical_newey_west
 from src.analysis.results_table import (payout_series, row_from_frame,
-                                        short_target, target_of)
+                                        short_target, target_of, scored_target)
 from src.live import registry
 from src.prediction.metrics import summarize
 
@@ -146,6 +146,32 @@ class TargetLabelling(unittest.TestCase):
                          "target_binned_return_60")
         self.assertEqual(target_of("crypto", "lgb", "saci01_c03_c0560"),
                          "target_binned_return_20")
+
+    @needs_results
+    def test_scored_target_survives_a_reclaimed_forecast(self):
+        # The forecast header is the primary source and must still win: a blend
+        # writes no target into its config, so config-first would mislabel it.
+        self.assertEqual(
+            scored_target("crypto", "ridge_glmnet", "t60_c05_blend"),
+            "target_binned_return_60")
+        # But when the forecast is gone -- which is what pruning a concluded
+        # study's grid cells does -- the config has to answer, or report_data
+        # groups the arm under "unknown" and the block mixes 20-day with
+        # 60-day. Simulated by naming a run with no forecast on disk.
+        import json, os, tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            here = os.getcwd()
+            metrics = os.path.join(tmp, "results", "metrics", "crypto", "lgb")
+            os.makedirs(metrics)
+            with open(os.path.join(metrics, "gone.json"), "w") as handle:
+                json.dump({"config": {"target": "target_binned_return_60"}}, handle)
+            try:
+                os.chdir(tmp)
+                self.assertIsNone(target_of("crypto", "lgb", "gone"))
+                self.assertEqual(scored_target("crypto", "lgb", "gone"),
+                                 "target_binned_return_60")
+            finally:
+                os.chdir(here)
 
     @needs_results
     def test_blocks_never_mix_targets(self):
