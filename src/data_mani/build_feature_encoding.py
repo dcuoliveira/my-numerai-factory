@@ -80,7 +80,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def causal_feature_means(df, features, symbol_col, period_col, smoothing):
+def causal_feature_means(df, features, symbol_col, period_col, smoothing,
+                         prior=None):
     """
     Expanding per-symbol mean of each feature, using only strictly earlier rows.
 
@@ -88,6 +89,16 @@ def causal_feature_means(df, features, symbol_col, period_col, smoothing):
     shifted by one so a row never contributes to its own encoding. Rows with no
     history yet fall back to the overall feature mean, which for these
     rank-binned features is ~0.5 -- "no view".
+
+    `prior` overrides that fallback with a precomputed {feature: value} mapping.
+    It exists for the LIVE path. The default computes the fallback from the frame
+    it is handed, which offline is the training panel and is therefore fine -- but
+    live the frame also holds today's rows, so today's features would enter the
+    prior and shift the encoding of every HISTORICAL row. Measured on a 60-date
+    live-shaped panel the shift is ~6e-6 (the features are rank-binned within each
+    date, so the mean is 0.5 by construction and barely moves), but a past value
+    that depends on the present is wrong regardless of size. src/live/features.py
+    passes a prior computed from non-live rows only.
     """
     df = df.sort_values([symbol_col, period_col])
     order = df.index
@@ -99,7 +110,8 @@ def causal_feature_means(df, features, symbol_col, period_col, smoothing):
     for feature in features:
         # cumsum then shift: the total over rows strictly earlier than this one.
         cumulative = grouped[feature].cumsum() - df[feature]
-        overall = float(df[feature].mean())
+        overall = (float(df[feature].mean()) if prior is None
+                   else float(prior[feature]))
         encoded["%s_symmean" % feature] = (
             (cumulative + smoothing * overall) / (counts + smoothing)
         )

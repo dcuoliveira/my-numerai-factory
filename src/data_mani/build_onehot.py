@@ -29,6 +29,7 @@ import argparse
 import os
 import shutil
 
+import numpy as np
 import pandas as pd
 
 from src.data_mani.utils import get_api, local_path, download_if_missing
@@ -39,6 +40,20 @@ def parse_args():
         description="Add ticker one-hot features to the Crypto dataset.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--key", default="symbol",
+                        choices=("symbol", "ucid", "cap"),
+                        help="what to one-hot. 'symbol' is the TICKER, which is "
+                             "NOT a stable identity: 30 tickers in this panel "
+                             "are reused by different coins (ACT covers three) "
+                             "and 3 coins were renamed (GRAM->TON), so a ticker "
+                             "dummy conflates 2.5%% of rows. 'ucid' is the "
+                             "stable coin id and fixes both. 'cap' buckets by "
+                             "market-cap rank instead of identity")
+    parser.add_argument("--only", action="store_true",
+                        help="drop the original feature_ columns, so the one-hot "
+                             "REPLACES them rather than joining them")
+    parser.add_argument("--cap-column", default="feature_market_cap_avg_20d",
+                        help="for --key cap: the rank-binned column bucketed")
     parser.add_argument("--source-version", default="crypto/v2.0")
     parser.add_argument("--out-suffix", default="-onehot",
                         help="appended to the version to name the new dataset")
@@ -58,28 +73,62 @@ def main():
     df["date"] = pd.to_datetime(df["date"])
     print("source: %s  (%d rows, %d symbols)" % (src, len(df), df["symbol"].nunique()))
 
-    counts = df.groupby("symbol")["date"].nunique()
-    keep = sorted(counts[counts >= args.min_dates].index)
-    covered = df["symbol"].isin(keep).mean()
-    print("keeping %d of %d symbols (>= %d dates), covering %.1f%% of rows" % (
-        len(keep), len(counts), args.min_dates, 100 * covered))
+    if args.key == "cap":
+        # Market-cap BUCKET rather than identity. The column is already rank
+        # binned WITHIN each date to {0, .25, .5, .75, 1}, so the bucket is a
+        # cross-sectional cap rank and a coin moves between buckets over time --
+        # which is the point: it asks whether SIZE carries the persistence that
+        # a ticker dummy is credited with, at three columns instead of 740.
+        if args.cap_column not in df.columns:
+            raise SystemExit("--cap-column %r is not in the source; have %s"
+                             % (args.cap_column,
+                                [c for c in df.columns if "market_cap" in c]))
+        rank = df[args.cap_column]
+        bucket = pd.Series(np.where(rank <= 0.25, "low",
+                                    np.where(rank >= 0.75, "large", "mid")),
+                           index=df.index)
+        bucket = bucket.where(rank.notna())
+        dummies = pd.get_dummies(bucket, prefix="feature_cap", dtype="uint8")
+        print("cap buckets from %s: %s"
+              % (args.cap_column,
+                 ", ".join("%s=%d" % (b, int(dummies["feature_cap_" + b].sum()))
+                           for b in ("low", "mid", "large")
+                           if "feature_cap_" + b in dummies)))
+    else:
+        key = args.key
+        counts = df.groupby(key)["date"].nunique()
+        keep = sorted(counts[counts >= args.min_dates].index)
+        covered = df[key].isin(keep).mean()
+        print("keeping %d of %d %ss (>= %d dates), covering %.1f%% of rows" % (
+            len(keep), len(counts), key, args.min_dates, 100 * covered))
+        # Prefixed feature_sym_ whatever the key, so every downstream regex --
+        # CURUPIRA_05's members, generalised_ridge's FEATURE_BLOCKS, the
+        # feature_groups shell scripts -- keeps working unchanged and a ucid
+        # build is a drop-in for a symbol build.
+        # uint8 keeps 740 extra columns cheap on disk and in memory; the
+        # modelling code casts to float only for the block it is fitting.
+        dummies = pd.get_dummies(
+            df[key].where(df[key].isin(keep)),
+            prefix="feature_sym", dtype="uint8",
+        )
 
-    # uint8 keeps 740 extra columns cheap on disk and in memory; the modelling
-    # code casts to float only for the training block it is fitting.
-    dummies = pd.get_dummies(
-        df["symbol"].where(df["symbol"].isin(keep)),
-        prefix="feature_sym", dtype="uint8",
-    )
-    out = pd.concat([df, dummies], axis=1)
+    original = [c for c in df.columns if c.startswith("feature_")]
+    if args.only:
+        # The one-hot REPLACES the raw columns rather than joining them.
+        out = pd.concat([df.drop(columns=original), dummies], axis=1)
+        print("--only: dropped the %d original feature columns" % len(original))
+    else:
+        out = pd.concat([df, dummies], axis=1)
 
     n_feat = sum(c.startswith("feature_") for c in out.columns)
-    print("features: %d original + %d ticker = %d total" % (
+    print("features: %d original + %d one-hot = %d total" % (
         n_feat - len(dummies.columns), len(dummies.columns), n_feat))
 
     version = args.source_version + args.out_suffix
     dest = local_path("crypto", version, "train.parquet")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    # Match the source layout: the shipped file carries symbol as the index.
+    # Match the source layout: the shipped file carries symbol as the index,
+    # regardless of what was one-hotted. ucid stays a plain column.
     out.set_index("symbol").to_parquet(dest)
     print("wrote %s (%.0f MB)" % (dest, os.path.getsize(dest) / 1e6))
 
