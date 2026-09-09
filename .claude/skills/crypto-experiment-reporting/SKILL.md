@@ -1,18 +1,13 @@
 ---
 name: crypto-experiment-reporting
-description: "Run and report arm-based experiments in the current src/ Numerai Crypto pipeline — src.run_forecast, experiments/*.sh, results/{forecast,per_period,hyperparams,metrics}/, and the CURUPIRA slots in src/live/registry.py. Use this whenever comparing feature sets or model variants on crypto, reading a finished run's numbers, deciding whether an arm actually beat its baseline, reproducing a deployed CURUPIRA slot, building a new experiments/ runner, or emailing a long job's result — even if the user just says 'does X help', 'compare these runs', 'add a feature block and see', or 'report the result'. The sibling skills numerai-experiment-design, report-research and numerai-research describe the LEGACY agents/code framework under legacy/ and do not apply to src/."
+description: "Run and report arm-based experiments in the current src/ Numerai Crypto pipeline — src.run_forecast, experiments/*.sh, results/{forecast,per_period,hyperparams,metrics}/, and the CURUPIRA slots in src/live/registry.py. Use this whenever comparing feature sets or model variants on crypto, reading a finished run's numbers, deciding whether an arm actually beat its baseline, reproducing a deployed CURUPIRA slot, building a new experiments/ runner, or emailing a long job's result — even if the user just says 'does X help', 'compare these runs', 'add a feature block and see', or 'report the result'."
 ---
 
 # Crypto experiment reporting
 
-## Orientation: this repo has two worlds
+## Orientation
 
-`legacy/numerai/agents/` is the old Numerai Classic framework — config dicts,
-`PYTHONPATH=numerai python -m agents.code.modeling`, `experiment.md`,
-`bmc_last_200_eras`, `v5.3`. Four of the five sibling skills describe it. Every
-path they name has moved under `legacy/`.
-
-The live work is `src/`, and it is a different shape:
+The pipeline is `src/`, and it is shaped like this:
 
 ```
 src/run_forecast.py        one invocation = one fully-specified run

@@ -1,8 +1,6 @@
 # CLAUDE.md
 
-Conventions for working in this repo. The active pipeline is `src/`; everything
-under `legacy/` is the retired Numerai Classic framework and its paths no longer
-resolve.
+Conventions for working in this repo. The pipeline is `src/`.
 
 ## What is running right now
 

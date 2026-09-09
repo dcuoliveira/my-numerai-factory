@@ -1,4 +1,9 @@
-!**/v5.0/
-!**/v5.1/
-!**/v5.2/
-!**/v5.3/
+# The working tree is ~16 GB of generated artifacts against ~2 MB of tracked
+# source. Without these the indexer walks all of it. This file previously held
+# only negations for v5.0-v5.3 Classic dataset dirs that no longer exist, which
+# ignored nothing at all.
+results/
+data/
+models/
+logs/
+*.txt

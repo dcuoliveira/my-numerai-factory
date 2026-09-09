@@ -1,99 +1,108 @@
-# Numerai Agentic Research
+# Numerai Crypto research pipeline
 
-An agent-driven research framework for the [Numerai tournament](https://numer.ai/): a
-config-driven training pipeline with era-aware cross-validation, BMC scoring, and a set of
-skills that let a coding agent run research rounds end to end.
+A walk-forward research and live-submission pipeline for the
+[Numerai Crypto tournament](https://numer.ai/): dataset builders, a model zoo behind one
+sklearn-wrapper contract, era-aware cross-validation, CORR/MMC scoring, and a live round
+runner that fills the submission slots every morning from cron.
 
-Derived from [numerai/example-scripts](https://github.com/numerai/example-scripts), stripped
-down to the agentic framework. Need help? [Find us on Discord.](https://discord.gg/numerai)
+Derived from [numerai/example-scripts](https://github.com/numerai/example-scripts).
+Need help? [Find us on Discord.](https://discord.gg/numerai)
+
+Read [CLAUDE.md](CLAUDE.md) for the working conventions: where results live, how to report
+them, which slots are deployed, and the traps worth knowing before you quote a number.
 
 ## Setup
 
-```bash
-pip install numerapi numerai-tools pandas pyarrow lightgbm matplotlib cloudpickle
-curl -sL https://numer.ai/install-mcp.sh | bash     # Numerai MCP server (optional)
-```
-
-Skills live in `.claude/skills/` and Claude Code picks them up automatically. For Codex CLI,
-symlink them in: `ln -s $PWD/.claude/skills/* ~/.codex/skills/`
-
-Build the datasets (downloads ~v5.3 train + validation, then writes full and every-4th-era
-downsampled parquets under `numerai/v5.3/`):
+`setup.sh` is the installer — there is no `requirements.txt`. It installs the packages
+`src/` imports, downloads the base dataset, and runs a smoke fit.
 
 ```bash
-PYTHONPATH=numerai python3 -m agents.code.data.build_full_datasets
+bash setup.sh                 # base install + crypto/v2.0
+bash setup.sh --with-derived  # ...plus the derived feature chain (target encoding ->
+                              #    one-hot -> rolling means -> spreads -> interactions)
+bash setup.sh --all           # ...plus the Numerai Classic datasets
+bash setup.sh --check         # verify an existing install, change nothing
 ```
+
+Skills live in `.claude/skills/` and Claude Code picks them up automatically.
 
 ## Run
 
-Train and score a config. Results land in `<output_dir>/results/<name>.json` and
-`<output_dir>/predictions/<name>.parquet`:
+One walk-forward backtest, written to `results/{forecast,per_period,metrics,hyperparams}/`:
 
 ```bash
-PYTHONPATH=numerai python3 -m agents.code.modeling --config numerai/agents/baselines/configs/deep_lgbm_ender20_baseline_downsampled.py
+python3 -m src.run_forecast \
+    --tournament crypto --model lgb --data-version crypto/v2.0 \
+    --cv-scheme rolling --train-window 6month --refit-every 6month \
+    --n-iter 50 --n-splits 5 --seed 42 --run-name my_first_run
 ```
 
-Or hand the whole loop to an agent:
+## Experiments
+
+One shell script per study in `experiments/`, each documenting in its own header what it
+runs, what it is measured against, and what would count as a result. Common knobs:
+`DRY_RUN=1` to print the commands without running them, `ONLY=` / `SKIP=` to select arms,
+`SHARD=/OF=` to split a study across concurrent runners, `SMOKE=1` for a fast pass.
+
+Two indexes, and which one to read depends on the question:
 
 ```bash
-codex exec --yolo "find the best neural network architecture to predict target ender"
+python3 -m src.analysis.experiment_db          # where every study GOT TO (derived, never stale)
+python3 -m src.analysis.experiment_db --arms E09
+```
+
+[experiments/EXPERIMENTS.md](experiments/EXPERIMENTS.md) is the durable record and holds the
+FINDINGS, written once a study is over. `experiment_db` is the operational view: its
+`STUDIES` table is the hand-edited source of truth for a study's intent, and everything else
+— arm counts, whether a runner is alive — is derived from `results/` and `/proc` on every
+query. Neither replaces the other.
+
+## Reporting
+
+Reporting a set of results means producing a document, not just a table:
+
+```bash
+python3 -m src.analysis.report_html --model lgb --runs <run> [<run> ...]   # interrogable
+python3 -m src.analysis.report_pdf  --model lgb --runs <run> [<run> ...]   # archival
+python3 -m src.analysis.results_table --model lgb --runs <run> --sort-by payout
+```
+
+All three read the same arithmetic from `src/analysis/report_data.py` and produce identical
+rows. See CLAUDE.md for the column definitions and the three things that are easy to get
+wrong (payout is rebuilt per period; `calmar` is not the textbook one; never mix targets).
+
+## Live
+
+`src/live/` fills the submission slots. `src/live/registry.py` is the single source of truth
+for what each slot is. The round runs from cron three times each morning (a first pass and
+two retries) behind a `flock`, with a fallback ladder per slot; the daily stake report
+follows it.
+
+```bash
+python3 -m src.live.run_round --dry-run     # rehearse; writes a round report, so not in a live tree
+python3 -m src.live.refit --all --force     # refit every slot, outside the submission window
 ```
 
 ## Layout
 
 ```
-.claude/skills/            # agent workflows, one SKILL.md each
-numerai/
-├── agents/
-│   ├── AGENTS.md          # modeling philosophy and conventions
-│   ├── baselines/         # baseline configs + their results
-│   ├── code/
-│   │   ├── analysis/      # show_experiment, plot_benchmark_corrs, summarize_results
-│   │   ├── data/          # dataset builders
-│   │   ├── metrics/       # BMC / corr scoring
-│   │   └── modeling/      # training pipeline (models/ + model-agnostic utils/)
-│   ├── experiments/       # one folder per line of inquiry (gitignored)
-│   └── tests/
-└── v5.3/                  # dataset files (gitignored)
+src/
+├── data_mani/     dataset download + derived feature builders
+├── prediction/    the model zoo behind one sklearn-wrapper contract (models.py)
+├── analysis/      experiment_db, the report renderers, slot resolution, stake
+├── live/          registry, round runner, submitter, refit scheduler
+└── tests/
+experiments/       one runner per study + EXPERIMENTS.md (the findings)
+results/           forecasts, per-period tables, metrics, reports   (gitignored)
+data/              downloaded + built parquet datasets              (gitignored)
+models/            fitted live estimators, rewritten every refit    (gitignored)
+.claude/skills/    agent workflows, one SKILL.md each
 ```
-
-## Runners
-
-One shell script per study, in `experiments/`. Each documents in its own header
-what it runs, what it is measured against, and what would count as a result.
-All take `DRY_RUN=1` to print the commands without running them.
-
-| Runner | What it measures |
-|---|---|
-| `lgb_6m6m_reg_crypto.sh` | LightGBM regression, 9 arms: raw 22 -> allfeat++ 812 -> the 7 raw feature groups alone |
-| `lgb_6m6m_clf_crypto.sh` | The same 9 arms as classification |
-| `ridge_comparison_crypto.sh` | Fixed-grid ridge vs the glmnet lambda path, across tasks and objectives |
-| `refit_cadence_crypto.sh` | How often to refit, and over how long a training window |
-| `feature_groups_crypto.sh` | Each of the 7 raw feature groups fitted alone, both ridge variants |
-| `group_blends_crypto.sh` | Best trio and quintet of groups: blend of models vs one model on the union |
-| `feature_engineering_crypto.sh` | Target encoding, one-hot, rolling means, spreads, interactions |
-| `all_features_crypto.sh` | Ceiling check: 788 features at once |
-| `allfeat_plus_crypto.sh` | The genuine union, 812 features (needs the chain from `setup.sh --with-derived`) |
-| `ablation_crypto.sh` | Feature importance by leave-one-block-out against allfeat++ |
-| `weighting_crypto.sh` | How to weight CURUPIRA_05's five members |
-| `weighting_sweep_crypto.sh` | Tunes the four surviving weighting schemes; read with `analysis.weighting_report` |
-| `target60_crypto.sh` | Every deployed model refit from scratch on the 60-day target |
-| `e01_blocks60_lgb_reg_crypto.sh` | **E01** — the LightGBM feature-block table on the 60-day target (see `experiments/EXPERIMENTS.md`) |
-| `autoencoder_crypto.sh` | Bottleneck-autoencoder codes as extra features, against a PCA control and an untuned variant (needs torch) |
-
-`lgb_6m6m_crypto.sh` is the shared implementation behind the two `lgb_6m6m_*`
-runners; invoke those, not it. Knobs common to the LightGBM runners:
-`ONLY=`, `SKIP=`, `SHARD=/OF=`, `SMOKE=1`, `LGB_N_ITER=`, `LGB_SEARCH_TYPE=`.
 
 ## Skills
 
 | Skill | Use it for |
 |---|---|
-| `numerai-research` | End-to-end: the meta-workflow that sequences the rest |
-| `numerai-experiment-design` | Plan and run experiment rounds, sweep, scale winners |
-| `numerai-model-implementation` | Add a new model type to the pipeline |
-| `report-research` | Write `experiment.md` and generate the standard plots |
-| `numerai-model-upload` | Build a submission pickle and deploy it via MCP |
-
-Read [AGENTS.md](AGENTS.md) for the full agent brief: tournament rules, MCP tools, metrics,
-and the pickle upload workflow.
+| `crypto-experiment-reporting` | Run and report arm-based experiments in this pipeline |
+| `arm-board-reporting` | Turn a finished set of runs into a defensible comparison board |
+| `safe-crontab-edits` | Touch the crontab — it drives two independent live pipelines |
