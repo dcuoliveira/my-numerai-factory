@@ -1008,6 +1008,26 @@ def build(live, rates, built, slot_of):
                  if r.get("opened") and int(r["opened"][:4]) == year)
     incep_pl = sum(settled(r) for r in all_rows)
     rpct = lambda x: 100 * x / risk if risk else 0.0
+
+    # Money that is actually BANKED, as opposed to the mark-to-market book above.
+    # A crypto round resolves about 20 days after it opens -- the horizon of the
+    # target it pays on -- so the first staked round here (1337, opened
+    # 2026-08-20) only comes due around 2026-09-09. Until rounds start settling
+    # this is 0 by construction and the provisional figure is the whole story;
+    # after that the two diverge and this is the half that cannot be taken back.
+    # It is a SUBSET of the provisional P&L above, not a second independent
+    # number, and shares its denominator so the two percentages compare.
+    resolved_pl = sum(settled(r) for r in all_rows if r["resolved"])
+
+    def settle_line(dash):
+        """The settlement sentence, in HTML or plain-text punctuation."""
+        if n_resolved:
+            return ("%d of %d staked rounds have resolved; the other %d are still "
+                    "mark-to-market."
+                    % (n_resolved, n_rounds, n_rounds - n_resolved))
+        return ("%d of %d staked rounds have resolved %s everything below is "
+                "mark-to-market." % (n_resolved, n_rounds, dash))
+
     ctx_returns = [
         ("1-day change", "last scoring day, reconstructed from the daily paths",
          day_pl, rpct(day_pl)),
@@ -1027,15 +1047,18 @@ def build(live, rates, built, slot_of):
         "Numerai Crypto stake report &mdash; %s\n\n"
         "TOTAL BOOK VALUE  %s NMR  |  EUR %s  |  BRL %s\n"
         " stake at risk   %s NMR  |  EUR %s  |  BRL %s\n"
-        " provisional P&amp;L %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n\n"
+        " provisional P&amp;L %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n"
+        " resolved P&amp;L    %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n\n"
         "Rates: %s.\n"
-        "%d of %d staked rounds have resolved &mdash; everything below is mark-to-market.\n\n"
+        "%s\n\n"
         "Staked positions: %s.\n\n"
         "The interactive report is attached; open it in a browser."
         % (built, num(book, 4), fiat(book, eur), fiat(book, brl),
            num(risk, 4), fiat(risk, eur), fiat(risk, brl),
            signed(pl), fiat(pl, eur, sign=True), fiat(pl, brl, sign=True), pct,
-           fx_note, n_resolved, n_rounds, ", ".join(order)))
+           signed(resolved_pl), fiat(resolved_pl, eur, sign=True),
+           fiat(resolved_pl, brl, sign=True), rpct(resolved_pl),
+           fx_note, settle_line("&mdash;"), ", ".join(order)))
 
     # The email BODY is this summary as plain text -- the interactive HTML rides
     # as an attachment, not as the body, so the same entities that make the <pre>
@@ -1048,15 +1071,18 @@ def build(live, rates, built, slot_of):
         "Numerai Crypto stake report — %s\n\n"
         "TOTAL BOOK VALUE  %s NMR  |  EUR %s  |  BRL %s\n"
         " stake at risk   %s NMR  |  EUR %s  |  BRL %s\n"
-        " provisional P&L %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n\n"
+        " provisional P&L %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n"
+        " resolved P&L    %s NMR  |  EUR %s  |  BRL %s  (%+.2f%% of stake)\n\n"
         "Rates: %s.\n"
-        "%d of %d staked rounds have resolved — everything below is mark-to-market.\n\n"
+        "%s\n\n"
         "Staked positions: %s.\n\n"
         "The full interactive report is attached as %s; open it in a browser."
         % (built, num(book, 4), plain(book, eur), plain(book, brl),
            num(risk, 4), plain(risk, eur), plain(risk, brl),
            signed(pl), plain(pl, eur, sign=True), plain(pl, brl, sign=True), pct,
-           fx_note, n_resolved, n_rounds, ", ".join(order), OUT_FILE))
+           signed(resolved_pl), plain(resolved_pl, eur, sign=True),
+           plain(resolved_pl, brl, sign=True), rpct(resolved_pl),
+           fx_note, settle_line("—"), ", ".join(order), OUT_FILE))
 
     ctx["cards"] = [
         ("Total book value", "%s NMR" % num(book, 4),
@@ -1103,6 +1129,19 @@ def build(live, rates, built, slot_of):
                     fiat(pl, eur, sign=True), klass(pl), pct))
     ctx["model_table"] = "".join(table)
 
+    # Every window here counts open and settled rounds alike, so it says so
+    # rather than leaving the reader to reconcile it with the header's resolved
+    # line. The old wording asserted "no round resolved yet" unconditionally,
+    # which stops being true the first time one settles.
+    if n_resolved:
+        drift = ("%d of %d rounds have now settled: the header's resolved P&amp;L is that "
+                 "banked subset, while every window in this table still counts open and "
+                 "settled rounds together." % (n_resolved, n_rounds))
+    else:
+        drift = ("With no round resolved yet, YTD and since-inception both equal the "
+                 "provisional P&amp;L above, and the header's resolved P&amp;L is 0; they "
+                 "diverge as rounds settle or a year turns.")
+
     rt = ['<table class="data"><tr><th class="l">Window</th><th>NMR</th><th>% of stake</th>'
           '<th class="l">what it counts</th></tr>']
     for name, note, value, percent in ctx_returns:
@@ -1117,9 +1156,8 @@ def build(live, rates, built, slot_of):
         "denominator, differing only in window, so they never carry the hidden-basis ambiguity the "
         "dashboard's row does. The 1-day figure is reconstructed from the daily paths, not Numerai's "
         "dashboard \"1D\": expect the same sign and rough size, not the same number, since its basis "
-        "is undocumented. With no round resolved yet, YTD and since-inception both equal the "
-        "provisional P&amp;L above; they will diverge the first time a round settles or a year turns."
-        % num(risk, 2))
+        "is undocumented. %s"
+        % (num(risk, 2), drift))
 
     returns_body = "".join(
         "\n %-22s %s NMR (%+.2f%% of stake)" % (name, signed(value), percent)
