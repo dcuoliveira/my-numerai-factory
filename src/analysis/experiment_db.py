@@ -613,6 +613,11 @@ STUDIES = {
                 "for new priors that feed the E34 tune and E35 ensemble.",
         "runner": "experiments/e33_hyperparam_sensitivity_v2_crypto.sh",
         "prefix": "e33_", "scout_prefix": "e33scout_",
+        # Findings written; the 1,728 cells were always intermediates for the
+        # E34 priors and the E35 ensemble, never an ensembling pool of their
+        # own (E46 says so explicitly). per_period + metrics + hyperparams keep
+        # the study fully reportable at 79 MB.
+        "forecasts": "reclaim",
         "models": ["mlp"], "expected_arms": 1728,
     },
     "E31": {
