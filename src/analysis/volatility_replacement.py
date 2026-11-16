@@ -52,21 +52,27 @@ def cuda_mlp(x, y, xe, units, alpha, seed, epochs):
         return model(xe).flatten().cpu().numpy()
 
 
+def recipe_epochs(inputs, units, multiplier):
+    parameters = sum((a + 1) * b for a, b in zip((inputs, *units), (*units, 1), strict=True))
+    return multiplier * (max(int(.2 * parameters ** .8), 1) + 10)
+
+
 def mlp_predict(x, y, xe, parameters, seeds, epochs, device):
     scaler = StandardScaler()
     x = scaler.fit_transform(x)
     xe = scaler.transform(xe)
     predictions = []
     for units, alpha in parameters:
+        budget = epochs if isinstance(epochs, int) else epochs[units]
         fitted = []
         for seed in seeds:
             if device == "cuda":
-                fitted.append(cuda_mlp(x, y, xe, units, alpha, seed, epochs))
+                fitted.append(cuda_mlp(x, y, xe, units, alpha, seed, budget))
                 continue
             model = MLPRegressor(hidden_layer_sizes=units, activation="relu", solver="adam",
                                  alpha=alpha, batch_size=256, learning_rate_init=.001,
                                  random_state=np.random.RandomState(seed))
-            for _ in range(epochs):
+            for _ in range(budget):
                 model.partial_fit(x, y)
             fitted.append(model.predict(xe))
         predictions.append(np.mean(fitted, axis=0))
@@ -115,7 +121,7 @@ def model_inputs(panel_path, meta_path, replacement_path):
     return panel, original, covered, replacement_inputs
 
 
-def write_fold(fold, panel, original, covered, replacement, output, epochs, device):
+def write_fold(fold, panel, original, covered, replacement, output, epochs, device, reuse=None, mlp_fits=None):
     dates = panel.date.to_numpy()
     y = panel[TARGET].to_numpy(dtype=float)
     dates_covered = dates[covered]
@@ -128,11 +134,19 @@ def write_fold(fold, panel, original, covered, replacement, output, epochs, devi
     routed_frame = evaluated[["date", "ucid"]].assign(covered=is_covered)
     coverage_keys = np.flatnonzero(is_covered)
     original_covered = original[covered]
-    for model in MODELS:
+    models = ("MLP",) if reuse else MODELS
+    if reuse:
+        saved = pd.read_parquet(reuse / f"routed_fold_{fold.fold:02d}.parquet")
+        pd.testing.assert_frame_equal(saved[routed_frame.columns], routed_frame)
+        routed_frame = saved.drop(columns=[f"MLP/{arm}" for arm in ARMS])
+    for model in models:
         predictions = {}
         for arm, cols in zip(ARMS, (original, original_covered, replacement), strict=True):
             yc, dc = (y, dates) if arm == "original_full" else (y[covered], dates_covered)
-            predicted, parameter, score = fit_model(model, cols, yc, dc, fold, epochs, device)
+            if mlp_fits is None:
+                predicted, parameter, score = fit_model(model, cols, yc, dc, fold, epochs[cols.shape[1]], device)
+            else:
+                predicted, parameter, score = mlp_fits[arm]
             predictions[arm] = predicted
             picks.append((fold.fold, model, arm, parameter, score))
         candidates = np.column_stack([predictions[arm] for arm in ARMS[1:]])
@@ -161,21 +175,37 @@ def write_fold(fold, panel, original, covered, replacement, output, epochs, devi
         for j, arm in enumerate(ARMS):
             routed_frame[f"{model}/{arm}"] = full[:, j]
     routed_frame.to_parquet(output / f"routed_fold_{fold.fold:02d}.parquet", index=False)
-    print(f"Fold {fold.fold + 1} through {fold.test_end:%Y-%m-%d}: all three models complete", flush=True)
+    print(f"Fold {fold.fold + 1} through {fold.test_end:%Y-%m-%d}: {', '.join(models)} complete", flush=True)
     return scores, picks
 
 
 _WORK = None
 
 
-def init_workers(panel, original, covered, replacement, output, epochs, device, folds):
+def init_workers(panel, original, covered, replacement, output, epochs, device, reuse, folds):
     global _WORK
-    _WORK = (panel, original, covered, replacement, output, epochs, device, folds)
+    _WORK = (panel, original, covered, replacement, output, epochs, device, reuse, folds)
 
 
 def run_worker(index):
     *args, folds = _WORK
     return write_fold(folds[index], *args)
+
+
+def run_mlp_arm(task):
+    index, arm = task
+    panel, original, covered, replacement, _, epochs, device, _, folds = _WORK
+    fold = folds[index]
+    target = panel[TARGET].to_numpy(dtype=float)
+    dates = panel.date.to_numpy()
+    if arm == "original_full":
+        inputs = original
+    else:
+        inputs = original[covered] if arm == "original_matched" else replacement
+        target, dates = target[covered], dates[covered]
+    result = fit_model("MLP", inputs, target, dates, fold, epochs[inputs.shape[1]], device)
+    print(f"Fold {fold.fold + 1} / {arm} complete", flush=True)
+    return result
 
 
 def main():
@@ -187,7 +217,13 @@ def main():
     parser.add_argument("--workers", type=int, default=11)
     parser.add_argument("--mlp-epochs", type=int, default=MLP_EPOCHS)
     parser.add_argument("--mlp-device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--mlp-recipe-multiplier", type=int)
+    parser.add_argument("--reuse-non-mlp", type=Path)
     args = parser.parse_args()
+    if args.mlp_recipe_multiplier is not None and args.mlp_recipe_multiplier < 1:
+        parser.error("--mlp-recipe-multiplier must be positive")
+    if args.reuse_non_mlp and args.reuse_non_mlp.resolve() == args.output.resolve():
+        parser.error("Use a separate output directory when reusing forecasts")
     if args.mlp_epochs < 1:
         parser.error("--mlp-epochs must be positive")
     if args.mlp_device == "cuda":
@@ -206,9 +242,26 @@ def main():
                                     fold.train_end, fold.test_start, fold.test_end])
         if tuple(np.diff(starts)) != (67, 23, 39, 23, 129):
             raise ValueError(f"Unexpected purges or split sizes in fold {fold.fold}")
-    worker_args = (panel, original, covered, replacement, args.output, args.mlp_epochs, args.mlp_device, folds)
+    inputs = {str(p): digest(p) for p in (args.panel, args.meta, args.folds, path)}
+    reuse = args.reuse_non_mlp
+    if reuse:
+        previous = json.loads((reuse / "run_manifest.json").read_text())
+        if list(inputs.values()) != list(previous["inputs"].values()):
+            raise ValueError("Source experiment inputs differ")
+    epochs = {width: ({units: recipe_epochs(width, units, args.mlp_recipe_multiplier)
+                       for units, _ in MLP_GRID} if args.mlp_recipe_multiplier else args.mlp_epochs)
+              for width in (original.shape[1], replacement.shape[1])}
+    worker_args = (panel, original, covered, replacement, args.output, epochs, args.mlp_device, reuse, folds)
     if args.workers == 1:
         records = [write_fold(fold, *worker_args[:-1]) for fold in folds]
+    elif reuse:
+        tasks = [(i, arm) for i in range(len(folds)) for arm in ARMS]
+        with ProcessPoolExecutor(min(args.workers, len(tasks)), mp_context=get_context("fork"),
+                                 initializer=init_workers, initargs=worker_args) as pool:
+            fits = dict(zip(tasks, pool.map(run_mlp_arm, tasks), strict=True))
+        records = [write_fold(fold, *worker_args[:-1],
+                              mlp_fits={arm: fits[i, arm] for arm in ARMS})
+                   for i, fold in enumerate(folds)]
     else:
         with ProcessPoolExecutor(min(args.workers, len(folds)), mp_context=get_context("fork"),
                                  initializer=init_workers, initargs=worker_args) as pool:
@@ -216,15 +269,24 @@ def main():
     scores = pd.DataFrame([row for part, _ in records for row in part],
                           columns=["fold", "date", "model", "arm", "sample", "corr_all", "corr", "mmc"])
     scores["payout"] = .1 * scores["corr"] + scores.mmc
+    picks = pd.DataFrame([row for _, part in records for row in part],
+                         columns=["fold", "model", "arm", "parameters", "inner_corr"])
+    if reuse:
+        old_scores = pd.read_parquet(reuse / "scores.parquet")
+        old_picks = pd.read_csv(reuse / "picks.csv")
+        scores = pd.concat([old_scores[old_scores.model.ne("MLP")], scores], ignore_index=True)
+        picks = pd.concat([old_picks[old_picks.model.ne("MLP")], picks], ignore_index=True)
     scores.to_parquet(args.output / "scores.parquet", index=False)
-    pd.DataFrame([row for _, part in records for row in part],
-                 columns=["fold", "model", "arm", "parameters", "inner_corr"]).to_csv(
-                     args.output / "picks.csv", index=False)
+    picks.to_csv(args.output / "picks.csv", index=False)
     execution = dict(development_start=str(folds[0].test_start.date()),
                      development_end=str(folds[-1].test_end.date()),
-                     inputs={str(p): digest(p) for p in (args.panel, args.meta, args.folds, path)},
+                     inputs=inputs,
                      ridge_alphas=list(ALPHAS), tree_depths=TREE_DEPTHS, tree_iterations=TREE_ITERATIONS,
-                     mlp_seeds=SEEDS, mlp_grid=MLP_GRID, mlp_epochs=args.mlp_epochs, mlp_device=args.mlp_device)
+                     mlp_seeds=SEEDS, mlp_grid=MLP_GRID, mlp_epochs=args.mlp_epochs, mlp_device=args.mlp_device,
+                     mlp_recipe_multiplier=args.mlp_recipe_multiplier,
+                     mlp_epoch_schedule={w: {str(k): v for k, v in settings.items()}
+                                         for w, settings in epochs.items() if isinstance(settings, dict)},
+                     reused_non_mlp=str(reuse) if reuse else None)
     (args.output / "run_manifest.json").write_text(json.dumps(execution, indent=2) + "\n")
 
 

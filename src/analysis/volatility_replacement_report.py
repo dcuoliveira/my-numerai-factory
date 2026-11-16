@@ -118,6 +118,10 @@ def report(root):
     dates = pd.DatetimeIndex(meta.date.unique())
     tested = coverage.date.between(run["development_start"], run["development_end"])
     dev_coverage = coverage.loc[tested, "covered_rows"].sum() / coverage.loc[tested, "panel_rows"].sum()
+    reuse = run.get("reused_non_mlp")
+    recipe = run.get("mlp_recipe_multiplier")
+    epoch_text = (f"runs {recipe}× the size-dependent recipe per fit"
+                  if recipe else f"fits {run['mlp_epochs']:,} epochs")
 
     def page(number, title, subtitle=""):
         fig = plt.figure(figsize=(15, 8.5), facecolor="white")
@@ -128,7 +132,8 @@ def report(root):
     with PdfPages(root / "volatility_replacement_report.pdf",
                   metadata={"Title": "Numerai Crypto v2.0 volatility replacement"}) as pdf:
         fig = page(1, "Replacing volatility in Numerai Crypto v2.0",
-                   "Scratch fits of Ridge, LightGBM and MLP on the shipped and replacement feature sets.")
+                   "New MLP fits with the original Ridge and LightGBM forecasts."
+                   if reuse else "Scratch fits of Ridge, LightGBM and MLP on the shipped and replacement feature sets.")
         rows = []
         for model in MODELS:
             for arm in ARMS:
@@ -250,7 +255,7 @@ def report(root):
             (.309, "Fresh model fits", "Eleven folds use 130 training dates, a 22-date purge and 130 prediction dates. "
              "The last 40 training dates select parameters by inner CORR after an internal 22-date purge. Ridge "
              "tests 13 alphas. LightGBM tests depths 3/5 and 100/250 trees. The ReLU MLP tests two architectures "
-             f"and two penalties, fits {run['mlp_epochs']:,} epochs and averages three fresh refits with paired seeds."),
+             f"and two penalties, {epoch_text} and averages three fresh refits with paired seeds."),
             (.177, "Interpretation", "The nine columns were selected from earlier development studies on overlapping "
              "dates. Results are exploratory. The packaged dataset contains later rows for future use. Training "
              "and scoring here stop at the original February 19, 2026 development cutoff."),
@@ -258,6 +263,39 @@ def report(root):
             subhead(fig, y, heading)
             paragraph(fig, y - .035, body, size=9.4)
         save(pdf, fig)
+
+        if reuse:
+            prior = pd.read_parquet(Path(reuse) / "scores.parquet").sort_values("date", kind="stable")
+            prior_run = json.loads((Path(reuse) / "run_manifest.json").read_text())
+            pd.testing.assert_frame_equal(
+                scores[scores.model.ne("MLP")].reset_index(drop=True),
+                prior[prior.model.ne("MLP")].reset_index(drop=True),
+            )
+            original_mlp = summarize(prior).query("sample == 'routed' and model == 'MLP'").set_index("arm")
+            updated_mlp = routed.loc["MLP"]
+            comparison = pd.concat({"Previous": original_mlp, "Rerun": updated_mlp},
+                                   names=["run"]).reset_index()
+            comparison.to_csv(root / "mlp_epoch_comparison.csv", index=False)
+            fig = page(6, "MLP epoch-budget comparison",
+                       f"The previous run used {prior_run['mlp_epochs']} epochs per fit. "
+                       f"The rerun {epoch_text} on {run['mlp_device'].upper()}.")
+            rows = [[row.run, LABELS[row.arm], f"{row.corr:.5f}", f"{row.mmc:.5f}",
+                     f"{row.payout:.5f}", f"{row.maxdd:.4f}"]
+                    for row in comparison.itertuples(index=False)]
+            table(fig, pd.DataFrame(rows, columns=["Run", "Feature set", "CORR", "Proxy MMC",
+                                                  "Payout", "Max DD"]),
+                  [.065, .447, .87, .29], [.16, .28, .14, .14, .14, .14])
+            subhead(fig, .397, "Fixed epochs per fit")
+            schedule = [[width, units, epochs] for width, settings in run["mlp_epoch_schedule"].items()
+                        for units, epochs in settings.items()]
+            if not schedule:
+                schedule = [["All", "All", run["mlp_epochs"]]]
+            table(fig, pd.DataFrame(schedule, columns=["Input columns", "Hidden layers", "Epochs"]),
+                  [.065, .176, .87, .18], [.35, .35, .30])
+            paragraph(fig, .132, "Each training loop completes its full epoch count. Inner validation CORR selects "
+                      "the architecture and regularization after training. Final forecasts average three fresh refits.",
+                      size=9.5)
+            save(pdf, fig)
     print(routed[["corr", "mmc", "payout", "maxdd"]].to_string(), flush=True)
 
 

@@ -119,3 +119,10 @@ The epoch count applies to each MLP fit, including inner search candidates
 and each final refit seed. The CUDA path uses a fixed PyTorch training loop
 and runs folds serially on the selected GPU. The CPU path advances the
 scikit-learn MLP by one epoch per call.
+
+For the longer MLP rerun, use `--mlp-recipe-multiplier 10`. This applies
+10 times the size-dependent epoch schedule to each architecture and input
+width before validation and refitting. Use `--reuse-non-mlp` with the prior
+experiment directory and a separate output directory containing the same
+dataset and coverage artifacts to retain the original Ridge and LightGBM
+results. The report compares the rerun with the original MLP.
