@@ -1,0 +1,1 @@
+cores=3 ram=32 name=e152_finalize_inferred -- python3 -u -m src.analysis.volumealpha_finalize

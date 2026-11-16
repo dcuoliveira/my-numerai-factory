@@ -1,0 +1,3 @@
+# E153 tabnet_ktz: one 16-cpu slot per arm (search-jobs 4 x 4 torch threads). CPU only.
+cores=16 ram=24 name=e153_raw -- env E153_ARM=raw bash experiments/e153_tabnet_ktz_crypto.sh
+cores=16 ram=24 name=e153_fenccausal -- env E153_ARM=fenccausal bash experiments/e153_tabnet_ktz_crypto.sh

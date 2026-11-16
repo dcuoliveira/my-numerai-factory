@@ -1,0 +1,6 @@
+# E158 tabnet_ktz hparam-importance map. CPU. 16-cpu slots run 4 search workers x 4
+# torch threads; the 9-cpu slot runs 3 x 3. `env` because the manager exec's the line.
+cores=16 ram=24 name=e158_raw_s42 -- env E158_ARM=raw E158_SEED=42 bash experiments/e158_tabnet_ktz_hparams_crypto.sh
+cores=16 ram=24 name=e158_raw_s43 -- env E158_ARM=raw E158_SEED=43 bash experiments/e158_tabnet_ktz_hparams_crypto.sh
+cores=16 ram=24 name=e158_fenccausal_s42 -- env E158_ARM=fenccausal E158_SEED=42 bash experiments/e158_tabnet_ktz_hparams_crypto.sh
+cores=9 ram=24 name=e158_fenccausal_s43 -- env E158_ARM=fenccausal E158_SEED=43 E158_SEARCH_JOBS=3 E158_THREADS=3 bash experiments/e158_tabnet_ktz_hparams_crypto.sh

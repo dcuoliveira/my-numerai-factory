@@ -1,0 +1,4 @@
+cores=6 ram=16 name=e145b_lgb_a -- env E145_VARIANT=bin python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ZS_COV_HEAD FT_COV_HEAD ZS_DELTA_HEAD FT_DELTA_HEAD
+cores=6 ram=16 name=e145b_lgb_b -- env E145_VARIANT=bin python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ZS_FULL_HEAD FT_FULL_HEAD ALL_HEAD
+cores=6 ram=16 name=e145b_mlp -- env E145_VARIANT=bin python3 experiments/e145_c2head_evaluation.py --fit --model mlp_ktz --n-jobs 6
+cores=2 ram=16 name=e145b_rid -- env E145_VARIANT=bin python3 experiments/e145_c2head_evaluation.py --fit --model ridge --n-jobs 1

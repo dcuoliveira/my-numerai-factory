@@ -1,0 +1,2 @@
+# e154_c2synth_return_rank: zero-shot Chronos-2-Synth arm (E154). One GPU, 4 cores.
+cores=4 ram=24 gpu=1 name=e154_c2synth_return_rank -- env HF_HOME=/scratch/danielco/hf HF_HUB_OFFLINE=1 PYTHONPATH=/home/danielco/Downloads/my-numerai-agent NMR_UNIT=nmr-e154_c2synth_return_rank /scratch/danielco/chronos2/venv/bin/python -m src.data_mani.c2synth_zeroshot run --arm return_rank

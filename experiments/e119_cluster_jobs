@@ -1,0 +1,10 @@
+# E119 -- IA_01 training window, one arm per job (src.cluster). The report waits for
+# all seven: REPORT_ONLY=1 bash experiments/e119_ia01_train_window_crypto.sh
+# Each arm runs 8 search processes on one BLAS thread each, so it fills exactly its slot.
+cores=8 ram=16 name=e119_w130 -- env ONLY=e119_w130 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w65 -- env ONLY=e119_w65 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w22 -- env ONLY=e119_w22 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w20 -- env ONLY=e119_w20 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w15 -- env ONLY=e119_w15 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w10 -- env ONLY=e119_w10 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh
+cores=8 ram=16 name=e119_w5 -- env ONLY=e119_w5 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e119_ia01_train_window_crypto.sh

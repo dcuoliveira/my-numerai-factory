@@ -707,7 +707,15 @@ def test_submission_order_is_cheapest_first():
     assert costs == sorted(costs), (
         "fitting slots must run cheapest-first, got %s" % list(zip(fitting, costs)))
     assert registry.ORDER[0] == "CURUPIRA_02", "the no-build slot must go first"
-    assert set(registry.ORDER) == set(registry.MODELS)
+    # BACKTEST_ONLY slots are named and backtested but have no live path, so they
+    # are the one deliberate exception to "everything registered gets fitted".
+    assert set(registry.ORDER) == set(registry.MODELS) - registry.BACKTEST_ONLY
+    assert registry.BACKTEST_ONLY <= registry.NOT_SUBMITTED, (
+        "a backtest-only slot can never be uploaded")
+    live_members = {member["name"] for name in registry.ORDER
+                    for member in (registry.MODELS[name].get("slot_members") or [])}
+    assert not live_members & registry.BACKTEST_ONLY, (
+        "a live slot cannot rank-average a backtest-only one")
 
 
 def test_every_slot_blend_can_be_fed_from_its_own_declared_feature_set():
@@ -882,6 +890,95 @@ def test_tenc_never_sees_a_live_row_target():
     # The lag means the live rows' support stops 20 periods short of the end.
     live_support = encoded.loc[encoded["is_live"], "_tenc_support"]
     assert (live_support <= 60 - TENC_LAG + 3).all()
+
+
+def test_tenc_survives_a_history_gap_longer_than_the_lag():
+    """
+    From round 1368 (2026-10-01) train.parquet lagged live by 32 days, so the
+    live rows' 20-period lookback reached into live-history rows whose target has
+    not resolved. Their NaN entered the prefix sum and every tenc-bearing slot
+    fell through to the sibling for 13 rounds. An unresolved row is simply not an
+    observation: the encoding must equal what the resolved rows alone give.
+    """
+    panel = make_panel(n_periods=60, n_live=TENC_LAG + 12)
+    assert panel.loc[panel["is_live"], TARGET].isna().all()
+    encoded, _ = add_tenc(panel)
+    assert np.isfinite(encoded["feature_sym_tenc"]).all()
+
+    # Live rows past the gap see every resolved row and nothing else.
+    last = encoded[encoded[PERIOD] == encoded[PERIOD].max()]
+    resolved = panel[~panel["is_live"]].groupby(SYMBOL).size()
+    assert (last.set_index(SYMBOL)["_tenc_support"] == resolved.reindex(last[SYMBOL])).all()
+
+    # Unresolved rows change nothing for the training rows: encoding train alone
+    # gives the same values the full panel does.
+    train_only = panel[~panel["is_live"]].reset_index(drop=True)
+    alone, _ = add_tenc(train_only)
+    rows = alone[[SYMBOL, PERIOD, "feature_sym_tenc"]].merge(
+        encoded[[SYMBOL, PERIOD, "feature_sym_tenc"]], on=[SYMBOL, PERIOD])
+    assert len(rows) == len(train_only)
+    assert (rows["feature_sym_tenc_x"] == rows["feature_sym_tenc_y"]).all()
+
+
+def _ridge_on(columns, seed=0):
+    from sklearn.linear_model import Ridge
+    rng = np.random.default_rng(seed)
+    X = pd.DataFrame(rng.normal(size=(40, len(columns))), columns=columns)
+    return Ridge(alpha=1.0).fit(X, rng.normal(size=40))
+
+
+def test_a_stale_cache_predicts_on_the_columns_it_was_fitted_on():
+    """
+    2026-10-21: a token crossed ONEHOT_MIN_DATES, the vocabulary grew 753 -> 754,
+    SACI_06's refit was skipped for budget, and its "stale cache" was handed the
+    new 777-column list -- LightGBM refused it (fitted on 776) and the slot fell
+    to the sibling. The vocabulary only grows, so the old columns are all there.
+    """
+    from src.live.refit import usable_columns
+    old = ["feature_a", "feature_sym_X", "feature_sym_Y"]
+    new = ["feature_a", "feature_sym_W", "feature_sym_X", "feature_sym_Y"]
+    model = _ridge_on(old)
+
+    cols, note = usable_columns(model, new)
+    assert cols == old and "own 3 fitted columns" in note
+    frame = pd.DataFrame(np.ones((2, 4)), columns=new)
+    model.predict(frame[cols])                        # does not raise
+
+    assert usable_columns(model, old) == (old, None)
+    # A fitted column that vanished cannot be conjured up.
+    cols, note = usable_columns(model, ["feature_a", "feature_sym_X"])
+    assert cols is None and "feature_sym_Y" in note
+    # An estimator that does not name its inputs is left alone.
+    assert usable_columns(object(), new) == (new, None)
+
+
+def test_a_blend_cache_survives_a_vocabulary_that_grew(tmp_path, monkeypatch):
+    """
+    load_blend treated ANY width change as an unreadable cache, so CURUPIRA_05_60
+    -- a component of 12 slot blends, staked CURUPIRA_08 among them -- had no
+    fit at all once its refit was skipped, and all 12 fell to the sibling.
+    """
+    import json
+    import joblib
+    from src.live import refit as refit_module
+
+    old = ["feature_sym_X", "feature_sym_Y"]
+    monkeypatch.setattr(registry, "meta_path", lambda name: str(tmp_path / ("%s.json" % name)))
+    monkeypatch.setattr(registry, "member_path",
+                        lambda name, member: str(tmp_path / ("%s__%s.joblib" % (name, member))))
+    joblib.dump(_ridge_on(old), registry.member_path("CURUPIRA_05_60", "onehot"))
+    with open(registry.meta_path("CURUPIRA_05_60"), "w") as handle:
+        json.dump({"members": [{"name": "onehot", "include": "^feature_sym_(?!tenc$)",
+                                "n_features": 2, "weight": 1.0}]}, handle)
+
+    grown = ["feature_sym_W", "feature_sym_X", "feature_sym_Y", "feature_sym_tenc"]
+    blend, metadata = refit_module.load_blend("CURUPIRA_05_60", grown)
+    assert blend is not None and blend.members[0][2] == old
+    blend.predict(pd.DataFrame(np.ones((3, 4)), columns=grown))
+
+    # A column the member was fitted on is gone: still refused, as before.
+    blend, _ = refit_module.load_blend("CURUPIRA_05_60", ["feature_sym_W", "feature_sym_X"])
+    assert blend is None
 
 
 def test_tenc_lag_equals_the_target_horizon():

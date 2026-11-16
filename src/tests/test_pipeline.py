@@ -1188,6 +1188,123 @@ class TestCatBoostKtz(unittest.TestCase):
         self.assertLess(abs(scored(block) - scored(per_period)), 5e-3)
 
 
+class TestGP(unittest.TestCase):
+    """
+    The subsampled exact Gaussian Process (E53), regression and classification.
+
+    A GP is O(n^3), so the wrapper caps the training rows with a seeded draw
+    taken inside fit; these tests fix the invariants the rest of the pipeline
+    leans on -- the grid searches under both random and bayes, the estimator
+    honours clone -> set_params -> fit -> predict_signal and the joblib dump
+    live/refit.py does, the subsample is deterministic and capped, the kernel is
+    frozen by default (so the outer search owns the scale), --model-options
+    subsample flows through, and a singular kernel falls back instead of crashing.
+    Panels are tiny and the subsample tinier so every fit stays unit-cheap.
+    """
+
+    def setUp(self):
+        rng = np.random.default_rng(11)
+        self.n_date, self.n_sym, p = 40, 25, 22
+        self.dates = np.repeat(np.arange(self.n_date), self.n_sym)
+        N = self.n_date * self.n_sym
+        # Features already rank-binned to [0,1], as the pipeline delivers them.
+        self.X = pd.DataFrame(rng.integers(0, 5, size=(N, p)).astype("float64") / 4.0)
+        beta = rng.normal(size=p)
+        drift = np.repeat(rng.normal(scale=2.0, size=self.n_date), self.n_sym)
+        raw = self.X.values @ beta + drift + rng.normal(scale=3.0, size=N)
+        # A target on [0,1] so (y > 0.5) binarises ~50/50, like binarize_target.
+        self.y = pd.Series(raw).rank(pct=True)
+
+    def test_registered_for_both_tasks(self):
+        self.assertIn("gp", MODELS)
+        self.assertEqual(set(supported_tasks("gp")),
+                         {"regression", "classification"})
+
+    def test_grid_is_bayes_searchable_and_translates(self):
+        # No kernel objects: the grid is scalars + strings, so it must carry no
+        # sequence-valued entry and must translate under --search-type bayes.
+        for task in ("regression", "classification"):
+            w = build_wrapper("gp", task=task, seed=42, n_jobs=1)
+            self.assertEqual(sequence_valued_params(w.param_grid), [], task)
+            space = to_space(w.param_grid)
+            self.assertEqual(set(space), set(w.param_grid), task)
+
+    def test_clone_and_set_params_round_trip(self):
+        w = build_wrapper("gp", task="regression", seed=42, n_jobs=1, subsample=500)
+        est = clone(w.ModelClass)
+        self.assertEqual(est.get_params()["subsample"], 500)
+        est.set_params(kernel="matern52", length_scale=2.0, alpha=0.1)
+        self.assertEqual(est.get_params()["kernel"], "matern52")
+        self.assertEqual(est.get_params()["length_scale"], 2.0)
+
+    def test_fits_and_predicts_a_finite_signal_for_both_tasks(self):
+        # The path hyper_params_search takes: clone -> set_params -> fit ->
+        # predict_signal, for regression (posterior mean) and classification
+        # (positive-class probability on the binarised target).
+        for task in ("regression", "classification"):
+            w = build_wrapper("gp", task=task, seed=42, n_jobs=1, subsample=300)
+            est = clone(w.ModelClass)
+            est.set_params(kernel="matern32", length_scale=1.0)
+            target = (self.y > 0.5).astype(int) if task == "classification" else self.y
+            est.fit(self.X, target)
+            signal = predict_signal(est, self.X, task)
+            self.assertEqual(signal.shape, (len(self.X),), task)
+            self.assertTrue(np.isfinite(signal).all(), task)
+
+    def test_classifier_predict_proba_is_a_distribution(self):
+        w = build_wrapper("gp", task="classification", seed=42, n_jobs=1, subsample=300)
+        est = clone(w.ModelClass)
+        est.fit(self.X, (self.y > 0.5).astype(int))
+        proba = est.predict_proba(self.X)
+        self.assertEqual(proba.shape, (len(self.X), 2))
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0)
+
+    def test_subsample_is_deterministic_and_capped(self):
+        from src.prediction.gp import SubsampledGPRegressor
+        a = SubsampledGPRegressor(subsample=200, random_state=7).fit(self.X, self.y)
+        b = SubsampledGPRegressor(subsample=200, random_state=7).fit(self.X, self.y)
+        np.testing.assert_array_equal(a.gp_.X_train_, b.gp_.X_train_)
+        self.assertEqual(a.n_train_, 200)
+        # subsample >= block size uses every row.
+        c = SubsampledGPRegressor(subsample=10 ** 6, random_state=7).fit(self.X, self.y)
+        self.assertEqual(c.n_train_, len(self.X))
+
+    def test_kernel_is_frozen_by_default_and_tunable_on_request(self):
+        from src.prediction.gp import SubsampledGPRegressor
+        frozen = SubsampledGPRegressor(length_scale=1.0, subsample=200,
+                                       random_state=0).fit(self.X, self.y)
+        self.assertIsNone(frozen.gp_.optimizer)          # outer search owns the scale
+        tuned = SubsampledGPRegressor(length_scale=1.0, subsample=200,
+                                      length_scale_bounds=(1e-2, 1e2),
+                                      random_state=0).fit(self.X, self.y)
+        self.assertEqual(tuned.gp_.optimizer, "fmin_l_bfgs_b")
+
+    def test_model_options_subsample_flows_through(self):
+        w = build_wrapper("gp", task="regression", seed=42, n_jobs=1, subsample=1234)
+        self.assertEqual(w.ModelClass.get_params()["subsample"], 1234)
+
+    def test_survives_joblib_roundtrip(self):
+        # The deployability contract: src/live/refit.py dumps best_estimator_.
+        import io, joblib
+        est = clone(build_wrapper("gp", task="regression", seed=42, n_jobs=1,
+                                  subsample=300).ModelClass)
+        est.set_params(kernel="matern52", length_scale=0.5)
+        est.fit(self.X, self.y)
+        buf = io.BytesIO(); joblib.dump(est, buf); buf.seek(0)
+        np.testing.assert_allclose(joblib.load(buf).predict(self.X),
+                                   est.predict(self.X))
+
+    def test_singular_kernel_falls_back_instead_of_crashing(self):
+        # A tiny alpha with a short length-scale is where E54's alpha=1e-3 corner
+        # can produce a near-singular kernel; the fit must degrade to a constant,
+        # not raise, so a sensitivity sweep records a flat cell.
+        from src.prediction.gp import SubsampledGPRegressor
+        est = SubsampledGPRegressor(kernel="rbf", length_scale=0.02, alpha=1e-12,
+                                    normalize_y=False, subsample=300,
+                                    random_state=0).fit(self.X, self.y)
+        self.assertTrue(np.isfinite(est.predict(self.X)).all())
+
+
 class TestReferenceNaming(unittest.TestCase):
     """
     The reference series must never share a name with our own prediction column.

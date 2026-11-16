@@ -1,0 +1,2 @@
+# E129 step 1 (re-run): leaf panel + -rfleaf variants. Check fixed to E128's blocks 2-3 (see build_rfleaf docstring).
+cores=16 ram=64 name=e129_leaf2 -- python3 -u -m src.data_mani.build_rfleaf --search-jobs 8 --n-jobs 2

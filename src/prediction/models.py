@@ -63,6 +63,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 
 from src.prediction.generalised_ridge import GeneralisedRidge, parse_group_spec
+from src.prediction.sur_ridge import SurRidge, SurAugment
 from scipy.stats import randint as sp_randint
 from scipy.stats import uniform as sp_uniform
 
@@ -486,6 +487,53 @@ class GenRidgeWrapper:
 # Gradient boosting
 # --------------------------------------------------------------------------- #
 
+class SurRidgeWrapper:
+    """
+    Multi-symbol multivariate ridge: feasible GLS across the cross-section.
+
+    The contrast to `ridge_glmnet` (one shared beta on the STACKED panel, errors
+    treated i.i.d.). `sur_ridge` fits the same shared beta but partials out k
+    common CROSS-SYMBOL factors from the residuals -- the GLS adjustment under a
+    factor covariance -- so it exploits the fact that coins' errors co-move within
+    a date. n_factors=0 is an exact stacked-ridge control, so the value of the
+    method is the searched k>0 against it. See src/prediction/sur_ridge.py.
+
+    The symbol of each row is routed to fit() (WANTS_SYMBOL) alongside the date
+    (WANTS_PERIOD); neither is needed at predict time. Both regression and the
+    pipeline's binary classification are implemented. --model-options tune the
+    factor grid, the min-symbol-rows floor and the alpha span WITHOUT collapsing
+    the search (unlike --fixed-params).
+    """
+
+    WANTS_PERIOD = True
+    WANTS_SYMBOL = True
+
+    def __init__(self, task="regression", seed=None, n_jobs=None,
+                 n_factors=(0, 1, 2, 3, 5), min_symbol_rows=60,
+                 alpha_lo=0.0, alpha_hi=5.0, n_alpha=50):
+        del n_jobs                       # the solve is a single Cholesky
+        self.model_name = "sur_ridge"
+        self.search_type = "random"
+        self.task = task
+        self.n_factors = tuple(int(k) for k in n_factors)
+        if any(k < 0 for k in self.n_factors):
+            raise ValueError("n_factors must be non-negative, got %r" % (n_factors,))
+        self.min_symbol_rows = int(min_symbol_rows)
+        if float(alpha_lo) >= float(alpha_hi):
+            raise ValueError("alpha_lo must be below alpha_hi, got %r and %r"
+                             % (alpha_lo, alpha_hi))
+        self.ModelClass = SurRidge(task=task, min_symbol_rows=self.min_symbol_rows,
+                                   random_state=seed)
+        # alpha is on the internally STANDARDISED design, so its scale tracks the
+        # Gram diagonal (~ n rows); the span brackets near-OLS to strong shrinkage
+        # on the ~39k-row blocks here. n_factors is a small discrete list; k=0 is
+        # the stacked-ridge control the search is free to pick.
+        self.param_grid = {
+            "alpha": np.logspace(float(alpha_lo), float(alpha_hi), int(n_alpha)),
+            "n_factors": list(self.n_factors),
+        }
+
+
 class LGBWrapper(_BoosterWrapper):
     """LightGBM. The ranges here are the directly evidenced ones."""
 
@@ -896,6 +944,72 @@ class RFWrapper:
         grid = dict(self.param_grid)
         grid[self.leaf_param] = scaled_leaf_range(len(X))
         return grid
+
+
+class RFKtzWrapper(RFWrapper):
+    """
+    Random forest with the E48 (Kalfa-Timmermann-van der Zwan) priors compiled
+    into a search grid -- the forest analogue of MLPKtzWrapper (E17) and
+    LGBKtzWrapper (E27). E48 swept a 192-cell factorial on the raw 22 and read
+    off, from the payout marginals and a functional-ANOVA decomposition, where
+    the good forests live and which knobs actually move the outcome. This wrapper
+    is that reading turned into a grid.
+
+    --------------------------------------------------------------------------
+    What E48 found, and how each finding becomes a grid choice
+    --------------------------------------------------------------------------
+
+    n_estimators is a RED HERRING (fANOVA main-effect share 0.0002; medians 100
+    vs 300 vs 1000 agree to 0.0015 payout). A forest averages independent trees,
+    so past ~100 the variance is already gone. So it is PINNED at 100 -- the grid
+    spends none of its search budget there, exactly the E17-style "do not tune
+    the axis that does not move" discipline.
+
+    max_depth and min_samples_leaf are the two axes that matter (fANOVA 0.28 and
+    0.31) AND they interact strongly (0.25) -- a deep tree is fine only if the
+    leaf floor is heavy, because the two are alternate routes to the same
+    complexity control. Both point the Numerai way: SHALLOW (depth 3 best,
+    monotone worse to None) and HEAVY LEAF (monotone better to the grid's
+    ceiling). So depth is a shallow gate {3, 4, 6} and the leaf floor is a heavy
+    sweep.
+
+    THE LEAF CEILING WAS BINDING. min_samples_leaf's marginal rose monotonically
+    to 1000 -- the largest value E48 tried -- so 1000 is the grid EDGE, not a
+    measured interior optimum. This is the same trap E07's alpha ceiling was
+    (best value pinned to the boundary means the boundary bound the optimum), and
+    the E17/E33 remedy is to OPEN it. So this grid runs the leaf floor to 4000
+    (~10% of a 39k-row block, still splittable at these depths) to find where it
+    actually peaks rather than assuming 1000.
+
+    max_features is the Numerai colsample idiom and matters moderately (0.12);
+    low wins monotonically (0.1 best, 1.0 worst, 0/48 of the good cells at 1.0).
+    So the grid is a DENSE LOW sweep {0.05 .. 0.30} and 0.6/1.0 are dropped --
+    the bad corner is unreachable by construction.
+
+    Grid size 1 x 3 x 5 x 4 = 60 cells; every cell sits in E48's good region, so
+    a random search only ever fine-tunes. Run it with --n-iter ~40.
+
+    Like LGBKtzWrapper, fit_grid returns the static grid UNCHANGED: the leaf
+    values are the prior itself (absolute counts the CURUPIRA 130-period block
+    makes ~39k rows), so the plain RFWrapper's per-block leaf rescale must NOT
+    fire here or it would overwrite the very values the study identified.
+    """
+
+    def __init__(self, task="regression", seed=None, n_jobs=-1):
+        super().__init__(task=task, seed=seed, n_jobs=n_jobs)
+        self.model_name = "rf_ktz"
+        self.param_grid = {
+            "n_estimators": [100],                       # red herring -- pinned
+            "max_depth": [3, 4, 6],                       # shallow gate
+            "max_features": [0.05, 0.10, 0.15, 0.20, 0.30],  # dense low colsample
+            "min_samples_leaf": [300, 1000, 2000, 4000],     # heavy; ceiling OPENED past E48's 1000
+            "bootstrap": [True],
+        }
+
+    def fit_grid(self, X, y):
+        """Return the static prior grid unchanged -- see the class docstring on
+        why the leaf floor must not be rescaled per block here."""
+        return self.param_grid
 
 
 # --------------------------------------------------------------------------- #
@@ -1890,6 +2004,80 @@ class TabNetWrapper:
         ]
 
 
+class TabNetKtzWrapper(TabNetWrapper):
+    """
+    TabNet with a WIDE, prior-shaped exploration grid (study E153).
+
+    E18 ran TabNet pinned at library defaults and it lost to the deployed slot on
+    every dataset (payout delta -0.015..-0.043, t -2.0..-5.3). Its write-up named
+    the only remaining lever as tuning. This wrapper is that tuning, built in
+    the KTZ style used for lgb_ktz/catboost_ktz/rf_ktz/mlp_ktz: every axis the
+    estimator exposes is opened, and the priors shape the RANGES and the grid's
+    STRUCTURE instead of pinning values.
+
+    Priors carried over:
+
+      * LEARNING RATE is the axis that mattered most for every net here (E17,
+        E105 mlp_ktz): a dense log grid, 3e-4 .. 5e-2. The library default 0.02
+        sits inside it, so E18's configuration stays reachable.
+      * REGULARISATION. lambda_sparse spans 1e-6 .. 1e-1. Below 1e-4 the masks
+        are effectively unpenalised, and that is opened deliberately, since
+        the 22 shipped features are already selected and binned (E18's
+        mechanism). Momentum (BatchNorm) runs 0.005 .. 0.3; that axis is
+        known to move TabNet a lot on small data.
+      * CAPACITY. n_a is TIED to n_d (the paper ties them). One sub-grid per
+        width, so the random search samples a width and then everything else
+        independently, the list-of-dicts idiom the boosters use. Widths go up
+        to 64 and n_steps up to 7. That is wider than TabNetWrapper.SHAPES,
+        because a search that never sees large nets cannot rule them out.
+      * TRAINING LENGTH. With no eval_set (see tabnet.py: leak-free), max_epochs
+        is exact rather than a cap, so it is the early-stopping axis and is
+        searched: 30 .. 150.
+      * BATCH. Ghost batch norm needs virtual_batch_size <= batch_size, and
+        every pair here satisfies that (largest virtual 512 <= smallest batch
+        1024). Larger batches are also cheaper per epoch.
+
+    Grid per width: 20 lr x 11 lambda x 5 steps x 4 gamma x 3 x 3 GLU x 5
+    momentum x 2 mask x 3 batch x 3 virtual x 4 epochs = 28.5M cells, and with
+    4 widths about 114M. RandomizedSearchCV samples it without enumerating it,
+    so the size costs nothing. --n-iter alone sets the budget.
+    """
+
+    LEARNING_RATES = np.logspace(np.log10(3e-4), np.log10(5e-2), 20)
+    LAMBDA_SPARSE = np.logspace(-6, -1, 11)
+    WIDTHS = [8, 16, 32, 64]                 # n_d == n_a
+    N_STEPS = [2, 3, 4, 5, 7]
+    GAMMAS = [1.0, 1.3, 1.5, 2.0]
+    N_INDEPENDENT = [1, 2, 3]
+    N_SHARED = [1, 2, 3]
+    MOMENTUM = [0.005, 0.02, 0.05, 0.1, 0.3]
+    MASK_TYPES = ["sparsemax", "entmax"]
+    BATCH_SIZES = [1024, 2048, 4096]
+    VIRTUAL_BATCH_SIZES = [128, 256, 512]
+    MAX_EPOCHS = [30, 60, 100, 150]
+
+    def __init__(self, task="regression", seed=None, n_jobs=-1, device="cpu"):
+        super().__init__(task=task, seed=seed, n_jobs=n_jobs, device=device)
+        self.model_name = "tabnet_ktz"
+        shared = {
+            "net__n_steps": self.N_STEPS,
+            "net__gamma": self.GAMMAS,
+            "net__n_independent": self.N_INDEPENDENT,
+            "net__n_shared": self.N_SHARED,
+            "net__lambda_sparse": self.LAMBDA_SPARSE,
+            "net__momentum": self.MOMENTUM,
+            "net__mask_type": self.MASK_TYPES,
+            "net__learning_rate": self.LEARNING_RATES,
+            "net__batch_size": self.BATCH_SIZES,
+            "net__virtual_batch_size": self.VIRTUAL_BATCH_SIZES,
+            "net__max_epochs": self.MAX_EPOCHS,
+        }
+        self.param_grid = [
+            dict(shared, **{"net__n_d": [w], "net__n_a": [w]})
+            for w in self.WIDTHS
+        ]
+
+
 # --------------------------------------------------------------------------- #
 # TabPFN -- a tabular FOUNDATION model, no per-dataset training at all
 # --------------------------------------------------------------------------- #
@@ -1994,16 +2182,175 @@ class TabPFNClfWrapper:
 
 
 # --------------------------------------------------------------------------- #
+# Gaussian Process -- the one kernel model, and the one that carries a posterior
+# --------------------------------------------------------------------------- #
+
+class GPWrapper:
+    """
+    Subsampled exact Gaussian Process, regression and classification.
+
+    The estimators live in src.prediction.gp; see that module for why the
+    training rows are subsampled (a GP is O(n^3) and a pooled block is 20k-500k
+    rows), why the kernel is chosen by a STRING rather than a kernel object (a
+    kernel object is a silent --search-type bayes trap), and why it is frozen by
+    default (so the OUTER search sets and RECORDS the scale, and a live slot can
+    pin it with --fixed-params, exactly like ridge's alpha).
+
+    --------------------------------------------------------------------------
+    The search grid
+    --------------------------------------------------------------------------
+
+    Regression tunes three scalars/strings: the kernel FAMILY (Matern-3/2,
+    Matern-5/2, RBF -- roughest to smoothest), the LENGTH-SCALE (how fast the
+    return surface varies; log-spaced ~0.05..5 on [0,1]-scaled features), and
+    ALPHA, the observation-noise floor. alpha leans HIGH -- the same "the target
+    is mostly noise" lesson that pushes the boosters' min_data_in_leaf and the
+    MLP's alpha up, and what also keeps K + alpha*I positive definite.
+
+    Classification (GaussianProcessClassifier) drops alpha -- the Laplace
+    approximation has no noise diagonal -- and keeps kernel + length-scale.
+
+    ARD (one length-scale per feature) is NOT tuned here: it is 22-44 extra
+    dimensions that cannot be swept as scalars, so it stays a constructor default
+    (isotropic) that E54 pins per cell via --fixed-params and gp_ktz compiles in
+    only if the sweep says it wins. `subsample` (the O(n^3) row cap) and
+    `max_iter_predict` arrive via --model-options so they are fixed per run and
+    recorded in the metrics json, not searched.
+
+    Every grid entry is a numeric array or a string list, so the grid translates
+    under both --search-type random and bayes with no search_spaces change.
+    """
+
+    def __init__(self, task="regression", seed=None, n_jobs=-1, subsample=None,
+                 max_iter_predict=100):
+        # n_jobs is accepted and dropped, like MLP/TabPFN: GaussianProcessRegressor
+        # has no worker count, and GaussianProcessClassifier only parallelises
+        # across one-vs-rest classes -- binary is a single class, so there is
+        # nothing to parallelise. BLAS threads (OMP/MKL/OPENBLAS_NUM_THREADS) are
+        # the only knob that bounds a Cholesky; the runners export them.
+        del n_jobs
+
+        self.model_name = "gp"
+        self.search_type = "random"
+
+        # kernel FAMILY as a string (never a kernel object) and a log-spaced
+        # length-scale; shared by both tasks.
+        kernel_grid = ["matern32", "matern52", "rbf"]
+        length_scale_grid = np.logspace(-1.3, 0.7, 20)      # ~0.05 .. ~5, log
+
+        if task == "classification":
+            from src.prediction.gp import SubsampledGPClassifier
+            kwargs = {"random_state": seed,
+                      "max_iter_predict": int(max_iter_predict)}
+            if subsample is not None:
+                kwargs["subsample"] = int(subsample)
+            self.ModelClass = SubsampledGPClassifier(**kwargs)
+            self.param_grid = {
+                "kernel": kernel_grid,
+                "length_scale": length_scale_grid,
+            }
+        else:
+            from src.prediction.gp import SubsampledGPRegressor
+            kwargs = {"random_state": seed}
+            if subsample is not None:
+                kwargs["subsample"] = int(subsample)
+            self.ModelClass = SubsampledGPRegressor(**kwargs)
+            self.param_grid = {
+                "kernel": kernel_grid,
+                "length_scale": length_scale_grid,
+                "alpha": np.logspace(-3, 0.5, 20),          # NOISE floor, high
+            }
+
+
+# --------------------------------------------------------------------------- #
 # Registry
 # --------------------------------------------------------------------------- #
 #
 # Same plain-dict dispatch the CLI uses for tournaments. Adding a model means
 # writing a wrapper and adding one line here.
 #
+class _SurTreeWrapper:
+    """
+    A tree family (lgb/rf/catboost) with the cross-symbol factor-GLS treatment.
+
+    The E61/`sur_ridge` idea generalised to a non-linear base: SurAugment adds k
+    common cross-symbol factor scores as EXTRA FEATURES during fit and predicts
+    with them zeroed, so the tree explains away common shocks in-sample and scores
+    on real features out-of-sample. n_factors=0 is an EXACT plain-tree control.
+
+    It reuses an existing base wrapper (LGBKtzWrapper etc.) for the estimator AND
+    its tuned grid, wrapping the estimator in SurAugment and prefixing the grid
+    keys with `estimator__` so the search ranges over base hyperparameters x
+    n_factors. fit_grid is delegated to the base (lgb_ktz rescales
+    min_child_samples per block there), so nothing about the base tune changes
+    except the added factor columns. Symbol and date are routed to fit().
+    """
+
+    WANTS_PERIOD = True
+    WANTS_SYMBOL = True
+
+    def __init__(self, model_name, base, task, n_factors=(0, 1, 2, 3, 5),
+                 min_symbol_rows=60):
+        self.model_name = model_name
+        self.search_type = "random"
+        self.task = task
+        self._base = base
+        self.n_factors = tuple(int(k) for k in n_factors)
+        if any(k < 0 for k in self.n_factors):
+            raise ValueError("n_factors must be non-negative, got %r" % (n_factors,))
+        self.ModelClass = SurAugment(estimator=base.ModelClass, task=task,
+                                     min_symbol_rows=int(min_symbol_rows))
+
+    def _prefix(self, grid):
+        def one(g):
+            d = {"estimator__" + k: v for k, v in g.items()}
+            d["n_factors"] = list(self.n_factors)
+            return d
+        return [one(g) for g in grid] if isinstance(grid, list) else one(grid)
+
+    @property
+    def param_grid(self):
+        # The un-rescaled grid, for anything that inspects a wrapper's search
+        # space without data in hand (the bayes-translation tests, --search-type
+        # bayes); fit_grid is what a real fit searches.
+        return self._prefix(self._base.param_grid)
+
+    def fit_grid(self, X, y):
+        base_grid = (self._base.fit_grid(X, y) if hasattr(self._base, "fit_grid")
+                     else self._base.param_grid)
+        return self._prefix(base_grid)
+
+
+class SurLgbWrapper(_SurTreeWrapper):
+    def __init__(self, task="regression", seed=None, n_jobs=-1, **options):
+        base = LGBKtzWrapper(task=task, seed=seed, n_jobs=n_jobs)
+        super().__init__("sur_lgb", base, task, **options)
+
+
+class SurRfWrapper(_SurTreeWrapper):
+    def __init__(self, task="regression", seed=None, n_jobs=-1, **options):
+        base = RFKtzWrapper(task=task, seed=seed, n_jobs=n_jobs)
+        super().__init__("sur_rf", base, task, **options)
+
+
+class SurCatboostWrapper(_SurTreeWrapper):
+    # catboost_ktz is regression-only; the plain catboost wrapper carries the
+    # classifier, so each task keeps a matched stacked baseline of the same base.
+    def __init__(self, task="regression", seed=None, n_jobs=-1, **options):
+        base = (CatBoostKtzWrapper(task=task, seed=seed, n_jobs=n_jobs)
+                if task == "regression"
+                else CatBoostWrapper(task=task, seed=seed, n_jobs=n_jobs))
+        super().__init__("sur_catboost", base, task, **options)
+
+
 MODELS = {
     "ridge": RidgeWrapper,
     "ridge_glmnet": RidgeGlmnetWrapper,
     "gen_ridge": GenRidgeWrapper,
+    "sur_ridge": SurRidgeWrapper,
+    "sur_lgb": SurLgbWrapper,
+    "sur_rf": SurRfWrapper,
+    "sur_catboost": SurCatboostWrapper,
     "lgb": LGBWrapper,
     "lgb_ktz": LGBKtzWrapper,
     "xgb": XGBWrapper,
@@ -2011,6 +2358,7 @@ MODELS = {
     "catboost_ktz": CatBoostKtzWrapper,
     "catboost_ktz_ens": CatBoostKtzEnsembleWrapper,
     "rf": RFWrapper,
+    "rf_ktz": RFKtzWrapper,
     "mlp": MLPWrapper,
     "mlp_ktz": MLPKtzWrapper,
     "mlp_ktz_ens": MLPKtzEnsembleWrapper,
@@ -2020,8 +2368,10 @@ MODELS = {
     "torch_mlp_emb": TorchMLPEmbWrapper,
     "torch_mlp_loss": TorchMLPLossWrapper,
     "tabnet": TabNetWrapper,
+    "tabnet_ktz": TabNetKtzWrapper,
     "tabpfn": TabPFNWrapper,
     "tabpfn_clf": TabPFNClfWrapper,
+    "gp": GPWrapper,
 }
 
 

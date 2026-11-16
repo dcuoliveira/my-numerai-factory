@@ -1,0 +1,15 @@
+# E123 -- from-scratch-searched LightGBM training window, one arm per job.
+# Each arm runs a --n-iter 60 search as 4 processes x 2 BLAS threads = 8 cores,
+# filling its slot exactly. NO_MAIL per arm; render the report once all land:
+#   REPORT_ONLY=1 bash experiments/e123_train_window_lgb_search_crypto.sh
+#
+#   python3 -m src.cluster plan --jobs experiments/e123_cluster_jobs
+#   python3 -m src.cluster run  --jobs experiments/e123_cluster_jobs
+#
+cores=8 ram=16 name=e123_w130 -- env ONLY=e123_w130 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w65 -- env ONLY=e123_w65 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w22 -- env ONLY=e123_w22 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w20 -- env ONLY=e123_w20 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w15 -- env ONLY=e123_w15 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w10 -- env ONLY=e123_w10 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh
+cores=8 ram=16 name=e123_w5 -- env ONLY=e123_w5 NO_MAIL=1 E123_SEARCH_JOBS=4 E123_N_JOBS=2 bash experiments/e123_train_window_lgb_search_crypto.sh

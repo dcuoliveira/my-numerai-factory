@@ -1,0 +1,24 @@
+cores=4 ram=18 name=e146_lgb_full -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL
+cores=3 ram=18 name=e146_mlp_full -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms FULL
+cores=4 ram=18 name=e146_lgb_addedonly -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms ADDED_ONLY
+cores=3 ram=18 name=e146_mlp_addedonly -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms ADDED_ONLY
+cores=4 ram=18 name=e146_lgb_fc2cov -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_C2COV
+cores=3 ram=18 name=e146_mlp_fc2cov -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_C2COV
+cores=4 ram=18 name=e146_lgb_fc2ar -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_C2AR
+cores=3 ram=18 name=e146_mlp_fc2ar -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_C2AR
+cores=4 ram=18 name=e146_lgb_fc2ftcov -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_C2FTCOV
+cores=3 ram=18 name=e146_mlp_fc2ftcov -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_C2FTCOV
+cores=4 ram=18 name=e146_lgb_fc2ftar -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_C2FTAR
+cores=3 ram=18 name=e146_mlp_fc2ftar -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_C2FTAR
+cores=4 ram=18 name=e146_lgb_fzs -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_ZS
+cores=3 ram=18 name=e146_mlp_fzs -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_ZS
+cores=4 ram=18 name=e146_lgb_fft -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_FT
+cores=3 ram=18 name=e146_mlp_fft -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_FT
+cores=4 ram=18 name=e146_lgb_fullh -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL_H
+cores=3 ram=18 name=e146_mlp_fullh -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms FULL_H
+cores=3 ram=18 name=e146_lgb_small -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --n-jobs 3 --arms P_WARM P_NM NO_MOM NO_REV NO_VOLU NO_VOLA NO_PRICE NO_SIZE
+cores=3 ram=18 name=e146_mlp_small -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms P_WARM P_NM NO_MOM NO_REV NO_VOLU NO_VOLA NO_PRICE NO_SIZE
+cores=3 ram=18 name=e146_rid -- bash -c 'python3 experiments/e146_c2dims_evaluation.py --fit --model ridge --n-jobs 3 && python3 experiments/e146_c2dims_evaluation.py --fit --model ridge --tune --n-jobs 3'
+cores=4 ram=18 name=e146_lgb_tune -- python3 experiments/e146_c2dims_evaluation.py --fit --model lgb_ktz --tune --n-jobs 4
+cores=3 ram=18 name=e146_mlp_tune -- python3 experiments/e146_c2dims_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3
+cores=3 ram=30 name=e146_audit -- python3 experiments/e146_c2dims_evaluation.py --audit

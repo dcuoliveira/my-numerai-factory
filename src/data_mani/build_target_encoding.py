@@ -118,9 +118,16 @@ def causal_target_encoding(df, symbol_col, period_col, target_col,
         p = row_pos[rows]
         y = df[target_col].to_numpy()[rows]
 
-        # Prefix sums over this symbol's own chronological observations.
-        csum = np.concatenate([[0.0], np.cumsum(y)])
-        ccnt = np.arange(len(y) + 1)
+        # Prefix sums over this symbol's own chronological observations. A NaN
+        # target is a row whose label has not resolved yet -- the live panel's
+        # history rows -- and is not an observation: it adds nothing to either
+        # sum. Summing it raw poisoned every later prefix, and once Numerai's
+        # train file lagged live by more than the lag (32 days from 2026-10-01)
+        # every live row read a NaN. With no NaN target this is byte-identical
+        # to the plain cumsum/arange it replaces.
+        seen = ~np.isnan(y)
+        csum = np.concatenate([[0.0], np.cumsum(np.where(seen, y, 0.0))])
+        ccnt = np.concatenate([[0], np.cumsum(seen)])
 
         # How many of this symbol's observations are at position <= p - lag?
         hi = np.searchsorted(p, p - lag, side="right")

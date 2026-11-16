@@ -1,0 +1,1 @@
+cores=4 ram=24 name=e150_obs_prepare -- python3 experiments/e150_observed_prepare.py

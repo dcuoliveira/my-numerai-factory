@@ -1,0 +1,7 @@
+# E129 step 2a: the six re-run controls (independent of the leaf build). --search-jobs x --n-jobs = cores.
+cores=3 ram=24 name=e129_ctl_ia01 -- env ONLY="ctl_ia01" NO_MAIL=1 E129_SJ=3 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=3 ram=24 name=e129_ctl_mafenc -- env ONLY="ctl_mafenc" NO_MAIL=1 E129_SJ=3 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=1 ram=24 name=e129_ctl_maallfeat -- env ONLY="ctl_maallfeat" NO_MAIL=1 E129_SJ=1 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=1 ram=24 name=e129_ctl_c04 -- env ONLY="ctl_c04" NO_MAIL=1 E129_SJ=1 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=1 ram=16 name=e129_ctl_ia02 -- env ONLY="ctl_ia02" NO_MAIL=1 E129_SJ=1 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=1 ram=16 name=e129_ctl_saci04 -- env ONLY="ctl_saci04" NO_MAIL=1 E129_SJ=1 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh

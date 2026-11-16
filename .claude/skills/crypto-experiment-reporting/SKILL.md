@@ -1,6 +1,6 @@
 ---
 name: crypto-experiment-reporting
-description: "Run and report arm-based experiments in the current src/ Numerai Crypto pipeline — src.run_forecast, experiments/*.sh, results/{forecast,per_period,hyperparams,metrics}/, and the CURUPIRA slots in src/live/registry.py. Use this whenever comparing feature sets or model variants on crypto, reading a finished run's numbers, deciding whether an arm actually beat its baseline, reproducing a deployed CURUPIRA slot, building a new experiments/ runner, or emailing a long job's result — even if the user just says 'does X help', 'compare these runs', 'add a feature block and see', or 'report the result'."
+description: "Run and report arm-based experiments in the current src/ Numerai Crypto pipeline — src.run_forecast, experiments/*.sh, results/{forecast,per_period,hyperparams,metrics}/, and the CURUPIRA slots in src/live/registry.py. Use this whenever comparing feature sets (the judgement protocol for those lives in feature-set-evaluation) or model variants on crypto, reading a finished run's numbers, deciding whether an arm actually beat its baseline, reproducing a deployed CURUPIRA slot, building a new experiments/ runner, or emailing a long job's result — even if the user just says 'does X help', 'compare these runs', 'add a feature block and see', or 'report the result'."
 ---
 
 # Crypto experiment reporting
@@ -73,6 +73,18 @@ CURUPIRA_02 autoencoder study the arm lost 0.005 corr while gaining 0.06 sharpe
 and cutting max drawdown 24%; reporting only the mean would have been true and
 misleading.
 
+**Always carry the prop `calmar` in a comparison table, next to payout.** It is
+the per-period mean payout over the max peak-to-trough drop of the CUMULATIVE
+payout (`summarize(0.1*corr + mmc)["mean"] / ["max_drawdown"]`, drawdown positive),
+formed from the per-period series — NOT rebuilt from stored means. It catches the
+case a mean-only table hides: an arm that trails on payout but earns it far more
+smoothly (e.g. the crbmc interaction arms sit below raw on payout yet post higher
+calmar — lower drawdown per unit payout). Caveat built in: it is comparable only
+across runs of equal period count, so print `n` beside it. The shared block runner
+`experiments/mommask_core.sh` emits it by default in its level table
+(`CORR MMC payout c.sharpe calmar n` per arm); keep that column when you build a
+new runner or render a board.
+
 Report downside as both DEPTH and FREQUENCY, because they disagree. `dd(pay)` is
 the deepest single fall; `burn(d)` (from `results_table.burn_days`, and a column in
 `results_table` / `row_from_frame`) is how many periods came out negative. Two runs
@@ -128,6 +140,13 @@ exist because each one has bitten:
   `tee`, record the failure, continue.
 - `DRY_RUN=1` prints commands and exits; `ONLY=`/`SKIP=` select arms;
   `SHARD=`/`OF=` round-robin across machines. Tee each arm to `logs/`.
+
+`SHARD=`/`OF=` splits the arms; it does not decide WHICH machines take them or
+how much of each box you may have. That is `cluster-job-placement` — the 30%
+share, the single box with a working GPU, and the slot sizing that
+`--search-jobs` x `--n-jobs` has to match (an `rf_ktz` arm wants 16 cores, which
+does not fit a 32-core box's share). Read it before launching anything that
+leaves this machine.
 
 For arms whose features are produced by a fitted builder (autoencoder codes,
 target encodings, meta proxies), **verify the leakage boundary rather than
@@ -239,3 +258,10 @@ get wrong here, and the correction lands after the user has already waited.
 - A null result is written as the finding, with its interval — not as a failure.
 - Anything skipped, capped or truncated is named. Silent truncation reads as
   "covered everything" when it did not.
+- The write-up is always delivered as a **PDF** whose name states the question and
+  verdict (e.g. `E131_does_litmom_help_REJECT.pdf`), never the HTML alone or a bare
+  `report.md`. Author it as HTML, then `python3 -m src.analysis.html_pdf <file>.html`;
+  `report_pdf` produces a board's PDF directly.
+- For a feature-set / dataset-variant question, follow the
+  `feature-set-evaluation` skill (factorial, placebo + tenure controls, untouched
+  test block, equal-budget retune, verdict vocabulary).

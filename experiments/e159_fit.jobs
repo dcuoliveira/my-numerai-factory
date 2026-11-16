@@ -1,0 +1,11 @@
+# E159 volumealpha routed evaluation: fits. `env` not needed (no env vars).
+cores=2 ram=24 name=e159_ridge -- python3 experiments/e159_volumealpha_evaluation.py --fit --model ridge --n-jobs 2
+cores=4 ram=24 name=e159_lgb_a -- python3 experiments/e159_volumealpha_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL ADDED_ONLY F_RAW
+cores=4 ram=24 name=e159_lgb_b -- python3 experiments/e159_volumealpha_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_MODEL FULL_H F_TECH
+cores=4 ram=24 name=e159_lgb_c -- python3 experiments/e159_volumealpha_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_LIQ F_FUND F_XASSET
+cores=4 ram=24 name=e159_lgb_d -- python3 experiments/e159_volumealpha_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_FCST F_COST P_WARM P_NM
+cores=3 ram=24 name=e159_mlp_a -- python3 experiments/e159_volumealpha_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms FULL ADDED_ONLY F_RAW F_MODEL FULL_H F_TECH
+cores=3 ram=24 name=e159_mlp_b -- python3 experiments/e159_volumealpha_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_LIQ F_FUND F_XASSET F_FCST F_COST P_WARM P_NM
+cores=2 ram=24 name=e159_tune_ridge -- python3 experiments/e159_volumealpha_evaluation.py --fit --model ridge --tune --n-jobs 2
+cores=4 ram=24 name=e159_tune_lgb -- python3 experiments/e159_volumealpha_evaluation.py --fit --model lgb_ktz --tune --n-jobs 4
+cores=3 ram=24 name=e159_tune_mlp -- python3 experiments/e159_volumealpha_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

@@ -1,0 +1,2 @@
+# e155_c2synth_bin_forecast: zero-shot Chronos-2-Synth arm (E155). One GPU, 4 cores.
+cores=4 ram=24 gpu=1 name=e155_c2synth_bin_forecast -- env HF_HOME=/scratch/danielco/hf HF_HUB_OFFLINE=1 PYTHONPATH=/home/danielco/Downloads/my-numerai-agent NMR_UNIT=nmr-e155_c2synth_bin_forecast /scratch/danielco/chronos2/venv/bin/python -m src.data_mani.c2synth_zeroshot run --arm bin_forecast

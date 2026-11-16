@@ -1,0 +1,3 @@
+cores=6 ram=14 name=e142_lgb_full -- python3 experiments/e142_future_trends_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms FULL
+cores=6 ram=14 name=e142_lgb_added -- python3 experiments/e142_future_trends_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ADDED_ONLY
+cores=6 ram=14 name=e142_mlp -- python3 experiments/e142_future_trends_evaluation.py --fit --model mlp_ktz --n-jobs 6

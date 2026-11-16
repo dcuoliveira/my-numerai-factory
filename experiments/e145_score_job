@@ -1,0 +1,1 @@
+cores=9 ram=60 name=e145_score -- bash -c "E145_WORKERS=9 python3 experiments/e145_c2head_evaluation.py --audit --score && E145_VARIANT=bin E145_WORKERS=9 python3 experiments/e145_c2head_evaluation.py --score"

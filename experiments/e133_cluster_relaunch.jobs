@@ -1,0 +1,2 @@
+cores=3 ram=12 name=e133r_lgb_short -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms SHORT --n-jobs 3
+cores=3 ram=12 name=e133r_t_lgb_full -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --tune --arms FULL --n-jobs 3

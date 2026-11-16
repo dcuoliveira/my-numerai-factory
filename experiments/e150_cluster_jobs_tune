@@ -1,0 +1,2 @@
+cores=6 ram=24 name=e150_lgb_t2 -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --tune --n-jobs 6 --arms B_COV VC_COV ALL
+cores=6 ram=24 name=e150_mlp_t -- python3 experiments/e150_macrovol_evaluation.py --fit --model mlp_ktz --tune --n-jobs 6 --arms B_COV VC_COV ALL

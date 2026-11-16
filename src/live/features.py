@@ -56,12 +56,21 @@ import pandas as pd
 
 from src.data_mani.build_derived import build_interactions, build_spreads
 from src.data_mani.build_target_encoding import causal_target_encoding
+from src.data_mani.history_features import add_history_features
 from src.data_mani.utils import fill_missing_features
 
 TRAIN_PARQUET = "data/crypto/v2.0/train.parquet"
 LIVE_DIR = "data/crypto/live"
 LIVE_PARQUET = os.path.join(LIVE_DIR, "live.parquet")
 LIVE_HISTORY = os.path.join(LIVE_DIR, "live_history.parquet")
+# Numerai's own meta model per date, refreshed every round. Read only by the
+# residualised (E107) slot blends, through add_lagged_meta.
+LIVE_META = os.path.join(LIVE_DIR, "historical_meta_models.parquet")
+# E107 used whatever snapshot sat at or before date - 5 days, which in its window
+# was never more than a week old. A snapshot older than this means the download
+# has been failing, and residualising on it would remove a meta model that no
+# longer exists, so the residualised legs pass through instead -- and say so.
+MAX_META_STALE_DAYS = 14
 
 TARGET = "target_binned_return_20"
 SYMBOL = "symbol"
@@ -87,7 +96,7 @@ ONEHOT_MIN_DATES = 130
 
 FEATURE_SETS = ("raw", "tenc", "interact", "cumlag3", "fenccausal", "tenc_onehot",
                 "onehot_roll", "allfeat", "allfeat_pp", "allfeat_pp_lag3",
-                "allfeat_pp_fenc")
+                "allfeat_pp_fenc", "histfe")
 
 #: Shrinkage weight for the causal feature encoding. Must match the value
 #: data/crypto/v2.0-fenccausal was BUILT with (build_feature_encoding's
@@ -194,10 +203,13 @@ def add_tenc(panel):
     Add feature_sym_tenc, the lagged causal mean-target encoding.
 
     Delegates to the exact function the offline dataset was built with. Live
-    rows have a NaN target; because the encoding at position p may only use
-    observations at position <= p - 20 and live rows are the latest positions,
-    their own NaN never enters any sum. The assertion below makes that a
-    guarantee rather than an argument.
+    and live-history rows have a NaN target, and the encoding counts a NaN as
+    no observation at all. That used to be an argument -- position p reads only
+    positions <= p - 20, so no NaN could qualify -- and the argument failed once
+    Numerai's train file lagged live by more than 20 periods: history rows then
+    qualified, their NaN entered the prefix sum, and from round 1368 (2026-10-01)
+    every tenc-bearing slot fell through to the CURUPIRA_02 sibling. The
+    assertion below stays as the guarantee.
     """
     encoding, counts = causal_target_encoding(
         panel, SYMBOL, PERIOD, TARGET,
@@ -212,6 +224,52 @@ def add_tenc(panel):
     panel["feature_sym_tenc"] = encoding.astype("float32")
     panel["_tenc_support"] = counts
     return panel, ["feature_sym_tenc"]
+
+
+def add_lagged_meta(panel, live_date, path=LIVE_META, lag=None,
+                    max_stale_days=MAX_META_STALE_DAYS):
+    """
+    Attach blend.META_COL: each live symbol's meta model LAG days back (E107).
+
+    Only the live date's rows get a value; every other row is NaN, because the
+    residualising wrapper only ever predicts the live date. Never raises: a
+    missing, unreadable or too-stale file leaves the column all-NaN, which the
+    wrapper treats as "no snapshot" and passes through, and the returned info
+    says which of those it was.
+
+    :return: (panel, info) with info = {status, snapshot, stale_days, coverage, rows}
+    """
+    from src.live.blend import META_COL
+    from src.prediction import meta_resid
+
+    lag = meta_resid.LAG_DAYS if lag is None else lag
+    panel = panel.copy()
+    panel[META_COL] = np.nan
+    today = panel["is_live"].to_numpy() & (panel[PERIOD] == live_date).to_numpy()
+    info = {"status": "missing", "snapshot": None, "stale_days": None,
+            "coverage": 0, "rows": int(today.sum()), "path": path}
+    if not os.path.exists(path):
+        return panel, info
+    try:
+        meta = pd.read_parquet(path, columns=["date", "symbol", "prediction"])
+    except Exception as error:
+        info["status"] = "unreadable (%s)" % error
+        return panel, info
+
+    values, snapshot = meta_resid.lagged_meta(
+        meta, panel.loc[today, SYMBOL].to_numpy(), live_date, lag)
+    if snapshot is None:
+        info["status"] = "no snapshot at or before live - %d days" % lag
+        return panel, info
+    info["snapshot"] = str(snapshot.date())
+    info["stale_days"] = int((pd.Timestamp(live_date) - snapshot).days)
+    info["coverage"] = int(np.isfinite(values).sum())
+    if info["stale_days"] > max_stale_days:
+        info["status"] = "stale (%d days > %d)" % (info["stale_days"], max_stale_days)
+        return panel, info
+    panel.loc[today, META_COL] = values
+    info["status"] = "ok"
+    return panel, info
 
 
 def add_rolling(panel):
@@ -400,6 +458,20 @@ def add_fenccausal(panel, smoothing=FENC_SMOOTHING):
     return panel, list(encoded.columns)
 
 
+def add_histfe(panel):
+    """
+    The own-history block of crypto/v2.0-histfe, on train + live history + today.
+
+    Same function as the offline builder. live_history.parquet keeps symbol and date
+    only, so a history row takes the ucid of the symbol's live or latest train row.
+    """
+    base = raw_features(panel)
+    ids = (panel.loc[panel["ucid"].notna()].sort_values(PERIOD).groupby(SYMBOL)["ucid"].last())
+    panel["ucid"] = panel["ucid"].fillna(panel[SYMBOL].map(ids)).fillna(panel[SYMBOL])
+    block = add_history_features(panel, base, "ucid", PERIOD)
+    return pd.concat([panel, block], axis=1), list(block.columns)
+
+
 def build_features(panel, feature_set, verbose=True):
     """
     Return (panel, feature_columns, diagnostics) for one feature set.
@@ -433,6 +505,13 @@ def build_features(panel, feature_set, verbose=True):
         live = panel.loc[panel["is_live"], added]
         diagnostics.update(n_lags=len(added),
                            lag_live_missing=int(live.isna().to_numpy().sum()))
+
+    elif feature_set == "histfe":
+        panel, added = add_histfe(panel)
+        columns += added
+        live = panel.loc[panel["is_live"], added]
+        diagnostics.update(n_histfe=len(added),
+                           histfe_live_missing=int(live.isna().to_numpy().sum()))
 
     elif feature_set == "fenccausal":
         panel, added = add_fenccausal(panel)

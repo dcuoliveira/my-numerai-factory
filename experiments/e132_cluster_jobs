@@ -1,0 +1,13 @@
+cores=4 ram=12 name=e132_ridge -- python3 experiments/e132_feed_fillind_factorial.py --model ridge --n-jobs 4
+cores=4 ram=12 name=e132_lgb_0 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms B0 B0F P_DROP P_HIST
+cores=4 ram=12 name=e132_lgb_1 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms L_B1 L_M1 L_M2 L_FULL
+cores=4 ram=12 name=e132_lgb_2 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms L_ADDED L_no_ret L_no_maxvol L_no_trend
+cores=4 ram=12 name=e132_lgb_3 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms S_S0 S_M1 S_FULL S_ADDED
+cores=4 ram=12 name=e132_lgb_4 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms C_MACRO C_TF C_RAW C_FULL
+cores=4 ram=12 name=e132_lgb_5 -- python3 experiments/e132_feed_fillind_factorial.py --model lgb_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms C_ADDED C_no_mom C_no_macro C_no_tf
+cores=4 ram=12 name=e132_mlp_0 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms B0 B0F P_DROP P_HIST
+cores=4 ram=12 name=e132_mlp_1 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms L_B1 L_M1 L_M2 L_FULL
+cores=4 ram=12 name=e132_mlp_2 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms L_ADDED L_no_ret L_no_maxvol L_no_trend
+cores=4 ram=12 name=e132_mlp_3 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms S_S0 S_M1 S_FULL S_ADDED
+cores=4 ram=12 name=e132_mlp_4 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms C_MACRO C_TF C_RAW C_FULL
+cores=4 ram=12 name=e132_mlp_5 -- python3 experiments/e132_feed_fillind_factorial.py --model mlp_ktz --n-jobs 4 --seeds 0 1 2 3 4 --arms C_ADDED C_no_mom C_no_macro C_no_tf

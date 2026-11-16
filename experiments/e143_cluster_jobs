@@ -1,0 +1,7 @@
+cores=6 ram=14 name=e143_lgb_a -- python3 experiments/e143_c2syn_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms FULL ADDED_ONLY F_COV
+cores=6 ram=14 name=e143_lgb_b -- python3 experiments/e143_c2syn_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms F_AR FULL_H
+cores=6 ram=14 name=e143_lgb_c -- python3 experiments/e143_c2syn_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms P_WARM P_NM
+cores=6 ram=14 name=e143_mlp -- python3 experiments/e143_c2syn_evaluation.py --fit --model mlp_ktz --n-jobs 6
+cores=1 ram=14 name=e143_rid -- bash -c 'python3 experiments/e143_c2syn_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e143_c2syn_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=14 name=e143_lgb_t -- python3 experiments/e143_c2syn_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=3 ram=14 name=e143_mlp_t -- python3 experiments/e143_c2syn_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

@@ -1,0 +1,2 @@
+# E118: assemble the 34 blocks onto the three bases (writes the three -fmx datasets).
+cores=2 ram=48 name=e118_build -- python3 -W ignore -m src.data_mani.build_fmx --base all

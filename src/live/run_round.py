@@ -64,11 +64,13 @@ import pandas as pd
 
 from src.live import registry, submit
 from src.live.env import get_api, load_env
-from src.live.features import (LIVE_DIR, PERIOD, SYMBOL, TRAIN_PARQUET,
-                               append_live_history, build_features, load_panel)
+from src.live.blend import META_COL
+from src.live.features import (LIVE_DIR, LIVE_META, PERIOD, SYMBOL, TRAIN_PARQUET,
+                               add_lagged_meta, append_live_history, build_features,
+                               load_panel)
 from src.live.notify import send
 from src.live.refit import (feature_signature, load_cached, load_slot_blend,
-                            refit, refit_blend, refit_due)
+                            refit, refit_blend, refit_due, usable_columns)
 
 # Seconds to reserve per outstanding slot for predict + write + upload, including
 # the retry ladder in submit.upload (5 attempts, ~75s worst case).
@@ -102,6 +104,11 @@ DATASETS = (
      "local": TRAIN_PARQUET},
     {"remote": "crypto/v2.0/live_example_preds.csv", "refresh": True,
      "required": False},
+    # The meta model per date, for the residualised (E107) slot blends. Optional:
+    # without it those blends pass through un-residualised and the report says so,
+    # which is a weaker submission but not a reason to lose the round.
+    {"remote": "crypto/v2.0/historical_meta_models.parquet", "refresh": True,
+     "required": False, "local": LIVE_META},
 )
 
 # The round list decides whether anything uploads at all, so a transient failure
@@ -162,6 +169,11 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        # e32_sel_allfeat (17.3 min / ~4 refits ~= 260 s live) sits
                        # near IAUARETE_01. 320 with headroom.
                        "IAUARETE_02": 320,
+                       # rf_ktz 50-draw searches, each measured on one live 130-day
+                       # refit: MA_FENC (fenccausal 44) 139 s, MA_ALLFEAT (allfeat
+                       # 788) 408 s. RF is cheap per draw; the wide set costs more.
+                       "MA_FENC": 139,
+                       "MA_ALLFEAT": 408,
                        "CU_SA_IA_BO_01": 1,
                        # Slot blends of already-fitted slots -- zero fit cost, run
                        # last after their members.
@@ -174,7 +186,12 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        "CU_CA_IA_01": 1,
                        # IU_IA_01 = IAUARETE_01 + IAUARETE_02 + IA_03 + IA_04, all
                        # fitted above; zero-fit slot blend, run last.
-                       "IU_IA_01": 1}
+                       "IU_IA_01": 1,
+                       # MAPINGUARI_01 (RF leg = MA_FENC + MA_ALLFEAT) and
+                       # CU_SA_IA_BO_MA_01 (= CU_SA_IA_BO_02 + MAPINGUARI_01): zero-fit
+                       # slot blends of already-fitted members, run last.
+                       "MAPINGUARI_01": 1, "CU_SA_IA_BO_MA_01": 1,
+                       "CU_SA_IA_BO_MA_R_01": 1, "CU_R_IA_MA_60_01": 1}
 
 REPORT_DIR = "results/live"
 
@@ -493,7 +510,12 @@ def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False,
                 or [m["name"] for m in spec["slot_members"]])
             return None, None, None, None, info
         info["detail"] = "reuses %s" % "+".join(
-            m["name"].replace("CURUPIRA_", "C") for m in spec["slot_members"])
+            ("R(%s)" if m.get("resid") else "%s")
+            % m["name"].replace("CURUPIRA_", "C") for m in spec["slot_members"])
+        # A residualised leg also reads the lagged meta model, which is on the
+        # panel but in no feature set, so predict() has to be handed it too.
+        if META_COL in estimator.columns and META_COL not in columns:
+            columns = list(columns) + [META_COL]
         return estimator, columns, built, metadata, info
 
     estimator, metadata = load_cached(name, columns)
@@ -539,6 +561,19 @@ def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False,
     if estimator is None:
         info["note"] = info["note"] or "no estimator available"
         return None, None, None, None, info
+
+    # A stale or refit-failed cache is predicted on the columns IT was fitted
+    # on. Handing it today's wider list made the stale-cache rung certain to
+    # fail on any vocabulary change. A fresh fit matches and this is a no-op;
+    # a blend's members do the same inside load_blend.
+    if not registry.is_blend(spec):
+        usable, why = usable_columns(estimator, columns)
+        if usable is None:
+            info["note"] = "; ".join(filter(None, [info["note"], why]))
+            return None, None, None, None, info
+        if why:
+            columns = usable
+            info["note"] = "; ".join(filter(None, [info["note"], why]))
 
     return estimator, columns, built, metadata, info
 
@@ -741,6 +776,18 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     live_raw = pd.read_parquet(os.path.join(LIVE_DIR, "live.parquet"))
     append_live_history(live_raw)
     panel, live_date, gap_days = load_panel(verbose=True)
+    panel, meta_info = add_lagged_meta(panel, live_date)
+    residualised = [n for n in names if any(
+        m.get("resid") for m in registry.get(n).get("slot_members") or [])]
+    if residualised:
+        print("lagged meta model for %s: %s | snapshot %s (%s days) | %d of %d symbols"
+              % ("+".join(residualised), meta_info["status"], meta_info["snapshot"],
+                 meta_info["stale_days"], meta_info["coverage"], meta_info["rows"]))
+        if meta_info["status"] != "ok":
+            warnings.append(
+                "lagged meta model unavailable (%s), so %s submit WITHOUT the "
+                "E107 residualisation they were backtested with"
+                % (meta_info["status"], ", ".join(residualised)))
     live_symbols = panel.loc[panel["is_live"] & (panel[PERIOD] == live_date),
                              SYMBOL].tolist()
 
@@ -829,6 +876,18 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             frame, source, note = submit.build_predictions(name, context)
             path = submit.write_csv(frame, round_number, name)
             record["source"] = source
+            resid = (estimator.resid_log() if source == "model"
+                     and hasattr(estimator, "resid_log") else [])
+            if resid:
+                record["resid"] = resid
+                passed = [r["member"] for r in resid if not r["residualised"]]
+                note = "; ".join(filter(None, [note, "resid %s: %s" % (
+                    meta_info["snapshot"] or "no snapshot", ", ".join(
+                        "%s b=%.3f" % (r["member"], r["beta"]) if r["residualised"]
+                        else "%s PASS-THROUGH" % r["member"] for r in resid))]))
+                if passed:
+                    warnings.append("%s: %s went out un-residualised (meta model %s)"
+                                    % (name, ", ".join(passed), meta_info["status"]))
             if source != "model" and (record["detail"] or "").startswith("reuses "):
                 # "reuses ..." describes the blend that was PLANNED. Once the
                 # chain has fallen through it is not what went out, and detail is
@@ -841,6 +900,13 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
             if name in registry.NOT_SUBMITTED:
                 # Fitted and cached so CURUPIRA_07 can use it, deliberately not
                 # uploaded: standalone it is the worst arm in the study.
+                if name == submit.SIBLING and source != "model":
+                    # The label below would hide it, and the sibling rung is what
+                    # every other slot's first fallback reads.
+                    warnings.append(
+                        "%s (submit.SIBLING) could not run its own model, so every "
+                        "other slot's sibling rung is gone this pass: %s"
+                        % (name, note or info["note"] or "-"))
                 record["status"] = "submitted"
                 record["source"] = "not-submitted"
                 record["detail"] = "%s | component only, never uploaded" % (
@@ -924,7 +990,7 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
         "deadline_minutes": deadline_minutes, "dry_run": dry_run,
         "slots": slots, "diagnostics": diagnostics, "warnings": warnings,
         "train_live_gap_days": gap_days, "submitted_late": report_late,
-        "round_window_via": via,
+        "round_window_via": via, "meta_resid": meta_info,
     }
 
     os.makedirs(os.path.join(REPORT_DIR, str(round_number)), exist_ok=True)

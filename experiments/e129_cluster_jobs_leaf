@@ -1,0 +1,3 @@
+# E129 step 1: the causal leaf-value panel + the four -rfleaf dataset variants (src/data_mani/build_rfleaf.py).
+# rf_ktz 40-draw purged search per block, 11 blocks; 3 cores is what the 30% share leaves free on 2026-10-24.
+cores=3 ram=48 name=e129_leaf -- python3 -u -m src.data_mani.build_rfleaf --search-jobs 3 --n-jobs 1

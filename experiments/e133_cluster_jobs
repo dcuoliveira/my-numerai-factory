@@ -1,0 +1,28 @@
+cores=3 ram=12 name=e133_ridge -- python3 experiments/e133_histfe_factorial.py --model ridge --n-jobs 3
+cores=3 ram=12 name=e133_ridge_tune -- python3 experiments/e133_histfe_factorial.py --model ridge --tune --arms B0 FULL --n-jobs 3
+cores=3 ram=12 name=e133_lgb_b0 -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms B0 --n-jobs 3
+cores=3 ram=12 name=e133_mlp_b0 -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms B0 --n-jobs 3
+cores=3 ram=12 name=e133_lgb_short -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms SHORT --n-jobs 3
+cores=3 ram=12 name=e133_mlp_short -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms SHORT --n-jobs 3
+cores=3 ram=12 name=e133_lgb_long -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms LONG --n-jobs 3
+cores=3 ram=12 name=e133_mlp_long -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms LONG --n-jobs 3
+cores=3 ram=12 name=e133_lgb_combo -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms COMBO --n-jobs 3
+cores=3 ram=12 name=e133_mlp_combo -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms COMBO --n-jobs 3
+cores=3 ram=12 name=e133_lgb_tsc -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms TSC --n-jobs 3
+cores=3 ram=12 name=e133_mlp_tsc -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms TSC --n-jobs 3
+cores=3 ram=12 name=e133_lgb_full -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms FULL --n-jobs 3
+cores=3 ram=12 name=e133_mlp_full -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms FULL --n-jobs 3
+cores=3 ram=12 name=e133_lgb_added_only -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms ADDED_ONLY --n-jobs 3
+cores=3 ram=12 name=e133_mlp_added_only -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms ADDED_ONLY --n-jobs 3
+cores=3 ram=12 name=e133_lgb_f_rank -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms F_RANK --n-jobs 3
+cores=3 ram=12 name=e133_mlp_f_rank -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms F_RANK --n-jobs 3
+cores=3 ram=12 name=e133_lgb_f_ma -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms F_MA --n-jobs 3
+cores=3 ram=12 name=e133_mlp_f_ma -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms F_MA --n-jobs 3
+cores=3 ram=12 name=e133_lgb_f_tsmax -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms F_TSMAX --n-jobs 3
+cores=3 ram=12 name=e133_mlp_f_tsmax -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms F_TSMAX --n-jobs 3
+cores=3 ram=12 name=e133_lgb_p_hist -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --arms P_HIST --n-jobs 3
+cores=3 ram=12 name=e133_mlp_p_hist -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --arms P_HIST --n-jobs 3
+cores=3 ram=12 name=e133_t_lgb_b0 -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --tune --arms B0 --n-jobs 3
+cores=3 ram=12 name=e133_t_lgb_full -- python3 experiments/e133_histfe_factorial.py --model lgb_ktz --tune --arms FULL --n-jobs 3
+cores=3 ram=12 name=e133_t_mlp_b0 -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --tune --arms B0 --n-jobs 3
+cores=3 ram=12 name=e133_t_mlp_full -- python3 experiments/e133_histfe_factorial.py --model mlp_ktz --tune --arms FULL --n-jobs 3

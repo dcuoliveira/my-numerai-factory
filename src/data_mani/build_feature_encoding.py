@@ -3,6 +3,7 @@ Build a Crypto dataset encoding each ticker by its mean FEATURE values.
 
     python3 -m src.data_mani.build_feature_encoding --mode causal
     python3 -m src.data_mani.build_feature_encoding --mode global
+    python3 -m src.data_mani.build_feature_encoding --mode causal --bin
 
 For every feature f, adds  feature_<f>_symmean = that symbol's average of f.
 22 features in, 22 new columns out -- one per feature, versus 740 for the
@@ -52,6 +53,10 @@ global   Whole-sample mean. This is LOOKAHEAD. Not target leakage -- no target
 
 Symbols with little history are shrunk toward the global feature mean with a
 pseudo-count, so a token seen three times does not get a confident profile.
+
+--bin rank-bins the encoded columns within each date onto Numerai's exact scale,
+{0,.25,.5,.75,1}, under the same names, so -fenccausal-binned is a drop-in for
+-fenccausal. The means themselves are unchanged. The live path does not offer it.
 """
 
 import argparse
@@ -61,6 +66,7 @@ import shutil
 import numpy as np
 import pandas as pd
 
+from src.data_mani.history_features import bin_ties_preserved
 from src.data_mani.utils import download_if_missing, get_api, local_path
 
 
@@ -77,6 +83,8 @@ def parse_args():
                              "overall feature mean")
     parser.add_argument("--features", default=None,
                         help="comma-separated subset; default is every feature")
+    parser.add_argument("--bin", action="store_true",
+                        help="rank-bin the encodings per date to {0,.25,.5,.75,1}")
     return parser.parse_args()
 
 
@@ -137,7 +145,7 @@ def global_feature_means(df, features, symbol_col, smoothing):
 def main():
     args = parse_args()
     api = get_api("crypto")
-    suffix = args.out_suffix or ("-fenc%s" % args.mode)
+    suffix = args.out_suffix or ("-fenc%s%s" % (args.mode, "-binned" if args.bin else ""))
 
     src = download_if_missing(api, "crypto", args.source_version, "train.parquet")
     df = pd.read_parquet(src).reset_index()
@@ -161,6 +169,10 @@ def main():
     else:
         encoded, _ = global_feature_means(df, features, "symbol", args.smoothing)
         print("LOOKAHEAD: whole-sample means. Diagnostic upper bound, not a candidate.")
+
+    if args.bin:
+        encoded = bin_ties_preserved(encoded, df["date"])
+        print("rank-binned per date to {0,.25,.5,.75,1}")
 
     df = pd.concat([df, encoded.astype("float32")], axis=1)
     print("added %d encoding columns" % len(encoded.columns))

@@ -1,0 +1,7 @@
+cores=3 ram=16 name=e125_w130 -- env ONLY=e125_w130 NO_MAIL=1 E119_SEARCH_JOBS=3 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=3 ram=16 name=e125_w65 -- env ONLY=e125_w65 NO_MAIL=1 E119_SEARCH_JOBS=3 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=1 ram=16 name=e125_w5 -- env ONLY=e125_w5 NO_MAIL=1 E119_SEARCH_JOBS=1 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=1 ram=16 name=e125_w10 -- env ONLY=e125_w10 NO_MAIL=1 E119_SEARCH_JOBS=1 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=1 ram=16 name=e125_w15 -- env ONLY=e125_w15 NO_MAIL=1 E119_SEARCH_JOBS=1 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=1 ram=16 name=e125_w20 -- env ONLY=e125_w20 NO_MAIL=1 E119_SEARCH_JOBS=1 bash experiments/e125_ia01_train_window_t60_crypto.sh
+cores=8 ram=16 name=e125_w22 -- env ONLY=e125_w22 NO_MAIL=1 E119_SEARCH_JOBS=8 bash experiments/e125_ia01_train_window_t60_crypto.sh

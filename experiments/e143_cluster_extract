@@ -1,0 +1,2 @@
+# E143: Chronos-2-Synth pre-head representations (cov + ar) for every v2.0 row, one card on deepfive.
+cores=4 ram=24 gpu=1 name=e143_extract -- env HF_HOME=/scratch/danielco/hf HF_HUB_OFFLINE=1 PYTHONPATH=/home/danielco/Downloads/my-numerai-agent /scratch/danielco/chronos2/venv/bin/python -W ignore -m src.data_mani.chronos2_syn_repr

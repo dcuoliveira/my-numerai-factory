@@ -1,0 +1,1 @@
+cores=18 ram=60 name=e137_score -- bash -c 'python3 experiments/e137_fenccausal_binned_evaluation.py --audit && E137_WORKERS=16 python3 experiments/e137_fenccausal_binned_evaluation.py'

@@ -1,0 +1,6 @@
+cores=4 ram=12 name=e131_lgbr_B0 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B0 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgbr_B0C -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B0C --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgbr_B1 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B1 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgbr_M1 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgbr_FULL -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms FULL --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgbr_ADDED_ONLY -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms ADDED_ONLY --n-jobs 4 --seeds 0 1 2 3 4

@@ -405,7 +405,8 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
                         metric2=None, metric_weight=1.0, min_train_size=0,
                         score_target_col=None, search_type="random",
                         bayes_init_points=0, fixed_params=None,
-                        inner_cv="purged", period=None):
+                        inner_cv="purged", period=None, symbol=None,
+                        grid_from=None, mmc_col=None):
     """
     Search hyperparameters on one training block, scoring with the chosen metric.
 
@@ -486,7 +487,13 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
         # A wrapper may derive its grid from the training data -- ridge_glmnet
         # needs y to locate lambda_max, the boosters rescale the leaf range to
         # the block. Doing it here, per refit, keeps that off the validation rows.
-        param_grid = wrapper.fit_grid(X, y)
+        #
+        # `grid_from` is the block the FINAL model will be fitted on, when that
+        # differs from the block the search tunes on (walk_forward's
+        # tune_window). It matters for scale: ridge_glmnet's alphas are
+        # lambda x N, so a grid built on a 130-period tuning block would be 26x
+        # too strong for a 5-period fit and for the 5-period folds that score it.
+        param_grid = wrapper.fit_grid(*(grid_from or (X, y)))
     else:
         param_grid = wrapper.param_grid
 
@@ -509,13 +516,31 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
             KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X)
         )
     else:
-        folds = purged_period_splits(
-            meta.loc[X.index, period_col].to_numpy(),
-            n_splits=n_splits,
-            embargo=embargo,
-            scheme=scheme,
-            train_window=train_window,
-        )
+        try:
+            folds = purged_period_splits(
+                meta.loc[X.index, period_col].to_numpy(),
+                n_splits=n_splits,
+                embargo=embargo,
+                scheme=scheme,
+                train_window=train_window,
+            )
+        except ValueError:
+            # A training block shorter than embargo + a validation slice cannot
+            # hold one purged fold -- 22 periods or fewer at embargo 20. When the
+            # configuration is PINNED that costs nothing: there is one candidate,
+            # so the CV has no choice to make, and its only output would be a
+            # score nobody selects on. Fit that candidate on the whole block.
+            #
+            # A SEARCH on such a block still raises, deliberately. Selecting a
+            # hyperparameter needs held-out periods, and quietly falling back to
+            # unembargoed folds would let a 20-day target straddle the boundary.
+            if not fixed_params:
+                raise
+            estimator = clone(wrapper.ModelClass).set_params(**fixed_params)
+            # Route the same fit params the search path would, so a pinned fit
+            # of a period- or symbol-aware wrapper is the same estimator.
+            estimator.fit(X, y, **_fit_params(wrapper, period, symbol))
+            return PinnedFit(estimator, fixed_params)
 
     # Multi-metric scoring. "objective" is what the search refits on; corr and
     # bmc ride along so the report can show CV train *and* validation scores for
@@ -531,6 +556,13 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
     }
     if reference_col is not None:
         scoring["bmc"] = build_scorer("bmc", meta, period_col, reference_col, task,
+                                      score_target_col=score_target_col)
+    # MMC against the REAL meta model, per candidate (opt-in, --save-cv-results).
+    # Same contribution arithmetic as bmc, with the meta model as the reference.
+    # Folds where the meta model has no coverage come back UNSCORABLE; the
+    # cv-candidates writer turns those into NaN rather than averaging them in.
+    if mmc_col is not None and mmc_col in meta.columns:
+        scoring["mmc"] = build_scorer("bmc", meta, period_col, mmc_col, task,
                                       score_target_col=score_target_col)
 
     # search_jobs defaults to 1 on purpose. n_jobs is already handed to the
@@ -597,6 +629,18 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
                 % (len(period), len(X)))
         fit_params["period"] = period
 
+    # The SYMBOL of each row, routed to fit() exactly like the date above, for
+    # wrappers declaring WANTS_SYMBOL (sur_ridge builds a cross-symbol covariance
+    # from it). Positional and array-like, so RandomizedSearchCV slices it per
+    # fold. Never needed at predict time -- the fitted estimator predicts x'beta.
+    if symbol is not None and getattr(wrapper, "WANTS_SYMBOL", False):
+        symbol = np.asarray(symbol)
+        if len(symbol) != len(X):
+            raise ValueError(
+                "symbol has %d entries but X has %d rows; it must be positional"
+                % (len(symbol), len(X)))
+        fit_params["symbol"] = symbol
+
     search.fit(X, y, **fit_params)
 
     # If every candidate came back unscorable the search learned nothing and
@@ -618,6 +662,83 @@ def hyper_params_search(X, y, wrapper, meta, metric, period_col, reference_col,
     return search
 
 
+def cv_candidate_rows(search, refit_index, train_start, train_end):
+    """
+    One row per candidate the search scored: its parameters, every metric's
+    mean/std over the inner validation folds (and train folds), each fold's
+    value, the fit time, and whether it won. This is the raw material for
+    hyperparameter importance -- the hyperparams/ table keeps only the winner,
+    which says nothing about what the rest of the space scored.
+
+    UNSCORABLE fold values (a fold with no meta-model coverage, a crashed
+    candidate) become NaN and the means are recomputed over the scorable folds.
+    """
+    cv = getattr(search, "cv_results_", None) or {}
+    if "params" not in cv:
+        return []
+    names = sorted({k[len("mean_test_"):] for k in cv if k.startswith("mean_test_")})
+    n_folds = len([k for k in cv if k.startswith("split") and k.endswith("_test_objective")])
+    best = getattr(search, "best_index_", None)
+    rows = []
+    for i, params in enumerate(cv["params"]):
+        row = {"refit": refit_index, "train_start": train_start,
+               "train_end": train_end, "candidate": i, "is_best": i == best,
+               "mean_fit_time": float(cv["mean_fit_time"][i])}
+        for name, value in params.items():
+            row["param_" + name] = _jsonable(value)
+        for name in names:
+            for split, label in (("test", "val"), ("train", "train")):
+                folds = []
+                for f in range(n_folds):
+                    key = "split{}_{}_{}".format(f, split, name)
+                    if key in cv:
+                        v = float(cv[key][i])
+                        v = np.nan if (not np.isfinite(v) or v <= UNSCORABLE) else v
+                        folds.append(v)
+                        row["{}_{}_fold{}".format(label, name, f)] = v
+                arr = np.asarray(folds, dtype="float64")
+                ok = arr[np.isfinite(arr)]
+                row["{}_{}_mean".format(label, name)] = float(ok.mean()) if ok.size else np.nan
+                row["{}_{}_std".format(label, name)] = float(ok.std()) if ok.size else np.nan
+        rows.append(row)
+    return rows
+
+
+def _fit_params(wrapper, period, symbol):
+    """
+    The fit params a wrapper asked for, by its WANTS_PERIOD / WANTS_SYMBOL
+    declarations, built the way hyper_params_search routes them into a search.
+    Used where an estimator is fitted outside the search, so a refit of a
+    period- or symbol-aware model is the same estimator the search scored.
+    """
+    params = {}
+    if period is not None and getattr(wrapper, "WANTS_PERIOD", False):
+        params["period"] = np.asarray(period)
+    if symbol is not None and getattr(wrapper, "WANTS_SYMBOL", False):
+        params["symbol"] = np.asarray(symbol)
+    return params
+
+
+class PinnedFit(object):
+    """
+    What hyper_params_search returns when there is nothing to search and no fold
+    to score it on: one pinned candidate, fitted on the whole training block.
+
+    It exposes exactly the attributes walk_forward_fit_and_predict reads off a
+    fitted RandomizedSearchCV, so the walk-forward does not branch on it. There
+    is no CV score because no CV ran, and it says so with NaN rather than a
+    number that would read like one.
+    """
+
+    def __init__(self, estimator, params):
+        self.best_estimator_ = estimator
+        self.best_params_ = dict(params)
+        self.best_score_ = float("nan")
+        self.best_index_ = 0
+        self.cv_results_ = {}
+        self.searched_bounds_ = {}
+
+
 # --------------------------------------------------------------------------- #
 # Walk-forward
 # --------------------------------------------------------------------------- #
@@ -629,7 +750,9 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
                                  search_jobs=1, metric2=None, metric_weight=1.0,
                                  extra_cols=(), min_train=0, train_target_col=None,
                                  search_type="random", bayes_init_points=0,
-                                 fixed_params=None, inner_cv="purged"):
+                                 fixed_params=None, inner_cv="purged",
+                                 tune_window=None, mmc_col=None,
+                                 cv_sink=None, reseed_per_refit=False):
     """
     Refit periodically and predict forward over the validation block.
 
@@ -803,18 +926,71 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
         # bare reset_index(drop=True) with no sort, so chronological row order
         # holds on today's parquets and is enforced nowhere.
         train_period = df.loc[train_mask, period_col].to_numpy()
+        train_symbol = df.loc[train_mask, id_col].to_numpy()
+
+        # TUNE on a longer history than the model is FITTED on, when asked.
+        #
+        # A purged inner fold needs training periods + the embargo + validation
+        # periods INSIDE the block it searches. A short training window (22
+        # periods or fewer at embargo 20) cannot hold one, so a search on the
+        # window itself raises. tune_window lets the search run on the last
+        # tune_window periods ending at the SAME train_end instead, with rolling
+        # inner folds that each TRAIN ON train_window periods -- so every
+        # candidate is scored exactly as it will be used -- and the winner is
+        # then refitted on the train_window block alone. Both blocks end at
+        # train_end, so nothing either one sees is closer than `embargo` to the
+        # predicted block: the search is as causal as before, it just reads
+        # further back.
+        tuning = (tune_window is not None and scheme == "rolling"
+                  and tune_window > train_window and not fixed_params)
+        if tuning:
+            tune_periods = all_periods[max(0, train_end - tune_window):train_end]
+            tune_mask = df[period_col].isin(tune_periods)
+            X_search = df.loc[tune_mask, fit_features]
+            y_search = df.loc[tune_mask, train_target_col or target_col]
+            search_period = df.loc[tune_mask, period_col].to_numpy()
+            search_symbol = df.loc[tune_mask, id_col].to_numpy()
+            if verbose:
+                print("        tune on {:,} rows / {} periods, folds train on {} "
+                      "periods each".format(len(X_search), len(tune_periods),
+                                            train_window))
+        else:
+            X_search, y_search = X_train, y_train
+            search_period, search_symbol = train_period, train_symbol
 
         search = hyper_params_search(
-            X=X_train, y=y_train, wrapper=wrapper, meta=meta, metric=metric,
+            X=X_search, y=y_search, wrapper=wrapper, meta=meta, metric=metric,
             period_col=period_col, reference_col=reference_col, task=task,
             n_iter=n_iter, n_splits=n_splits, embargo=embargo, scheme=scheme,
-            train_window=train_window, n_jobs=n_jobs, seed=seed, verbose=False,
+            train_window=train_window, n_jobs=n_jobs,
+            # --reseed-per-refit: a fresh candidate draw at every refit, so K
+            # refits explore K x n_iter distinct points instead of re-scoring the
+            # same n_iter. Off by default: it changes which candidates any
+            # existing study would have drawn.
+            seed=(None if seed is None else seed + refit_index)
+            if reseed_per_refit else seed,
+            verbose=False,
             search_jobs=search_jobs, metric2=metric2,
             metric_weight=metric_weight, min_train_size=min_train,
             score_target_col=target_col, search_type=search_type,
             bayes_init_points=bayes_init_points, fixed_params=fixed_params,
-            inner_cv=inner_cv, period=train_period,
+            inner_cv=inner_cv, period=search_period, symbol=search_symbol,
+            grid_from=(X_train, y_train) if tuning else None,
+            mmc_col=mmc_col,
         )
+        if cv_sink is not None:
+            cv_sink.extend(cv_candidate_rows(search, refit_index,
+                                             str(train_periods[0]),
+                                             str(train_periods[-1])))
+
+        if tuning:
+            # The search refitted its winner on the TUNING block. Refit those
+            # exact hyperparameters on the training window, which is the model
+            # the experiment is about and the one that predicts.
+            final = clone(search.best_estimator_)
+            final.fit(X_train, y_train,
+                      **_fit_params(wrapper, train_period, train_symbol))
+            search.best_estimator_ = final
 
         block_predictions = predict_signal(search.best_estimator_, X_block, task)
 
@@ -859,6 +1035,10 @@ def walk_forward_fit_and_predict(df, wrapper, features, target_col, period_col,
             "predict_end": str(block[-1]),
             "train_periods": int(len(train_periods)),
             "train_rows": int(len(X_train)),
+            # The block the hyperparameters were SEARCHED on, when it differs
+            # from the one the model was fitted on. Absent means they are the same.
+            **({"tune_periods": int(len(tune_periods)),
+                "tune_rows": int(len(X_search))} if tuning else {}),
             "predicted_periods": int(len(block)),
             "cv_score": float(search.best_score_),
             "best_params": {k: _jsonable(v) for k, v in search.best_params_.items()},
@@ -965,7 +1145,8 @@ def forecast(tournament, model_name, task="regression", metric="corr",
              bmc_reference="benchmark", proxy_alpha=1.0, min_train=0,
              feature_include=None, feature_exclude=None,
              search_type="random", bayes_init_points=0, target=None,
-             fixed_params=None, model_options=None, inner_cv="purged"):
+             fixed_params=None, model_options=None, inner_cv="purged", tune_window=None,
+             save_cv_results=False, reseed_per_refit=False):
     """
     Run one evaluation: load, walk forward, score.
 
@@ -1100,7 +1281,13 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     # The side table the scorer reads periods and the reference out of. Indexed
     # exactly like df, which is what makes meta.loc[X.index] work.
     meta_cols = [period_col, target_col] + ([reference_col] if reference_col else [])
+    # --save-cv-results also scores every candidate's MMC on the real meta model.
+    mmc_col = (meta_model_col if save_cv_results and meta_model_col is not None
+               and meta_model_col in df.columns else None)
+    if mmc_col is not None and mmc_col not in meta_cols:
+        meta_cols.append(mmc_col)
     meta = df[meta_cols].copy()
+    cv_sink = [] if save_cv_results else None
 
     wrapper = build_wrapper(model_name, task=task, seed=seed, n_jobs=n_jobs,
                             **(model_options or {}))
@@ -1117,6 +1304,8 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         train_target_col=train_target_col,
         search_type=search_type, bayes_init_points=bayes_init_points,
         fixed_params=fixed_params, inner_cv=inner_cv,
+        tune_window=tune_window, mmc_col=mmc_col, cv_sink=cv_sink,
+        reseed_per_refit=reseed_per_refit,
     )
 
     results = evaluate(
@@ -1128,6 +1317,10 @@ def forecast(tournament, model_name, task="regression", metric="corr",
     # per-refit hyperparams csv. Read by src/analysis/loss_dynamics.py.
     if training_dynamics:
         results["training_dynamics"] = training_dynamics
+    # Every scored candidate, popped and written to results/tuning/ by
+    # run_forecast.write_outputs; never dumped into the metrics json.
+    if cv_sink is not None:
+        results["cv_candidates"] = pd.DataFrame(cv_sink)
 
     # Per-period corr / bmc / mmc / pnl -- everything a report needs to draw
     # cumulative curves without recomputing anything.
@@ -1159,6 +1352,7 @@ def forecast(tournament, model_name, task="regression", metric="corr",
         "feature_include": feature_include, "feature_exclude": feature_exclude,
         "refit_every": refit_every, "embargo": embargo, "cv_scheme": scheme,
         "train_window": train_window,
+        "tune_window": tune_window,
         # The EFFECTIVE draw count. --fixed-params collapses the grid to one
         # candidate and hyper_params_search forces n_iter to 1, so recording the
         # argument here would describe a 50-draw search that never happened --

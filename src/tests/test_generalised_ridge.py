@@ -693,13 +693,29 @@ class TestSignConstraints(unittest.TestCase):
 
 class TestExtendedWrapper(unittest.TestCase):
 
-    def test_declares_it_wants_the_period(self):
+    def test_only_wrappers_that_can_take_the_period_declare_it(self):
         # The gate that keeps every OTHER model untouched. Measured: ridge,
         # ridge_glmnet, lgb, xgb and catboost would ACCEPT a fit param and
         # silently change; the three Pipeline-backed MLPs REJECT one outright.
+        #
+        # The invariant is NOT "only gen_ridge declares it" -- that was the
+        # first version of this test, and it went red the day sur_ridge
+        # legitimately joined (it builds a cross-symbol covariance per date).
+        # What must hold is that a declaration is never a lie: every wrapper
+        # that asks for the period has an estimator whose fit() can take it.
+        import inspect
         self.assertTrue(build_wrapper("gen_ridge", "regression").WANTS_PERIOD)
         for name in MODELS:
-            if name == "gen_ridge":
+            for task in supported_tasks(name):
+                wrapper = build_wrapper(name, task=task, seed=0, n_jobs=1)
+                if not getattr(wrapper, "WANTS_PERIOD", False):
+                    continue
+                accepts = inspect.signature(wrapper.ModelClass.fit).parameters
+                self.assertIn("period", accepts, (name, task))
+        # And the measured blast radius stays closed: none of these may ask.
+        for name in ("ridge", "ridge_glmnet", "lgb", "xgb", "catboost",
+                     "mlp", "torch_mlp", "torch_mlp_emb"):
+            if name not in MODELS:
                 continue
             for task in supported_tasks(name):
                 wrapper = build_wrapper(name, task=task, seed=0, n_jobs=1)

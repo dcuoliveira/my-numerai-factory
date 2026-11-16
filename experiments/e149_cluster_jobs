@@ -1,0 +1,10 @@
+cores=2 ram=20 name=e149_ridge -- python3 experiments/e149_vol_causal_evaluation.py --fit --model ridge --n-jobs 2
+cores=4 ram=20 name=e149_lgb_a -- python3 experiments/e149_vol_causal_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL ADDED_ONLY F_TSR
+cores=4 ram=20 name=e149_lgb_b -- python3 experiments/e149_vol_causal_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_SWAP FULL_H F_LVL
+cores=4 ram=20 name=e149_lgb_c -- python3 experiments/e149_vol_causal_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_SQRET F_EWMA F_PARK F_YZ
+cores=4 ram=20 name=e149_lgb_d -- python3 experiments/e149_vol_causal_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_SHORT F_LONG P_WARM P_NM
+cores=3 ram=20 name=e149_mlp_a -- python3 experiments/e149_vol_causal_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms FULL ADDED_ONLY F_TSR F_SWAP FULL_H
+cores=3 ram=20 name=e149_mlp_b -- python3 experiments/e149_vol_causal_evaluation.py --fit --model mlp_ktz --n-jobs 3 --arms F_LVL F_SQRET F_EWMA F_PARK F_YZ F_SHORT F_LONG P_WARM P_NM
+cores=4 ram=20 name=e149_tune_ridge -- python3 experiments/e149_vol_causal_evaluation.py --fit --model ridge --tune --n-jobs 4
+cores=4 ram=20 name=e149_tune_lgb -- python3 experiments/e149_vol_causal_evaluation.py --fit --model lgb_ktz --tune --n-jobs 4
+cores=3 ram=20 name=e149_tune_mlp -- python3 experiments/e149_vol_causal_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

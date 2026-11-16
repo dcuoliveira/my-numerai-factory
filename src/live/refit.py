@@ -147,6 +147,49 @@ def feature_signature(columns):
     return hashlib.sha1("|".join(columns).encode()).hexdigest()[:12]
 
 
+def fitted_columns(estimator):
+    """The column names an estimator was fitted on, in order, or None if it does not say."""
+    names = getattr(estimator, "feature_names_in_", None)
+    if names is None:
+        names = getattr(estimator, "feature_names_", None)    # CatBoost
+    if names is None:
+        return None
+    return [str(n) for n in names]
+
+
+def usable_columns(estimator, columns):
+    """
+    The columns a CACHED estimator can actually be predicted on.
+
+    A cache whose feature signature no longer matches -- almost always because
+    the one-hot vocabulary grew when a token crossed ONEHOT_MIN_DATES -- used
+    to be handed the NEW, wider column list, so a skipped refit's "stale cache"
+    rung could never run: LightGBM refused 777 columns for a 776-column fit
+    (SACI_06, 2026-10-21) and the slot fell to the sibling. The vocabulary only
+    grows, so every column the cache was fitted on is still in the frame; the
+    stale model predicts on exactly those, which is what it would have done the
+    round before -- the new token is simply cold to it.
+
+    :return: (columns, note). columns is the fitted list when it differs, the
+             given list when it matches or the estimator does not name its
+             inputs, and None when a fitted column is missing from the build.
+    """
+    fitted = fitted_columns(estimator)
+    columns = list(columns)
+    if fitted is None or fitted == columns:
+        return columns, None
+    present = set(columns)
+    if not any(c in present for c in fitted):
+        # Positional names ("0", "1", ...) say nothing about identity.
+        return columns, None
+    missing = [c for c in fitted if c not in present]
+    if missing:
+        return None, ("cached fit needs %d column(s) the current build lacks (%s)"
+                      % (len(missing), ", ".join(missing[:3])))
+    return fitted, ("cached fit predicts on its own %d fitted columns (the build "
+                    "now has %d)" % (len(fitted), len(columns)))
+
+
 def load_slot_blend(name, panel, seen=None):
     """
     Assemble a slot that rank-averages OTHER slots.
@@ -167,7 +210,7 @@ def load_slot_blend(name, panel, seen=None):
     docstring asserts slot blends "never reach here"; that invariant was true
     only until a blend was made a member of another blend.
     """
-    from src.live.blend import RankBlend
+    from src.live.blend import MetaResidual, RankBlend
     from src.live.features import build_features
 
     spec = registry.get(name)
@@ -201,6 +244,22 @@ def load_slot_blend(name, panel, seen=None):
             if estimator is None:
                 missing.append("%s (no cached fit)" % entry["name"])
                 continue
+            # A member whose own refit was skipped this round still carries its
+            # last fit; predict it on the columns it was fitted on.
+            usable, why = usable_columns(estimator, member_columns)
+            if usable is None:
+                missing.append("%s (%s)" % (entry["name"], why))
+                continue
+            member_columns = usable
+
+        if entry.get("resid"):
+            # E107: this leg enters the blend residualised on the lagged meta
+            # model, not as it was fitted. The wrapper adds META_COL to the
+            # columns it asks for, so the frame must carry it -- prepare_slot
+            # sees to that.
+            estimator = MetaResidual(entry["name"], estimator, member_columns,
+                                     strength=entry["resid"])
+            member_columns = estimator.columns
 
         members.append((entry["name"], estimator, member_columns, entry["weight"]))
 
@@ -215,8 +274,9 @@ def load_slot_blend(name, panel, seen=None):
     metadata = {
         "model": name, "wrapper": "slot_blend",
         "feature_set": spec["feature_set"],
-        "members": [{"name": n, "weight": w, "n_features": len(c)}
-                    for n, _, c, w in members],
+        "members": [{"name": n, "weight": w, "n_features": len(c),
+                     "resid": e.strength if isinstance(e, MetaResidual) else None}
+                    for n, e, c, w in members],
         "fitted_at": None,   # it fits nothing; freshness is its members'
     }
     return RankBlend(members), metadata
@@ -432,11 +492,20 @@ def load_blend(name, columns):
                 return None, None
             member_columns = filter_features(columns, member["include"], None,
                                              verbose=False)
-            if len(member_columns) != member["n_features"]:
+            estimator = joblib.load(path)
+            # Predict each member on the columns IT was fitted on. When the
+            # vocabulary grew under the cache those are all still selected, so
+            # the cache stays usable -- refit_due still sees the signature change
+            # and refits when the budget allows. A width check alone used to be
+            # the only guard, which also let an equal-width but different set
+            # through silently.
+            usable, _ = usable_columns(estimator, member_columns)
+            if usable is None or len(usable) != member["n_features"]:
                 raise ValueError(
                     "member '%s' now selects %d columns, was fitted on %d"
                     % (member["name"], len(member_columns), member["n_features"]))
-            members.append((member["name"], joblib.load(path),
+            member_columns = usable
+            members.append((member["name"], estimator,
                             member_columns, member["weight"]))
         return RankBlend(members), metadata
     except Exception as error:

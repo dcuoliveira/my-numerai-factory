@@ -1,0 +1,1 @@
+cores=6 ram=24 name=e150_lgb_t3 -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --tune --n-jobs 6 --arms B_COV VC_COV ALL

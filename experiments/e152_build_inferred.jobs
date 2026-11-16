@@ -1,0 +1,1 @@
+cores=3 ram=32 name=e152_build_inferred -- python3 -u -m src.data_mani.build_volumealpha_inferred

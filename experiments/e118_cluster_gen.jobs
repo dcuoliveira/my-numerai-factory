@@ -1,0 +1,7 @@
+# E118 generation phase (src.cluster jobs file). Three lanes that fit the lab's free
+# share on 2026-10-23 (E119 holds the 64-core boxes): one GPU card for every TabPFN
+# pass, two 8-core CPU lanes running the source models in sequence. The residual
+# pass waits for lane A's out-of-sample ridge.
+cores=8 ram=48 gpu=1 name=e118_gpu -- bash -c 'python3 -W ignore -m src.data_mani.fmx_tabpfn --pass attn,nbr,extreme,t60,now_mom,now_vol,crowd,regime,self,pair,drivers --skip-done --device cuda:0 && until [ -s results/forecast/crypto/ridge_glmnet/e118src_ridge_oos.csv ]; do sleep 60; done && python3 -W ignore -m src.data_mani.fmx_tabpfn --pass resid --skip-done --device cuda:0'
+cores=8 ram=40 name=e118_lane_a -- bash -c 'python3 -W ignore -m src.data_mani.fmx_models --source blocks --n-jobs 8 && python3 -u -m src.run_forecast crypto ridge_glmnet --task regression --metric corr --bmc-reference benchmark --cv-scheme rolling --train-window 130 --refit-every 130 --embargo 20 --n-splits 5 --n-iter 50 --val-frac 0.60 --era-step 1 --seed 42 --search-jobs 1 --n-jobs 8 --data-version crypto/v2.0-tenc-onehot-rollsel-spread-interact --feature-exclude "^feature_sym_tenc$" --target target_binned_return_20 --run-name e118src_ridge_oos && python3 -W ignore -m src.data_mani.fmx_models --source mlp --n-jobs 8'
+cores=8 ram=24 name=e118_lane_b -- bash -c 'python3 -W ignore -m src.data_mani.fmx_models --source lgb --n-jobs 8 && python3 -W ignore -m src.data_mani.fmx_models --source catboost --n-jobs 8 && python3 -W ignore -m src.data_mani.fmx_models --source rf --n-jobs 8'

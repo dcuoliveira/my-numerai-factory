@@ -1,0 +1,8 @@
+cores=6 ram=16 name=e145_lgb_a -- python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ZS_COV_HEAD FT_COV_HEAD ZS_DELTA_HEAD FT_DELTA_HEAD ZS_FULL_HEAD
+cores=6 ram=16 name=e145_lgb_b -- python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms FT_FULL_HEAD ALL_HEAD HEAD_ONLY ZS_AR_HEAD FT_AR_HEAD ALL_H
+cores=6 ram=16 name=e145_lgb_c -- python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ALL_NO_ZS_COV ALL_NO_ZS_DELTA ALL_NO_FT_COV ALL_NO_FT_DELTA
+cores=6 ram=16 name=e145_lgb_d -- python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ZS_COV_ONLY ZS_DELTA_ONLY FT_COV_ONLY FT_DELTA_ONLY P_WARM P_OBS P_NM
+cores=6 ram=16 name=e145_mlp -- python3 experiments/e145_c2head_evaluation.py --fit --model mlp_ktz --n-jobs 6
+cores=2 ram=16 name=e145_rid -- bash -c 'python3 experiments/e145_c2head_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e145_c2head_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=16 name=e145_lgb_t -- python3 experiments/e145_c2head_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=3 ram=16 name=e145_mlp_t -- python3 experiments/e145_c2head_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

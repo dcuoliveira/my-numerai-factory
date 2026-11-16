@@ -1,0 +1,6 @@
+cores=4 ram=14 name=e139_lgb_a -- python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL ADDED_ONLY F_INFL
+cores=4 ram=14 name=e139_lgb_b -- python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms NO_BEILVL NO_BEICHG FULL_H
+cores=3 ram=14 name=e139_mlp -- python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model mlp_ktz --n-jobs 3
+cores=1 ram=14 name=e139_rid -- bash -c 'python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=14 name=e139_lgb_t -- python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=2 ram=14 name=e139_mlp_t -- python3 experiments/e139_carver_macro_infl_evaluation.py --fit --model mlp_ktz --tune --n-jobs 2

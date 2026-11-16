@@ -1,0 +1,9 @@
+# E129 step 3: the eight +rfleaf arms (datasets built 2026-10-24 by build_rfleaf). --search-jobs x --n-jobs = cores.
+cores=16 ram=48 name=e129_lf_ia01 -- env OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 ONLY="lf_ia01" NO_MAIL=1 E129_SJ=16 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=16 ram=48 name=e129_lf_maallfeat -- env ONLY="lf_maallfeat" NO_MAIL=1 E129_SJ=8 E129_NJ=2 bash experiments/e129_rfleaf_members_crypto.sh
+cores=8 ram=32 name=e129_lf_mafenc -- env ONLY="lf_mafenc" NO_MAIL=1 E129_SJ=4 E129_NJ=2 bash experiments/e129_rfleaf_members_crypto.sh
+cores=8 ram=32 name=e129_lf_c04 -- env ONLY="lf_c04" NO_MAIL=1 E129_SJ=8 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=4 ram=16 name=e129_lf_ia02 -- env ONLY="lf_ia02" NO_MAIL=1 E129_SJ=1 E129_NJ=4 bash experiments/e129_rfleaf_members_crypto.sh
+cores=4 ram=16 name=e129_lf_saci04 -- env ONLY="lf_saci04" NO_MAIL=1 E129_SJ=1 E129_NJ=4 bash experiments/e129_rfleaf_members_crypto.sh
+cores=4 ram=16 name=e129_lf_c05blk -- env ONLY="lf_c05blk" NO_MAIL=1 E129_SJ=4 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh
+cores=4 ram=16 name=e129_lf_c0560blk -- env ONLY="lf_c0560blk" NO_MAIL=1 E129_SJ=4 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh

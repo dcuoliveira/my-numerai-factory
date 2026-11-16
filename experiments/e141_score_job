@@ -1,0 +1,1 @@
+cores=9 ram=60 name=e141_score -- bash -c "E141_WORKERS=9 python3 experiments/e141_macrobeta_evaluation.py"

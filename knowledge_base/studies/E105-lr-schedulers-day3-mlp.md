@@ -1,0 +1,20 @@
+# E105 — Learning-rate schedulers on the day3 batch scheme (torch MLP, sklearn init)
+
+- **State:** done (1000/1000 arms)
+- **Runner:** experiments/e105_lr_schedulers_daybatch_crypto.py
+- **Models / datasets:** torch_scratch (from-scratch torch MLP, sklearn-exact init, identity (64,32,16), alpha 100), data_version crypto/v2.0-fenccausal (44 features)
+- **Artifacts on disk:** 38.1 MB across 0 forecast runs (the study writes no forecasts; the footprint is 1000 metrics JSONs + 1000 per_period series) (reclaimability is NOT decided here — see DELETION_LEDGER.md, computed by src.analysis.retention)
+- **Provenance:** FINDINGS-BACKED
+- **Sources read:** EXPERIMENTS.md §"E105 — annealing the learning rate rescues the day3 arm; `OneCycleLR` is best"; memory: e105-lr-schedulers-day3.md, training-diagnostics-standard.md; metrics: results/metrics/crypto/torch_scratch/e105_const_s100.json
+
+## Main question
+On E104's numerically degenerate `day3` arm (whose loss minimiser is the zero map), does the shape of the learning-rate schedule — rather than simply a lower average rate — change the outcome? Baseline is constant 1e-3, gated bit-for-bit against e104_day3 on every seed; the distribution across 100 seeds is the result.
+
+## What was tried
+10 arms × 100 seeds (seeds 42–141, shared by every arm), all n=510, paired by seed against `const`. The only thing varied is the learning rate over training. Seven of torch's own schedulers each peaking at 1e-3 over a 60-epoch horizon: StepLR ×0.5/15, ExponentialLR 0.955, CosineAnnealingLR, 5-epoch warm-up + cosine, cosine warm restarts T_0=15, OneCycleLR, ReduceLROnPlateau ×0.5 patience 3. Two constant lower-rate controls (5e-4 and 2.5e-4) hold the summed learning rate constant to separate "schedule shape" from "less learning rate". Horizon set to 60 epochs because constant-rate training stops ~53. The t-bar for 9 arms vs const is about |t| >= 2.9.
+
+## Trained parameters
+From results/metrics/crypto/torch_scratch/e105_const_s100.json (the `const` baseline arm, seed 100): model torch_scratch; data_version crypto/v2.0-fenccausal; cv_scheme rolling; train_window 130; refit_every 130; embargo 20; era_step 1; target target_binned_return_20; task regression; n_features 44; val_frac 0.3; batch_scheme "day", days_per_batch 3; init "sklearn _init_coef"; l2_norm "ref"; lr_schedule "constant", lr_group "baseline". fixed_params: {activation identity, alpha 100.0, batch_size 1024, hidden_layer_sizes [64,32,16], learning_rate_init 0.001}. Seed swept 42..141; lr_schedule/lr_group vary across the other 9 arms.
+
+## What was found
+FINDINGS-BACKED. Annealing the learning rate toward zero rescues the arm. Paired payout gains vs `const` (seed t on 99 df): OneCycleLR +0.0356 (t +9.18), ExponentialLR +0.0289 (+7.97), warm-up+cosine +0.0275 (+7.14), StepLR +0.0215 (+6.07), CosineAnnealingLR +0.0195 (+5.46). OneCycleLR is the best arm (mean CORR 0.1021, median 0.118; 69/100 seeds reach CORR>=0.10 vs 35 for const; 7 negative seeds vs 22; dd(pay) 1.16, calmar 0.067). It beats exp (+0.0067, t +3.13) and warmcos (+0.0080, t +6.93). The constant lower-rate controls get only a fifth to a third of the gain (lr25e5 +0.0074 t +2.61), and ReduceLROnPlateau (+0.0068, t +2.43), restarts (+0.0039, t +2.11) and lr5e4 (+0.0043, t +1.68) sit with the controls. What orders the arms is the final learning rate: Spearman(last lr, mean payout) = −0.93 across the ten arms (vs −0.75 for summed lr). Two distinct failures with two cures: any lower rate removes the constant-predictor seeds (20→0), but only annealing toward zero un-flips the sign-flipped seeds (OneCycle turns 19 of 22 negatives positive, vs 5–6 for constant lower rates). Caveat (stated in the record): the objective is unchanged and its minimiser is still the zero map, so a schedule helps by stopping the optimiser short — early stopping in learning-rate time, not a better fit; says nothing yet about a non-over-regularised alpha. ReduceLROnPlateau at the stop rule's 1e-4 never fires and runs at 1e-3 (was the baseline bit-for-bit). The first 50 seeds flattered the schedulers.

@@ -1,0 +1,7 @@
+cores=3 ram=16 name=e140_lgb_a -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model lgb_ktz --n-jobs 3 --arms FULL ADDED_ONLY
+cores=3 ram=16 name=e140_lgb_b -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model lgb_ktz --n-jobs 3 --arms F_IX IX_RET
+cores=3 ram=16 name=e140_lgb_c -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model lgb_ktz --n-jobs 3 --arms IX_BEI FULL_H
+cores=3 ram=16 name=e140_mlp -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model mlp_ktz --n-jobs 3
+cores=1 ram=16 name=e140_rid -- bash -c 'python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=16 name=e140_lgb_t -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=1 ram=16 name=e140_mlp_t -- python3 experiments/e140_carver_macro_infl_xinteractions_evaluation.py --fit --model mlp_ktz --tune --n-jobs 1

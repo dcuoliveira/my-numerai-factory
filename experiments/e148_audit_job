@@ -1,0 +1,1 @@
+cores=4 ram=40 gpu=1 name=e148_audit -- bash -c "cd /home/danielco/Downloads/my-numerai-agent && HF_HOME=/scratch/danielco/hf HF_HUB_OFFLINE=1 PYTHONPATH=$PWD /scratch/danielco/chronos2/venv/bin/python -m src.data_mani.chronos2_resid audit --dates 2021-12-31 2023-06-30 2026-02-20"

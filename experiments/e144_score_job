@@ -1,0 +1,1 @@
+cores=9 ram=60 name=e144_score -- bash -c "E144_WORKERS=9 python3 experiments/e144_c2ft_evaluation.py"

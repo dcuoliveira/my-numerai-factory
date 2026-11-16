@@ -1,0 +1,1 @@
+cores=8 ram=60 name=e159s_score -- env E159_WORKERS=8 python3 experiments/e159_volumealpha_evaluation.py

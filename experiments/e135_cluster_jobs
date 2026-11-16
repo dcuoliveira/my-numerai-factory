@@ -1,0 +1,6 @@
+cores=6 ram=20 name=e135_ridge -- python3 experiments/e135_route_histfe.py --fit --model ridge --n-jobs 6
+cores=6 ram=20 name=e135_ridge_t -- python3 experiments/e135_route_histfe.py --fit --model ridge --tune --n-jobs 6
+cores=12 ram=20 name=e135_lgb -- python3 experiments/e135_route_histfe.py --fit --model lgb_ktz --n-jobs 12
+cores=12 ram=20 name=e135_mlp -- python3 experiments/e135_route_histfe.py --fit --model mlp_ktz --n-jobs 12
+cores=12 ram=20 name=e135_lgb_t -- python3 experiments/e135_route_histfe.py --fit --model lgb_ktz --tune --n-jobs 12
+cores=9 ram=20 name=e135_mlp_t -- python3 experiments/e135_route_histfe.py --fit --model mlp_ktz --tune --n-jobs 9

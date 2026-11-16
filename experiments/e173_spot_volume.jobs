@@ -1,0 +1,4 @@
+cores=8 ram=24 name=e173_volume_ridge -- python3 -u experiments/e173_spot_volume_supervisor.py ridge
+cores=8 ram=24 name=e173_volume_lgb -- python3 -u experiments/e173_spot_volume_supervisor.py lgb_ktz
+cores=8 ram=24 name=e173_volume_mlp -- python3 -u experiments/e173_spot_volume_supervisor.py mlp_ktz
+cores=1 ram=12 name=e173_volume_finish -- python3 -u experiments/e173_spot_volume_supervisor.py finish

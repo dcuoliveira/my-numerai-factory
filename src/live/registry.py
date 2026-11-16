@@ -1103,6 +1103,123 @@ MODELS = {
             "periods, not 510.",
         ],
     },
+    "MA_FENC": {
+        "wrapper": "rf_ktz",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "e52_fenccausal",
+        "why":
+            "One of the two random-forest legs of MAPINGUARI_01 (the RF component "
+            "of CU_SA_IA_BO_MA_01). A from-scratch rf_ktz search -- the E48 "
+            "sensitivity priors compiled into a grid (n_estimators pinned 100, "
+            "shallow max_depth {3,4,6}, low max_features {0.05..0.30}, heavy "
+            "min_samples_leaf {300..4000}) -- on the 44 causal-encoded features "
+            "(E52). NOT ON THE ACCOUNT: a NOT_SUBMITTED component, fitted so "
+            "MAPINGUARI_01 can rank-average it, never uploaded alone. Searches "
+            "live like IA_01 (FIT's 50-draw random search); fenccausal is "
+            "live-buildable (src/live/features.py:add_fenccausal).",
+        "backtest": {"corr": 0.153018, "corr_sharpe": 1.7720, "corr_max_dd": 0.7406, "mmc": 0.078063, "mmc_sharpe": 1.2456, "payout": 0.093365, "payout_sharpe": 1.3440, "payout_max_dd": 1.0816, "n_periods": 510},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Live SEARCHES (not pinned), so the live per-refit config need not "
+            "match E52's exact picks (which landed at min_samples_leaf 300, "
+            "depth 3-6, max_features 0.1-0.3).",
+        ],
+    },
+    "MA_ALLFEAT": {
+        "wrapper": "rf_ktz",
+        "feature_set": "allfeat",
+        "n_features": 788,
+        "backtest_run": "e52_allfeat",
+        "why":
+            "The second random-forest leg of MAPINGUARI_01: rf_ktz on the 788 "
+            "allfeat columns (tenc+onehot+spread+interact), the highest-CORR RF "
+            "dataset in E52 (CORR 0.1631). NOT_SUBMITTED component. allfeat is "
+            "live-buildable (src/live/features.py, feature_set 'allfeat' = "
+            "allfeat_pp minus the 24 rolling means).",
+        "backtest": {"corr": 0.163101, "corr_sharpe": 1.6934, "corr_max_dd": 1.1136, "mmc": 0.079191, "mmc_sharpe": 1.0967, "payout": 0.095501, "payout_sharpe": 1.1894, "payout_max_dd": 1.8146, "n_periods": 510},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Highest CORR of the RF datasets but the worst drawdown (dd(corr) "
+            "1.11); MAPINGUARI_01 pairs it with MA_FENC (dd 0.74) to steady it.",
+            "Live SEARCHES, like MA_FENC.",
+        ],
+    },
+    "MAPINGUARI_01": {
+        # The random-forest leg. Mapinguari -- the Amazonian forest beast -- is
+        # the new random-forest FAMILY (the folklore forest-guardians Curupira
+        # and Caipora are already the ridge/lgb and catboost families). Rank-
+        # averages its two fitted RF components 50/50; a NOT_SUBMITTED aggregator,
+        # like IA_01 for the neural family.
+        "wrapper": None,
+        "scored_under": "rf_ktz",
+        # allfeat_pp_fenc (834) is the superset feeding BOTH members: MA_ALLFEAT's
+        # allfeat (788) and MA_FENC's fenccausal causal-mean columns. Same reason
+        # CU_SA_IA_BO_01/02 declare allfeat_pp_fenc for their mixed-feature legs.
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e52_ens_fenc_allfeat",
+        "why":
+            "The random-forest leg of CU_SA_IA_BO_MA_01: a 50/50 rank-average of "
+            "MA_FENC (rf_ktz on fenccausal, 44) and MA_ALLFEAT (rf_ktz on allfeat, "
+            "788) -- the two strongest RF datasets from E52. RF was primed by the "
+            "E48 KTZ sensitivity sweep and tuned from scratch across all 9 book "
+            "datasets (E51/E52); this blend was the payout & c.sharpe winner of an "
+            "exhaustive 246-combination screen. E52 backtest (510p): CORR 0.16352, "
+            "payout 0.09767, c.sharpe 1.775, dd(corr) 0.755 -- beats either RF leg "
+            "alone. NOT_SUBMITTED: exists only to give CU_SA_IA_BO_MA_01 an RF leg.",
+        "backtest": {"corr": 0.163517, "corr_sharpe": 1.7753, "corr_max_dd": 0.7551, "mmc": 0.081322, "mmc_sharpe": 1.2419, "payout": 0.097673, "payout_sharpe": 1.3397, "payout_max_dd": 1.2039, "n_periods": 510},
+        "slot_members": [
+            {"name": "MA_FENC", "weight": 0.5},
+            {"name": "MA_ALLFEAT", "weight": 0.5},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Standalone the RF leg is only mid-book (payout 0.0999 vs the top "
+            "slotblends' 0.101-0.107) and the worst-sharpe of the blends: its "
+            "value is diversity, not level. See CU_SA_IA_BO_MA_01.",
+        ],
+    },
+    "CU_SA_IA_BO_MA_01": {
+        "wrapper": None,
+        "scored_under": "rf_ktz",
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e_cu02_rf6733",
+        "why":
+            "CU_SA_IA_BO_02 + a random-forest leg (MAPINGUARI_01), rank-averaged "
+            "2:1 (67% CU_SA_IA_BO_02, 33% RF). The first slot to carry the "
+            "random-forest family (Mapinguari). Priced as a real per-period "
+            "rank-average over 470 periods: payout 0.10768, c.sharpe 2.028, "
+            "dd(corr) 0.689 -- the highest payout of the whole submitted book BY "
+            "POINT ESTIMATE.\n\n"
+            "BUT paired Newey-West (lag 20, 470 periods) says it is "
+            "INDISTINGUISHABLE from both its base CU_SA_IA_BO_02 (payout +0.00133, "
+            "t +0.43) and the top incumbent CU_SA_IA_BO_01 (payout +0.00055, "
+            "t +0.13). Deploy it for RANDOM-FOREST DIVERSITY, not for a measured "
+            "edge. The 33% RF weight is deliberate: 50/50 lowered the slot's "
+            "sharpe, a light touch left it flat-to-positive. SUBMITTED UNSTAKED "
+            "first, to accrue live out-of-sample scores before any NMR is risked.",
+        "backtest": {"corr": 0.167187, "corr_sharpe": 2.0284, "corr_max_dd": 0.6886, "mmc": 0.090958, "mmc_sharpe": 1.5029, "payout": 0.107677, "payout_sharpe": 1.6046, "payout_max_dd": 1.0975, "n_periods": 470},
+        "slot_members": [
+            {"name": "CU_SA_IA_BO_02", "weight": 2.0 / 3},
+            {"name": "MAPINGUARI_01", "weight": 1.0 / 3},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Backtest is a statistical WASH vs the incumbents (t +0.13 to +0.43 "
+            "on ~24 effective windows); its case is diversification, not level.",
+            "Needs an account model slot on numer.ai (e.g. cu_sa_ia_bo_ma_01) or "
+            "run_round warns and does not submit -- like CURUPIRA_IARA_01 did.",
+            "Nests CU_SA_IA_BO_02 -> CU_SA_IA_BO_01 -> CURUPIRA_SACI_03, so it "
+            "inherits their example-fallback risk; check the round report source.",
+            "The RF legs SEARCH live (FIT 50-draw), so live config need not "
+            "reproduce E52's exact per-refit picks; backtest_run e_cu02_rf6733 "
+            "uses the E52 searched forecasts at weights 2,1.",
+            "Scored on 470 periods (inherits the 60-day CURUPIRA_05_60 via "
+            "CU_SA_IA_BO_02), not 510.",
+        ],
+    },
     "CURUPIRA_BOITATA_01": {
         # CURUPIRA_08 + CU_SA_IA_BO_01, rank-averaged 50/50. Fits nothing of its
         # own; both members are already-deployed slots, so this reuses their
@@ -1404,6 +1521,200 @@ MODELS = {
             "four to fit within the deadline or it degrades to the raw fallback.",
         ],
     },
+
+    "TUPA_01": {
+        "wrapper": "tabpfn",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "e19_fenccausal",
+        "why":
+            "The tabular FOUNDATION model's spot in the book. TabPFN v2 run "
+            "zero-shot (frozen, in-context) on the 22 raw features + their 22 causal "
+            "per-symbol means -- the strongest single foundation-model arm ever found "
+            "on this panel, CORR 0.14504, and the subject of the whole E19/E38-E102 "
+            "arc. Named Tupa (Tupi-Guarani creator/thunder deity) because it is a "
+            "pretrained-on-everything foundation model, not a fitted-here estimator.\n\n"
+            "ZERO-SHOT IS THE CEILING: across full fine-tuning (E44/E45), a frozen "
+            "head (E83) and rank-aware LoRA (E102/E103 over 7 feature sets), NOTHING "
+            "beat this zero-shot arm -- every weight update overfits the low-SNR, "
+            "non-stationary target and erodes the meta-learned prior. So TUPA_01 is "
+            "that zero-shot arm, deliberately not a fine-tuned one.\n\n"
+            "NOT_SUBMITTED: it is registered as a named spot, but see the live-path "
+            "caveat -- TabPFN has never been run through a live round.",
+        "backtest": {"corr": 0.145042, "corr_sharpe": 1.3394, "corr_max_dd": 1.6028, "mmc": 0.066740, "mmc_sharpe": 0.8521, "payout": 0.081244, "payout_sharpe": 0.9264, "payout_max_dd": 1.7560, "n_periods": 510},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "LIVE-PATH GATE: unlike the torch LSTM, tabpfn IS in "
+            "src.prediction.models.MODELS and build_wrapper can build it, and "
+            "fenccausal is live-buildable (src/live/features.py:add_fenccausal). But "
+            "TabPFN is in-context (fit stores the training panel, predict re-runs a "
+            "GPU forward over it), it needs a GPU at refit AND predict time, and it "
+            "has NEVER been run through src/live/refit.py. Validate a live fit / "
+            "predict / joblib round-trip on a GPU refit box before adding to ORDER.",
+            "On the deployed book it is a mid-pack payout arm (0.081, 510 periods) "
+            "but a very SMOOTH one -- pnl drawdown 0.367, the lowest-risk payout "
+            "stream in the foundation-model family; its book value is diversification, "
+            "not level (the book's best single is ~0.107).",
+        ],
+    },
+
+    "TUPA_02": {
+        "wrapper": "tabpfn",
+        "feature_set": "fenccausal",
+        "n_features": 44,
+        "backtest_run": "e102_lora",
+        "model_path": "models/tabpfn/e102_lora.ckpt",
+        "why":
+            "The LoRA-adapted TabPFN (study E102): r=8 adapters on the attention "
+            "q/k/v/out projections trained with a per-date cross-sectional CORR loss, "
+            "then MERGED into the backbone. A second Tupa draw, kept as a COMPONENT "
+            "(like CURUPIRA_05_60 / IA_01) -- it is the decorrelator leg of "
+            "TU_CU_SA_IA_BO_CA_01, never uploaded alone.\n\n"
+            "Weak standalone (payout 0.0634 < TUPA_01's 0.0812 < the book) -- LoRA "
+            "hurts the level, as the whole fine-tuning arc found. Its value is purely "
+            "that the LoRA objective DECORRELATED it: solo it carries the lowest "
+            "payout drawdown and highest calmar of the e102xbook screen pool, so it "
+            "earns its place as a risk leg in a blend, not on its own.",
+        "backtest": {"corr": 0.135930, "corr_sharpe": 1.3482, "corr_max_dd": 1.0862, "mmc": 0.049774, "mmc_sharpe": 0.6711, "payout": 0.063367, "payout_sharpe": 0.7704, "payout_max_dd": 1.6400, "n_periods": 510},
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "NOT live-refittable as-is: it is a FROZEN fine-tuned checkpoint "
+            "(model_path models/tabpfn/e102_lora.ckpt), not a fresh search each "
+            "round. A live path would have to load the merged .ckpt and run it "
+            "in-context on GPU -- strictly more than TUPA_01's live gate.",
+            "Single training run, pre-2024-06-27 leak-safe pool; the decorrelation "
+            "is a point estimate on ~24 effective windows, not an established effect.",
+        ],
+    },
+
+    "TU_CU_SA_IA_BO_CA_01": {
+        "wrapper": None,
+        "scored_under": "tabpfn",
+        "feature_set": "mixed (allfeat_pp_fenc + fenccausal)",
+        "n_features": 834,
+        "backtest_run": "tu_cu_sa_ia_bo_ca_01",
+        "why":
+            "The foundation model fused onto the book: an equal 1/5 rank-average of "
+            "TUPA_02 (LoRA TabPFN) + CU_SA_IA_BO_01 + IA_01 + CURUPIRA_CAIPORA_01 + "
+            "CURUPIRA_05. Named for the six creature families it spans -- Tupa + "
+            "Curupira + Saci + Iara + Boitata + Caipora (TU_CU_SA_IA_BO_CA), the "
+            "longest lineage in the book.\n\n"
+            "It is a RISK slot, not a level one. Priced as a real rank-average over "
+            "470 periods it TIES the book's best single (CU_SA_IA_BO_01) on payout -- "
+            "0.10538 vs 0.10712, inside the noise -- while cutting payout drawdown "
+            "~28% (0.827 vs 1.157), lifting calmar ~37% (0.127 vs 0.093) and p.sharpe "
+            "(1.47 vs 1.51 is ~flat), at equal CORR (0.1687 vs 0.1682). TUPA_02 is the "
+            "decorrelator doing the work: the same blend without it has higher "
+            "drawdown and lower CORR (E103 step 3).",
+        "backtest": {"corr": 0.168717, "corr_sharpe": 1.8634, "corr_max_dd": 0.4142, "mmc": 0.088505, "mmc_sharpe": 1.3769, "payout": 0.105377, "payout_sharpe": 1.4720, "payout_max_dd": 0.8269, "n_periods": 470},
+        "slot_members": [
+            {"name": "TUPA_02", "weight": 0.2},
+            {"name": "CU_SA_IA_BO_01", "weight": 0.2},
+            {"name": "IA_01", "weight": 0.2},
+            {"name": "CURUPIRA_CAIPORA_01", "weight": 0.2},
+            {"name": "CURUPIRA_05", "weight": 0.2},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "CONTAINS TabPFN (TUPA_02), so it inherits TUPA's live-path gate AND the "
+            "frozen-checkpoint requirement -- this blend CANNOT be produced for a live "
+            "round until a TabPFN live fit/predict path exists. It is a backtest / "
+            "research slot until then.",
+            "Payout is TIED, not beaten: -0.0017 vs CU_SA_IA_BO_01 is inside the "
+            "noise on ~24 effective windows. This slot buys stability (drawdown, "
+            "calmar), not level -- and the drawdown edge has no significance test.",
+            "470 periods, not 510: it carries CURUPIRA_05 and the 60-day-derived book "
+            "members, and TUPA_02's fenccausal panel.",
+        ],
+    },
+    # ----------------------------------------------------------------------
+    # Meta-residualised slot blends (E107). A member carrying "resid": s enters
+    # the blend as rank(gauss(rank(p)) - s * beta * gauss(rank(m))), where m is
+    # the meta model at least 5 days old (src.prediction.meta_resid). Naming:
+    # a trailing _R means EVERY leg is residualised; an R right after a family
+    # code means only that leg is (CU_R = residualised Curupira).
+    # ----------------------------------------------------------------------
+    "CU_SA_IA_BO_MA_R_01": {
+        "wrapper": None,
+        "scored_under": "meta_resid",
+        # Both members are allfeat_pp_fenc slot blends, so their own feature set
+        # is the superset; the lagged meta column is attached by run_round.
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e107px_cu_sa_cu_sa",
+        "why":
+            "The E107 Pool A winner: the two best residualised slots, "
+            "RESID(CU_SA_IA_BO_01) and RESID(CU_SA_IA_BO_MA_01), rank-averaged "
+            "50/50. Each leg has half its projection onto the 5-day-lagged meta "
+            "model removed before ranking. Priced as a real per-period rank "
+            "average over 470 periods: payout 0.118694, CORR 0.157171, MMC "
+            "0.102977 -- the highest payout measured on this book. Against "
+            "CU_SA_IA_BO_MA_01, the best submitted single, paired Newey-West "
+            "(lag 20) gives payout +0.0110 at t +3.73, which clears the house "
+            "|t| >= 2 bar. Replaces account slot curupira_02 (renamed to "
+            "cu_sa_ia_bo_ma_r_01 on 2026-10-21).",
+        "backtest": {"corr": 0.157171, "corr_sharpe": 1.9254, "corr_max_dd": 0.9975, "mmc": 0.102977, "mmc_sharpe": 1.4936, "payout": 0.118694, "payout_sharpe": 1.5577, "payout_max_dd": 1.3905, "n_periods": 470},
+        "slot_members": [
+            {"name": "CU_SA_IA_BO_01", "weight": 0.5, "resid": 0.5},
+            {"name": "CU_SA_IA_BO_MA_01", "weight": 0.5, "resid": 0.5},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "It buys LEVEL, not stability: dd(pay) 1.39 against CU_SA_IA_BO_MA_01's "
+            "1.10, so calmar falls (0.085 vs 0.098) and CORR is LOWER (0.157 vs "
+            "0.167). The whole edge is MMC, which is what residualising trades for.",
+            "Needs the meta model live: run_round downloads "
+            "historical_meta_models.parquet every round. Without a snapshot no "
+            "older than 14 days the legs pass through un-residualised -- the slot "
+            "still submits, the round report warns, and it is then NOT the "
+            "backtested object.",
+            "Nests CU_SA_IA_BO_01 and CU_SA_IA_BO_MA_01 (and through them "
+            "CURUPIRA_SACI_03, CURUPIRA_08, IA_01 and the RF legs), so every "
+            "fallback risk of those slots is inherited.",
+            "E107 residualised against historical_meta_models as of 2026-08-08 and "
+            "the backtest window ends 2026-05-13, so the lag rule was always met "
+            "with room to spare; live it runs at exactly 5 days.",
+        ],
+    },
+    "CU_R_IA_MA_60_01": {
+        "wrapper": None,
+        "scored_under": "meta_resid",
+        # CURUPIRA_05/_05_60 read allfeat_pp, IA_01/MA_FENC read fenccausal;
+        # allfeat_pp_fenc is the superset of both.
+        "feature_set": "allfeat_pp_fenc",
+        "n_features": 834,
+        "backtest_run": "e107pxB_curu_IA_0_MA_F_CURU",
+        "why":
+            "The E107 Pool B winner, mixing residualised and plain legs: "
+            "RESID(CURUPIRA_05) + IA_01 + MA_FENC + CURUPIRA_05_60, 1/4 each. Only "
+            "the Curupira leg is residualised (hence CU_R); the neural (IA), "
+            "random-forest (MA) and 60-day (_60) legs go in as fitted. Priced over "
+            "470 periods: payout 0.112060, p.sharpe 1.663, dd(pay) 0.907 -- the "
+            "best risk-adjusted blend of the pool. Against CU_SA_IA_BO_MA_01 the "
+            "paired payout delta is +0.0044 at t +1.76, i.e. NOT past |t| >= 2: "
+            "deploy it for the drawdown and the diversity, not a proven level "
+            "edge. Replaces account slot curupira_03 (renamed to "
+            "cu_r_ia_ma_60_01 on 2026-10-21).",
+        "backtest": {"corr": 0.161734, "corr_sharpe": 2.0914, "corr_max_dd": 0.6078, "mmc": 0.095886, "mmc_sharpe": 1.5721, "payout": 0.112060, "payout_sharpe": 1.6635, "payout_max_dd": 0.9070, "n_periods": 470},
+        "slot_members": [
+            {"name": "CURUPIRA_05", "weight": 0.25, "resid": 0.5},
+            {"name": "IA_01", "weight": 0.25},
+            {"name": "MA_FENC", "weight": 0.25},
+            {"name": "CURUPIRA_05_60", "weight": 0.25},
+        ],
+        "fallback_feature_set": "raw",
+        "caveats": [
+            "Payout edge over CU_SA_IA_BO_MA_01 is t +1.76 -- inside the noise. "
+            "Its case is dd(pay) 0.907 vs 1.10 and p.sharpe 1.66 vs 1.60.",
+            "CURUPIRA_05_60 fits the 60-day label; its PREDICTIONS enter a blend "
+            "scored on the 20-day label, as in the backtest. The slot is scored on "
+            "target_binned_return_20.",
+            "MA_FENC searches live (FIT 50-draw); the backtest leg is E52's "
+            "searched e52_fenccausal forecast, as for CU_SA_IA_BO_MA_01.",
+            "Shares the meta-model dependency of CU_SA_IA_BO_MA_R_01: without a "
+            "fresh snapshot the CURUPIRA_05 leg passes through un-residualised.",
+        ],
+    },
 }
 
 # Order matters: this is the order slots are refit and submitted in, so the
@@ -1426,6 +1737,9 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SA
          # cheapest-first order. IA_03/IA_04 are the two pinned MLP legs of IU_IA_01.
          "CURUPIRA_03", "SACI_05",
          "CURUPIRA_04", "SACI_03", "IA_01", "SACI_02",
+         # MA_FENC: rf_ktz 50-draw search on fenccausal (44) -- measured 139 s for
+         # one live refit, so between SACI_02 (120) and IAUARETE_01 (300).
+         "MA_FENC",
          # IAUARETE_01 is a catboost_ktz search: ~300 s, between SACI_02 (120)
          # and CURUPIRA_05 (440), so the fitting slots stay cheapest-first.
          "IAUARETE_01",
@@ -1433,6 +1747,11 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SA
          # IU_IA_01 leg -- ~320 s, just after IAUARETE_01 (300) and before
          # CURUPIRA_05 (440).
          "IAUARETE_02",
+         # MA_ALLFEAT: rf_ktz 50-draw search on allfeat (788) -- measured 408 s for
+         # one live refit, between IAUARETE_02 (320) and CURUPIRA_05 (440). Its
+         # cheaper 139 s fenccausal sibling MA_FENC is placed after SACI_02 above.
+         # Both are fitted before the MAPINGUARI_01/CU_SA_IA_BO_MA_01 tail blends.
+         "MA_ALLFEAT",
          "CURUPIRA_05", "CURUPIRA_05_60", "SACI_06", "CURUPIRA_06", "CURUPIRA_07",
          "CURUPIRA_08", "CURUPIRA_SACI_01", "CURUPIRA_SACI_02",
          "CURUPIRA_SACI_03", "CURUPIRA_SACI_04", "CU_SA_IA_BO_01",
@@ -1446,7 +1765,15 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SA
          # IU_IA_01 = IAUARETE_01 + IAUARETE_02 + IA_03 + IA_04, all fitted above;
          # a zero-fit slot blend, last with the other blends. Fills account slot
          # iu_ia_01 (renamed from IARA_01).
-         "CU_SA_IA_BO_02", "CU_CA_IA_01", "IU_IA_01"]
+         "CU_SA_IA_BO_02", "CU_CA_IA_01", "IU_IA_01",
+         # MAPINGUARI_01 (RF leg = MA_FENC + MA_ALLFEAT) then CU_SA_IA_BO_MA_01
+         # (= CU_SA_IA_BO_02 + MAPINGUARI_01, 2:1) -- zero-fit tail blends, after
+         # all their members. CU_SA_IA_BO_MA_01 is the submitted (unstaked) slot;
+         # MA_FENC/MA_ALLFEAT/MAPINGUARI_01 are NOT_SUBMITTED components.
+         "MAPINGUARI_01", "CU_SA_IA_BO_MA_01",
+         # The E107 meta-residualised blends: zero-fit, so after every member.
+         # CU_SA_IA_BO_MA_R_01 nests CU_SA_IA_BO_MA_01, which must precede it.
+         "CU_SA_IA_BO_MA_R_01", "CU_R_IA_MA_60_01"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
@@ -1454,9 +1781,31 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SA
 # CatBoost legs of CU_SA_IA_BO_01 and CURUPIRA_CAIPORA_01 respectively -- fitted
 # so a blend can reuse them, never uploaded alone.
 NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IA_02", "IAUARETE_01",
+                 # Retired from the account on 2026-10-21: their slots were renamed
+                 # to CU_SA_IA_BO_MA_R_01 and CU_R_IA_MA_60_01. Both are still fitted
+                 # every round -- CURUPIRA_02 is submit.SIBLING, the fallback rung
+                 # every other slot leans on, and CURUPIRA_03 is a member of
+                 # CURUPIRA_SACI_01 -- so they stay in ORDER, never uploaded.
+                 "CURUPIRA_02", "CURUPIRA_03",
                  # The three IU_IA_01 legs that are not themselves on the account:
                  # IAUARETE_02 (catboost allfeat), IA_03/IA_04 (pinned MLPs).
-                 "IAUARETE_02", "IA_03", "IA_04"}
+                 "IAUARETE_02", "IA_03", "IA_04",
+                 # The random-forest components of CU_SA_IA_BO_MA_01: two rf_ktz
+                 # fits and their blend, fitted+cached but never uploaded alone.
+                 "MA_FENC", "MA_ALLFEAT", "MAPINGUARI_01",
+                 # TabPFN foundation-model slots (E19/E102/E103): registered as named
+                 # spots but NOT live until a GPU tabpfn fit/predict path is validated.
+                 # TUPA_02 is a component (the decorrelator leg of TU_CU_SA_IA_BO_CA_01).
+                 "TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01"}
+
+#: Named slots that have a backtest but NO live path yet. They are in MODELS so
+#: the name resolves (slots.slot_series, reports, retention) and deliberately in
+#: no ORDER, so a live round never tries to fit them. Each must also be in
+#: NOT_SUBMITTED, and no slot in ORDER may rank-average one. Promoting a slot out
+#: of here means adding it to ORDER with a DEFAULT_FIT_SECONDS estimate -- for
+#: the TabPFN slots, only after a GPU fit / predict / joblib round-trip has been
+#: run through src/live/refit.py.
+BACKTEST_ONLY = {"TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01"}
 
 
 def is_blend(spec):
@@ -1488,7 +1837,11 @@ def reused_slots():
     which one to look at first.
     """
     out = set()
-    for spec in MODELS.values():
+    for name, spec in MODELS.items():
+        # A backtest-only blend is never produced live, so it must not promote
+        # its members to dual-role in the round report's failure ranking.
+        if name in BACKTEST_ONLY:
+            continue
         for member in (spec.get("slot_members") or []):
             out.add(member["name"])
     return out

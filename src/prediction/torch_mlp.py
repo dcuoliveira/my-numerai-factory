@@ -119,8 +119,11 @@ class TorchMLPRegressor(RegressorMixin, BaseEstimator):
 
     :param hidden_layer_sizes: widths of the hidden layers
     :type hidden_layer_sizes: tuple of int
-    :param activation: only "relu" is implemented; named so the parameter grid
-                       is interchangeable with sklearn's
+    :param activation: "relu" or "identity". identity inserts NO nonlinearity
+                       between the hidden layers, so the whole stack composes to a
+                       single affine map -- matching sklearn
+                       MLPRegressor(activation='identity'). Named so the parameter
+                       grid stays interchangeable with sklearn's.
     :type activation: str
     :param alpha: L2 penalty, applied exactly as sklearn applies it
     :type alpha: float
@@ -273,11 +276,17 @@ class TorchMLPRegressor(RegressorMixin, BaseEstimator):
         first = n_features + (int(self.embed_dim) if self._n_embed else 0)
         widths = [first] + [int(w) for w in sizes] + [1]
 
+        # relu between the hidden layers; identity means NONE, so the Linear
+        # stack composes to one affine map -- exactly sklearn's
+        # activation='identity'. The head is always linear either way. The Glorot
+        # bound below uses factor 6.0, which is sklearn's for both relu and
+        # identity (only 'logistic' takes 2.0), so init matches too.
+        hidden_activation = nn.ReLU if self.activation == "relu" else None
         layers = []
         for i in range(len(widths) - 1):
             layers.append(nn.Linear(widths[i], widths[i + 1]))
-            if i < len(widths) - 2:                      # no activation on the head
-                layers.append(nn.ReLU())
+            if i < len(widths) - 2 and hidden_activation is not None:
+                layers.append(hidden_activation())            # none on the head
         net = nn.Sequential(*layers).to(dtype=torch.float64, device=self.device)
 
         with torch.no_grad():
@@ -302,10 +311,12 @@ class TorchMLPRegressor(RegressorMixin, BaseEstimator):
         import torch
         from torch import nn
 
-        if self.activation != "relu":
+        if self.activation not in ("relu", "identity"):
             raise ValueError(
-                "only activation='relu' is implemented, got {!r}. The parameter "
-                "exists so this grid stays interchangeable with sklearn's.".format(
+                "only activation in {{'relu', 'identity'}} is implemented, got "
+                "{!r}. identity gives a linear stack matching sklearn's "
+                "activation='identity'; relu is the nonlinear default. The "
+                "parameter stays interchangeable with sklearn's grid.".format(
                     self.activation)
             )
 

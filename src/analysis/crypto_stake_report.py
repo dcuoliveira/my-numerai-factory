@@ -68,9 +68,20 @@ STAKED_SLOTS = [
     ("curupira_05", "CURUPIRA_05"),
     ("cu_sa_ia_bo_01", "CU_SA_IA_BO_01"),
     ("curupira_01", "CURUPIRA_01"),
+    ("cu_sa_ia_bo_02", "CU_SA_IA_BO_02"),
+    ("cu_sa_ia_bo_ma_r_01", "CU_SA_IA_BO_MA_R_01"),
 ]
 COLOUR = {"CURUPIRA_08": "#c0392b", "CURUPIRA_05": "#2c6fbb",
-          "CU_SA_IA_BO_01": "#e08a1e", "CURUPIRA_01": "#3f8f4f"}
+          "CU_SA_IA_BO_01": "#e08a1e", "CURUPIRA_01": "#3f8f4f",
+          "CU_SA_IA_BO_02": "#8e44ad", "CU_SA_IA_BO_MA_R_01": "#00897b"}
+
+#: Section 3 colours a round's diamond by SETTLEMENT STATUS, not by model, so the
+#: scheme reads the same way in every panel: red while the figure is still a
+#: mark-to-market estimate (the round is open), blue once the round has resolved
+#: and the payout is final. The per-model COLOUR above stays for section 2, where
+#: several models share one chart and the colour has to tell them apart.
+PENDING_COLOUR = "#c5221f"    # latest / current pending (open round)
+RESOLVED_COLOUR = "#1a73e8"   # resolved / settled (final payout)
 
 #: Below this many shared rounds a realised correlation is not drawn. Two points
 #: always give |r| = 1 and three are barely better; the cell stays blank and the
@@ -90,6 +101,10 @@ META = "META MODEL"
 # reproduces the API's own `payout` to the digit, which is how the multipliers
 # were checked (r1337: 0.1*0.1231 + 0.0569 = 0.06922, x1.2594 = 0.08718 = payout).
 CORR_MULT, MMC_MULT = 0.1, 1.0
+
+#: A crypto round pays on a ~20-day forward return, so a year holds 365/20 of
+#: them for annualising a per-round Sharpe.
+ANNUAL_ROUNDS = 365.0 / 20.0
 
 PERF_QUERY = """
 query($m: ID, $t: Int, $n: Int) {
@@ -502,7 +517,7 @@ def box_stats(values):
             "n": len(arr)}
 
 
-def box_plot(rounds, boxes, latest, colour, paths=None,
+def box_plot(rounds, boxes, latest, colour, paths=None, colours=None,
              width=760, height=210, pad=(16, 18, 42, 62)):
     """
     Per-round box of the pending payout's visited values, latest marked.
@@ -555,8 +570,13 @@ def box_plot(rounds, boxes, latest, colour, paths=None,
                        % (cx + jitter, fy(val)))
         if now is not None:
             y = fy(now)
+            # One colour per diamond when a list is given (settlement status),
+            # otherwise the single series colour. The box and whiskers stay
+            # neutral grey, so the diamond is the only mark the colour speaks
+            # through.
+            dc = colours[i] if colours else colour
             out.append('<path d="M%.1f %.1f L%.1f %.1f L%.1f %.1f L%.1f %.1f Z" fill="%s"/>'
-                       % (cx, y - 4, cx + 4, y, cx, y + 4, cx - 4, y, colour))
+                       % (cx, y - 4, cx + 4, y, cx, y + 4, cx - 4, y, dc))
         out.append('<text x="%.1f" y="%d" font-size="9" fill="#5f6368" text-anchor="middle" '
                    'transform="rotate(-90 %.1f %d)">%s</text>'
                    % (cx, height - pb + 18, cx, height - pb + 18, rnd))
@@ -723,17 +743,13 @@ def render(ctx):
     h.append('<p class="built">Built %s &middot; %d models with a stake &middot; %d staked rounds '
              '&middot; <strong>%d resolved</strong></p>'
              % (ctx["built"], len(ctx["models"]), ctx["n_rounds"], ctx["n_resolved"]))
-    h.append('<div class="warn"><strong>Nothing here has settled.</strong> %d of %d staked rounds '
-             'have resolved, so every figure below is a mark-to-market estimate: what would be paid '
-             'if scoring stopped today. Numerai recomputes it each scoring day off a longer slice of '
-             'the 20-day forward return, and it moves in both directions. A further %d of those '
-             'rounds have never been scored and contribute 0.</div>'
-             % (ctx["n_resolved"], ctx["n_rounds"], ctx["n_rounds"] - ctx["n_priced"]))
+    h.append('<div class="warn">%s</div>' % ctx["banner"])
 
     h.append('<table class="cards"><tr>')
+    cw = 100 // max(len(ctx["cards"]), 1)
     for key, value, sub in ctx["cards"]:
-        h.append('<td class="card" width="25%%"><div class="k">%s</div><div class="v">%s</div>'
-                 '<div class="s">%s</div></td>' % (key, value, sub))
+        h.append('<td class="card" width="%d%%"><div class="k">%s</div><div class="v">%s</div>'
+                 '<div class="s">%s</div></td>' % (cw, key, value, sub))
     h.append("</tr></table>")
 
     # 1 -------------------------------------------------------------------- #
@@ -747,9 +763,9 @@ def render(ctx):
 
     # 2 -------------------------------------------------------------------- #
     h.append("<h2>2 &middot; All staked models together</h2>")
-    h.append('<p class="cap">Cumulative provisional P&amp;L. Use the dropdown to switch currency '
-             'and to switch between the actual stake and a per-1-NMR basis; click a legend entry to '
-             'hide a model. Only scored rounds appear.</p>')
+    h.append('<p class="cap">Cumulative provisional P&amp;L, year to date by default. Use the '
+             'dropdowns to switch the range (year to date / full history), the currency and the '
+             'stake basis; click a legend entry to hide a model. Only scored rounds appear.</p>')
     h.append('<div class="ctitle">All staked models &mdash; cumulative provisional P&amp;L</div>')
     options = ['<option value="pernmr">NMR &middot; per 1 NMR staked</option>',
                '<option value="stake">NMR &middot; actual stake</option>']
@@ -759,8 +775,10 @@ def render(ctx):
     if ctx["chart_data"]["brl"] is not None:
         options += ['<option value="brlstake">BRL &middot; actual stake</option>',
                     '<option value="brlpernmr">BRL &middot; per 1 NMR staked</option>']
-    h.append('<div class="chart-controls js-only">units <select id="unitsel">%s</select></div>'
-             % "".join(options))
+    h.append('<div class="chart-controls js-only">range <select id="rangesel">'
+             '<option value="ytd">year to date</option>'
+             '<option value="full">full history</option></select>'
+             ' &nbsp; units <select id="unitsel">%s</select></div>' % "".join(options))
     h.append('<div class="js-legend js-only" id="leg"></div>')
     h.append('<div class="chart-host" id="chost">')
     h.append('<div id="staticchart"><div class="legend">%s</div>%s</div>'
@@ -776,7 +794,7 @@ def render(ctx):
              'round\'s pending payout across the scoring days it has been open &mdash; how much the '
              'figure has swung before settling &mdash; and the diamond is the latest day. A round '
              'open one day is a single point; the box grows toward its final width as the round '
-             'ages through its 20-day window.</p>')
+             'ages through its 20-day window. Rounds shown are year to date.</p>')
     h.extend(ctx["panels"])
 
     # 4 -------------------------------------------------------------------- #
@@ -870,14 +888,21 @@ def chart_script(data):
   var DATA = __DATA__;
   var host=document.getElementById('jschart'), stat=document.getElementById('staticchart'),
       tip=document.getElementById('tip'), leg=document.getElementById('leg'),
-      sel=document.getElementById('unitsel');
+      sel=document.getElementById('unitsel'),
+      rangeSel=document.getElementById('rangesel');
   if(!host||!DATA||!DATA.models.some(function(m){return m.rows.length;})) return;
   stat.style.display='none';
   Array.prototype.forEach.call(document.querySelectorAll('.js-only'),
       function(e){ e.style.display='block'; });
   var RATE={NMR:1,EUR:DATA.eur,BRL:DATA.brl};
   var rset={}; DATA.models.forEach(function(m){m.rows.forEach(function(r){rset[r[0]]=1;});});
-  var rounds=Object.keys(rset).map(Number).sort(function(a,b){return a-b;});
+  var allRounds=Object.keys(rset).map(Number).sort(function(a,b){return a-b;});
+  var rounds=allRounds;
+  function applyRange(){
+    var ytd = rangeSel && rangeSel.value==='ytd' && DATA.ytd_min!=null;
+    rounds = ytd ? allRounds.filter(function(rn){return rn>=DATA.ytd_min;}) : allRounds;
+  }
+  applyRange();
   var hidden={}, W=760,H=300,P=[52,18,42,62], NS='http://www.w3.org/2000/svg';
   function unit(){var v=sel.value;
     return {rate:RATE[v.indexOf('eur')===0?'EUR':(v.indexOf('brl')===0?'BRL':'NMR')],
@@ -929,7 +954,9 @@ def chart_script(data):
     it.innerHTML='<span class="dot" style="background:'+s.colour+'"></span>'+s.label;
     it.addEventListener('click',function(){hidden[s.label]=!hidden[s.label];it.className='item'+(hidden[s.label]?' off':'');draw();});
     leg.appendChild(it);});}
-  sel.addEventListener('change',draw); drawLegend(); draw();
+  sel.addEventListener('change',draw);
+  if(rangeSel) rangeSel.addEventListener('change',function(){applyRange();draw();});
+  drawLegend(); draw();
 })();
 """
     return "<script>%s</script>" % body.replace("__DATA__", json.dumps(data))
@@ -969,8 +996,15 @@ def build(live, rates, built, slot_of):
     for slug, payload in live.items():
         rows = payload["rounds"]
         label = slot_of[slug]
+        # Stake is what sits in OPEN rounds. A settled round's NMR has already
+        # come back -- to the wallet, or rolled into a newer round's atRisk
+        # (round 1379 carried exactly 1355's 37 NMR plus its 0.9776 payout) --
+        # so summing every round ever staked counts the same NMR again each
+        # time it is re-deployed: 322.67 NMR against a real ~97 on 2026-10-27.
+        open_rows = [r for r in rows if not r["resolved"]]
         per[label] = {
-            "risk": sum(r["at_risk"] for r in rows),
+            "risk": sum(r["at_risk"] for r in open_rows),
+            "open_pl": sum(r["payout"] for r in open_rows if r["payout"] is not None),
             "pl": sum(r["payout"] for r in rows if r["payout"] is not None),
             "n": len(rows),
             "priced": sum(1 for r in rows if r["payout"] is not None),
@@ -979,7 +1013,8 @@ def build(live, rates, built, slot_of):
         }
     order = [slot_of[s] for s, _ in STAKED_SLOTS if slot_of[s] in per]
     risk = sum(per[m]["risk"] for m in order)
-    pl = sum(per[m]["pl"] for m in order)
+    pl = sum(per[m]["open_pl"] for m in order)        # provisional: open rounds only
+    total_pl = sum(per[m]["pl"] for m in order)       # every round, open and settled
     book = risk + pl
     n_rounds = sum(per[m]["n"] for m in order)
     n_priced = sum(per[m]["priced"] for m in order)
@@ -1015,8 +1050,8 @@ def build(live, rates, built, slot_of):
     # 2026-08-20) only comes due around 2026-09-09. Until rounds start settling
     # this is 0 by construction and the provisional figure is the whole story;
     # after that the two diverge and this is the half that cannot be taken back.
-    # It is a SUBSET of the provisional P&L above, not a second independent
-    # number, and shares its denominator so the two percentages compare.
+    # It is DISJOINT from the provisional P&L above (open rounds only) and is not
+    # part of book value: settled money has already left the rounds it was in.
     resolved_pl = sum(settled(r) for r in all_rows if r["resolved"])
 
     def settle_line(dash):
@@ -1028,11 +1063,51 @@ def build(live, rates, built, slot_of):
         return ("%d of %d staked rounds have resolved %s everything below is "
                 "mark-to-market." % (n_resolved, n_rounds, dash))
 
+    # How many rounds sit behind each window, counted two ways: distinct
+    # tournament rounds, and staked positions (model x round) -- the second is
+    # the unit the settlement counts elsewhere in the report use.
+    day_rows = [r for r in all_rows if len(r["path"]) >= 2]
+    ytd_rows_all = [r for r in all_rows if r.get("opened") and int(r["opened"][:4]) == year]
+    count = lambda rows: (len({r["round"] for r in rows}), len(rows))
+
+    # Realised Sharpe, annualised. The series is the BOOK's return per round:
+    # summed payout over summed stake across every model in that round, over
+    # priced rounds only (an unscored round has no return yet, not a zero one).
+    # Each round is a ~20-day holding-period return, so the annualising factor is
+    # sqrt(365 / 20), not sqrt(365) -- the daily-round cadence does not make a
+    # round a daily return. Rounds open daily and overlap, so this is a
+    # level-and-noise summary, not an independent-sample statistic.
+    def realised_sharpe(rows):
+        by_round = {}
+        for r in rows:
+            if r["payout"] is None or not r["at_risk"]:
+                continue
+            slot = by_round.setdefault(r["round"], [0.0, 0.0])
+            slot[0] += r["payout"]
+            slot[1] += r["at_risk"]
+        rets = np.array([pay / stk for pay, stk in by_round.values() if stk])
+        if len(rets) < 3 or rets.std() == 0:
+            return None
+        return float(rets.mean() / rets.std() * np.sqrt(ANNUAL_ROUNDS))
+
+    # Calendar days from the first stake in the window (the earliest round
+    # opened) to the report date. Unlike Rounds, this counts the gaps: a pause
+    # in staking makes Days exceed Rounds.
+    report_day = pd.Timestamp(built[:10])
+
+    def days_since_first(rows):
+        opened = [r["opened"][:10] for r in rows if r.get("opened")]
+        if not opened:
+            return None
+        return (min(opened), int((report_day - pd.Timestamp(min(opened))).days))
+
     ctx_returns = [
         ("1-day change", "last scoring day, reconstructed from the daily paths",
-         day_pl, rpct(day_pl)),
-        ("Return YTD", "rounds opened in %d" % year, ytd_pl, rpct(ytd_pl)),
-        ("Return since inception", "every round ever staked", incep_pl, rpct(incep_pl)),
+         day_pl, rpct(day_pl)) + count(day_rows) + (None, None),
+        ("Return YTD", "rounds opened in %d" % year, ytd_pl, rpct(ytd_pl))
+        + count(ytd_rows_all) + (days_since_first(ytd_rows_all), realised_sharpe(ytd_rows_all)),
+        ("Return since inception", "every round ever staked", incep_pl, rpct(incep_pl))
+        + count(all_rows) + (days_since_first(all_rows), realised_sharpe(all_rows)),
     ]
 
     def fiat(value, rate, digits=2, sign=False):
@@ -1042,6 +1117,27 @@ def build(live, rates, built, slot_of):
 
     ctx = {"built": built, "models": order, "n_rounds": n_rounds,
            "n_priced": n_priced, "n_resolved": n_resolved, "scale": scale_bar()}
+
+    # The headline banner. It used to assert "Nothing here has settled"
+    # unconditionally; once rounds began resolving that sat directly above a
+    # non-zero resolved figure and contradicted it. Driven off n_resolved so it
+    # flips on its own the first time a round settles.
+    n_unscored = n_rounds - n_priced
+    unscored_tail = (" A further %d have never been scored and contribute 0." % n_unscored
+                     if n_unscored else "")
+    if n_resolved:
+        ctx["banner"] = (
+            "<strong>%d of %d staked rounds have settled.</strong> Their payout is final and is "
+            "shown as resolved P&amp;L; the other %d are still open and carry provisional P&amp;L, a "
+            "mark-to-market estimate Numerai recomputes each scoring day off a longer slice of the "
+            "20-day forward return and which moves in both directions.%s"
+            % (n_resolved, n_rounds, n_rounds - n_resolved, unscored_tail))
+    else:
+        ctx["banner"] = (
+            "<strong>Nothing here has settled.</strong> 0 of %d staked rounds have resolved, so "
+            "every figure below is a mark-to-market estimate: what would be paid if scoring stopped "
+            "today. Numerai recomputes it each scoring day off a longer slice of the 20-day forward "
+            "return, and it moves in both directions.%s" % (n_rounds, unscored_tail))
 
     ctx["top_text"] = (
         "Numerai Crypto stake report &mdash; %s\n\n"
@@ -1084,21 +1180,29 @@ def build(live, rates, built, slot_of):
            plain(resolved_pl, brl, sign=True), rpct(resolved_pl),
            fx_note, settle_line("—"), ", ".join(order), OUT_FILE))
 
+    # Every card carries NMR in the headline and EUR + BRL beneath it, so the
+    # three currencies read the same way across the whole row. The P&L cards add
+    # their own context: provisional its % of stake, resolved the word "settled".
     ctx["cards"] = [
         ("Total book value", "%s NMR" % num(book, 4),
          "&euro;%s &middot; R$%s" % (fiat(book, eur), fiat(book, brl))),
         ("Stake at risk", "%s NMR" % num(risk, 2),
          "&euro;%s &middot; R$%s" % (fiat(risk, eur), fiat(risk, brl))),
         ("Provisional P&amp;L", "%s NMR" % signed(pl),
-         "%+.2f%% &middot; &euro;%s" % (pct, fiat(pl, eur, sign=True))),
+         "%+.2f%% &middot; &euro;%s &middot; R$%s" % (pct, fiat(pl, eur), fiat(pl, brl))),
+        ("Resolved P&amp;L", "%s NMR" % signed(resolved_pl),
+         "settled &middot; &euro;%s &middot; R$%s"
+         % (fiat(resolved_pl, eur), fiat(resolved_pl, brl))),
         ("Rounds priced", "%d of %d" % (n_priced, n_rounds),
          "the other %d opened too recently to carry a score" % (n_rounds - n_priced)),
     ]
 
     book_rows = [
         ("stake at risk", num(risk, 4), fiat(risk, eur), fiat(risk, brl), "flat"),
-        ("provisional P&amp;L", signed(pl), fiat(pl, eur, sign=True),
+        ("provisional P&amp;L (open rounds)", signed(pl), fiat(pl, eur, sign=True),
          fiat(pl, brl, sign=True), klass(pl)),
+        ("resolved P&amp;L (settled)", signed(resolved_pl), fiat(resolved_pl, eur, sign=True),
+         fiat(resolved_pl, brl, sign=True), klass(resolved_pl)),
     ]
     table = ['<table class="data"><tr><th class="l"></th><th>NMR</th><th>EUR</th><th>BRL</th></tr>']
     for name, a, b, c, cl in book_rows:
@@ -1109,24 +1213,32 @@ def build(live, rates, built, slot_of):
                  '<td>%s</td></tr></table>' % (num(book, 4), fiat(book, eur), fiat(book, brl)))
     ctx["book_table"] = "".join(table)
     ctx["book_note"] = (
-        "Book value = stake at risk + provisional P&amp;L, i.e. what the position would be worth if "
-        "every open round settled at today's estimate. Stake per model is the sum of <code>atRisk"
-        "</code> over its open rounds, which is what the dashboard's TOTAL STAKE column shows; the "
-        "account's <code>heldForFusionStakes</code> describes the CLASSIC book and is not this one. "
-        "Rates: %s. Fiat is a valuation &mdash; the tournament pays NMR." % fx_note)
+        "Book value = stake at risk + provisional P&amp;L, both over OPEN rounds only, i.e. what the "
+        "position would be worth if every open round settled at today's estimate. Resolved P&amp;L "
+        "is already realised &mdash; settled and paid, back in the wallet or rolled into a newer "
+        "round's stake &mdash; so it is listed separately and not added into book value. Stake per "
+        "model is the sum of <code>atRisk</code> over its open rounds (a settled round's stake is "
+        "not counted: that NMR has moved on), which is what the dashboard's TOTAL STAKE column "
+        "shows; the account's <code>heldForFusionStakes</code> describes the CLASSIC book and is not "
+        "this one. Rates: %s. Fiat is a valuation &mdash; the tournament pays NMR." % fx_note)
 
     table = ['<table class="data"><tr><th class="l">Model</th><th>Stake (NMR)</th><th>Rounds</th>'
-             '<th>Priced</th><th>NMR</th><th>EUR</th><th>% of stake</th></tr>']
+             '<th>Priced</th><th>P&amp;L NMR</th><th>EUR</th><th>BRL</th><th>% of stake</th></tr>']
     for m in order:
         p, r = per[m]["pl"], per[m]["risk"]
         table.append('<tr><td class="l"><strong>%s</strong></td><td>%s</td><td>%d</td><td>%d</td>'
-                     '<td class="%s">%s</td><td class="%s">%s</td><td class="%s">%+.2f</td></tr>'
+                     '<td class="%s">%s</td><td class="%s">%s</td><td class="%s">%s</td>'
+                     '<td class="%s">%+.2f</td></tr>'
                      % (m, num(r, 4), per[m]["n"], per[m]["priced"], klass(p), signed(p),
-                        klass(p), fiat(p, eur, sign=True), klass(p), 100 * p / r if r else 0.0))
+                        klass(p), fiat(p, eur, sign=True), klass(p), fiat(p, brl, sign=True),
+                        klass(p), 100 * p / r if r else 0.0))
     table.append('<tr class="total"><td class="l">portfolio</td><td>%s</td><td>%d</td><td>%d</td>'
-                 '<td class="%s">%s</td><td class="%s">%s</td><td class="%s">%+.2f</td></tr></table>'
-                 % (num(risk, 2), n_rounds, n_priced, klass(pl), signed(pl), klass(pl),
-                    fiat(pl, eur, sign=True), klass(pl), pct))
+                 '<td class="%s">%s</td><td class="%s">%s</td><td class="%s">%s</td>'
+                 '<td class="%s">%+.2f</td></tr></table>'
+                 % (num(risk, 2), n_rounds, n_priced, klass(total_pl), signed(total_pl),
+                    klass(total_pl), fiat(total_pl, eur, sign=True), klass(total_pl),
+                    fiat(total_pl, brl, sign=True), klass(total_pl),
+                    100 * total_pl / risk if risk else 0.0))
     ctx["model_table"] = "".join(table)
 
     # Every window here counts open and settled rounds alike, so it says so
@@ -1142,13 +1254,19 @@ def build(live, rates, built, slot_of):
                  "provisional P&amp;L above, and the header's resolved P&amp;L is 0; they "
                  "diverge as rounds settle or a year turns.")
 
-    rt = ['<table class="data"><tr><th class="l">Window</th><th>NMR</th><th>% of stake</th>'
-          '<th class="l">what it counts</th></tr>']
-    for name, note, value, percent in ctx_returns:
-        rt.append('<tr><td class="l"><strong>%s</strong></td><td class="%s">%s</td>'
-                  '<td class="%s">%+.2f</td>'
+    rt = ['<table class="data"><tr><th class="l">Window</th><th>Rounds</th>'
+          '<th>Stakes</th><th>Days since 1st stake</th><th>NMR</th><th>% of stake</th>'
+          '<th>Sharpe (ann.)</th><th class="l">what it counts</th></tr>']
+    for name, note, value, percent, n_rnd, n_pos, first, sharpe in ctx_returns:
+        days_cell = ("&mdash;" if first is None else
+                     '<span title="first stake opened %s">%d</span>' % (first[0], first[1]))
+        rt.append('<tr><td class="l"><strong>%s</strong></td><td>%d</td><td>%d</td><td>%s</td>'
+                  '<td class="%s">%s</td><td class="%s">%+.2f</td><td class="%s">%s</td>'
                   '<td class="l" style="color:#5f6368;font-weight:400">%s</td></tr>'
-                  % (name, klass(value), signed(value), klass(percent), percent, note))
+                  % (name, n_rnd, n_pos, days_cell, klass(value), signed(value), klass(percent),
+                     percent, klass(sharpe or 0.0),
+                     "&mdash;" if sharpe is None else "%+.2f" % sharpe,
+                     note if first is None else "%s; first stake %s" % (note, first[0])))
     rt.append("</table>")
     ctx["returns_table"] = "".join(rt)
     ctx["returns_note"] = (
@@ -1156,21 +1274,40 @@ def build(live, rates, built, slot_of):
         "denominator, differing only in window, so they never carry the hidden-basis ambiguity the "
         "dashboard's row does. The 1-day figure is reconstructed from the daily paths, not Numerai's "
         "dashboard \"1D\": expect the same sign and rough size, not the same number, since its basis "
-        "is undocumented. %s"
+        "is undocumented. <em>Rounds</em> counts distinct tournament rounds; <em>Stakes</em> "
+        "counts staked positions, one per model per round. <em>Days since 1st stake</em> is "
+        "calendar days from the earliest round opened in the window to the report date; it "
+        "counts gaps, so it exceeds Rounds if staking ever paused. <em>Sharpe (ann.)</em> is the realised "
+        "Sharpe of the book's per-round return (summed payout over summed stake, priced rounds "
+        "only, std ddof=0), annualised by &radic;(365/20) because each round is a ~20-day holding "
+        "period; rounds overlap, so read it as a summary, not a significance test. A single "
+        "scoring day has no Sharpe. %s"
         % (num(risk, 2), drift))
 
     returns_body = "".join(
-        "\n %-22s %s NMR (%+.2f%% of stake)" % (name, signed(value), percent)
-        for name, _, value, percent in ctx_returns)
+        "\n %-22s %s NMR (%+.2f%% of stake, %d rounds / %d stakes%s%s)"
+        % (name, signed(value), percent, n_rnd, n_pos,
+           "" if first is None else ", %d days since first stake %s" % (first[1], first[0]),
+           "" if sharpe is None else ", Sharpe %+.2f ann." % sharpe)
+        for name, _, value, percent, n_rnd, n_pos, first, sharpe in ctx_returns)
     ctx["top_text"] = ctx["top_text"].replace("\n\nRates:", returns_body + "\n\nRates:", 1)
     ctx["plain_text"] = ctx["plain_text"].replace("\n\nRates:", returns_body + "\n\nRates:", 1)
 
-    # section 2
+    # Year-to-date is the rounds opened in the current calendar year -- the same
+    # cut the "Return YTD" line uses. Section 3 is always scoped to it, and
+    # section 2 defaults to it with a switch to the full history.
+    def _ytd(row):
+        return not row.get("opened") or int(row["opened"][:4]) == year
+    ytd_min = min((r["round"] for mm in order for r in per[mm]["rows"]
+                   if r.get("opened") and int(r["opened"][:4]) == year), default=None)
+
+    # section 2 -- the static (no-JS) fallback is the YTD view, which is the
+    # default; the interactive chart adds the full-history option.
     series, totals = [], {}
     for m in order:
         run, pts = 0.0, []
         for row in per[m]["rows"]:
-            if row["payout"] is None:
+            if row["payout"] is None or not _ytd(row):
                 continue
             run += row["payout"] / row["at_risk"]
             pts.append((row["round"], run))
@@ -1197,6 +1334,7 @@ def build(live, rates, built, slot_of):
     ctx["chart_data"] = {
         "eur": eur, "brl": brl,
         "colours": {m: COLOUR.get(m, "#5f6368") for m in order},
+        "ytd_min": ytd_min,
         "models": [{
             "label": m,
             "stake": round(per[m]["risk"], 6),
@@ -1211,24 +1349,38 @@ def build(live, rates, built, slot_of):
     # the whole path is served per round.
     panels = []
     for position, m in enumerate(order):
-        rows = [r for r in per[m]["rows"] if r["path"]]
+        # Section 3 is always year to date: only rounds opened this year, and the
+        # header summarises those rather than the all-time book above.
+        ytd_rows = [r for r in per[m]["rows"] if _ytd(r)]
+        n_ytd = len(ytd_rows)
+        priced_ytd = sum(1 for r in ytd_rows if r["payout"] is not None)
+        pl_ytd = sum(r["payout"] for r in ytd_rows if r["payout"] is not None)
+        rows = [r for r in ytd_rows if r["path"]]
         open_attr = " open" if position == 0 else ""
         panels.append('<details class="panel"%s><summary>%s &mdash; %s NMR staked &middot; '
-                      '%d rounds &middot; %d priced &middot; book <span class="%s">%s NMR</span>'
+                      '%d YTD rounds &middot; %d priced &middot; book <span class="%s">%s NMR</span>'
                       '</summary><div class="pbody">'
-                      % (open_attr, m, num(per[m]["risk"], 2), per[m]["n"], per[m]["priced"],
-                         klass(per[m]["pl"]), signed(per[m]["pl"])))
+                      % (open_attr, m, num(per[m]["risk"], 2), n_ytd, priced_ytd,
+                         klass(pl_ytd), signed(pl_ytd)))
         if rows:
             scored = [r["round"] for r in rows]
             boxes = [box_stats(r["path"]) for r in rows]
             latest = [r["path"][-1] for r in rows]
-            colour = COLOUR.get(m, "#5f6368")
+            # Colour the diamonds by settlement, the same way in every panel:
+            # red while the round is still a mark-to-market estimate, blue once
+            # it has resolved and the payout is final. A reader comparing two
+            # models then reads colour as status, not as which model it is.
+            diamond_colours = [RESOLVED_COLOUR if r["resolved"] else PENDING_COLOUR
+                               for r in rows]
             panels.append('<div class="ctitle">%s &mdash; spread of the provisional payout across '
                           'each round\'s scoring days (NMR)</div>' % m)
-            panels.append('<div class="bandkey"><span class="dia" style="color:%s">&#9670;</span>'
-                          'latest (current pending)</div>' % colour)
-            panels.append(box_plot(scored, boxes, latest, colour,
-                                   paths=[r["path"] for r in rows]))
+            panels.append('<div class="bandkey">'
+                          '<span class="dia" style="color:%s">&#9670;</span>latest (current pending)'
+                          '<span class="dia" style="color:%s">&#9670;</span>resolved (settled)</div>'
+                          % (PENDING_COLOUR, RESOLVED_COLOUR))
+            panels.append(box_plot(scored, boxes, latest, PENDING_COLOUR,
+                                   paths=[r["path"] for r in rows],
+                                   colours=diamond_colours))
             # The cumulative line is cum of each round's latest pending. Around it,
             # two clouds mirror the Classic report: the inner is cum of the daily
             # path's mean +/- one standard deviation, the outer is cum of its min
@@ -1251,8 +1403,9 @@ def build(live, rates, built, slot_of):
                           '<span class="bx" style="background:%s;opacity:.25"></span>'
                           'cum &plusmn;1 std of daily path'
                           '<span class="bx" style="background:%s;opacity:.12"></span>'
-                          'bound: cum low &hellip; high</div>' % (colour, colour, colour))
-            panels.append(band_chart(cum_line, band, colour))
+                          'bound: cum low &hellip; high</div>'
+                          % (PENDING_COLOUR, PENDING_COLOUR, PENDING_COLOUR))
+            panels.append(band_chart(cum_line, band, PENDING_COLOUR))
         else:
             panels.append('<p class="cap">No scored rounds yet &mdash; nothing to plot.</p>')
         panels.append("</div></details>")
@@ -1372,7 +1525,7 @@ def subject(ctx):
     """The email subject line, carrying the verdict so it triages unopened."""
     per, order = ctx["per"], ctx["order"]
     risk = sum(per[m]["risk"] for m in order)
-    pl = sum(per[m]["pl"] for m in order)
+    pl = sum(per[m]["open_pl"] for m in order)
     book = risk + pl
     return ("[numerai-crypto] Stake report -- book %s NMR - provisional %s NMR (%+.2f%%)"
             % (num(book, 2), signed(pl), 100 * pl / risk if risk else 0.0))

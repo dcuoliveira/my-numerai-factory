@@ -1,0 +1,7 @@
+cores=6 ram=14 name=e138_lgb_a -- python3 experiments/e138_carver_macro_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms FULL ADDED_ONLY F_TF F_MACRO P_NM
+cores=6 ram=14 name=e138_lgb_b -- python3 experiments/e138_carver_macro_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms NO_EWMAC NO_BREAKOUT NO_BBZ NO_CLENOW
+cores=6 ram=14 name=e138_lgb_c -- python3 experiments/e138_carver_macro_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms NO_RATES NO_RISK FULL_H P_WARM
+cores=6 ram=14 name=e138_mlp -- python3 experiments/e138_carver_macro_evaluation.py --fit --model mlp_ktz --n-jobs 6
+cores=1 ram=14 name=e138_rid -- bash -c 'python3 experiments/e138_carver_macro_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e138_carver_macro_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=14 name=e138_lgb_t -- python3 experiments/e138_carver_macro_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=3 ram=14 name=e138_mlp_t -- python3 experiments/e138_carver_macro_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

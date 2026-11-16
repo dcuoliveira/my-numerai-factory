@@ -34,6 +34,54 @@ it a multi-date frame would produce a plausible number computed the wrong way.
 import numpy as np
 import pandas as pd
 
+from src.prediction import meta_resid
+
+# The column run_round attaches to the live panel: each live symbol's meta model
+# as it stood LAG_DAYS before the live date, NaN where it had none. It starts
+# with an underscore so raw_features never mistakes it for a model input.
+META_COL = "_meta_lagged"
+
+
+class MetaResidual(object):
+    """
+    One estimator's output residualised on the lagged meta model (E107).
+
+    Wraps a fitted estimator -- a single model or a whole RankBlend -- and
+    returns gp - strength * beta * gm instead of its raw prediction, so that a
+    RankBlend member marked `resid` contributes rank(r) exactly as the backtest's
+    per-period rank average of the e107_*_s050 forecasts did.
+
+    A live date with no usable snapshot passes through unchanged (r = gp), the
+    E107 rule; `last` records which of the two happened, and why, so the round
+    report can say so rather than leaving it to be inferred.
+    """
+
+    def __init__(self, name, estimator, columns, strength=meta_resid.STRENGTH):
+        self.name = name
+        self.estimator = estimator
+        self.inner_columns = list(columns)
+        self.strength = float(strength)
+        self.last = None
+
+    @property
+    def columns(self):
+        return self.inner_columns + [META_COL]
+
+    def predict(self, X):
+        if META_COL not in X.columns:
+            raise ValueError("'%s' needs %s on the live panel; run_round attaches "
+                             "it with features.add_lagged_meta" % (self.name, META_COL))
+        raw = np.asarray(self.estimator.predict(X[self.inner_columns]), dtype="float64")
+        if not np.isfinite(raw).all():
+            raise ValueError("'%s' produced non-finite output before residualising"
+                             % self.name)
+        meta = X[META_COL].to_numpy(dtype="float64")
+        r, beta = meta_resid.residualise(raw, meta, self.strength)
+        self.last = {"member": self.name, "beta": beta,
+                     "coverage": int(np.isfinite(meta).sum()), "rows": len(meta),
+                     "residualised": bool(np.isfinite(beta))}
+        return r
+
 
 class RankBlend(object):
     """
@@ -81,3 +129,14 @@ class RankBlend(object):
             # submitting, so the exact endpoint convention here does not matter.
             blended += weight * pd.Series(raw).rank(pct=True).to_numpy()
         return blended
+
+    def resid_log(self):
+        """What each residualised member did on the last predict, outermost first."""
+        out = []
+        for _, estimator, _, _ in self.members:
+            if isinstance(estimator, MetaResidual) and estimator.last is not None:
+                out.append(estimator.last)
+            inner = getattr(estimator, "estimator", estimator)
+            if isinstance(inner, RankBlend):
+                out.extend(inner.resid_log())
+        return out

@@ -1,0 +1,1 @@
+cores=4 ram=20 gpu=1 name=e181_hidden_ridge -- python3 -u experiments/e181_mlp_hidden_ridge.py run --device cuda

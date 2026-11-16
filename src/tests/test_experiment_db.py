@@ -14,6 +14,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+import csv
 
 from src.analysis import experiment_db as edb
 
@@ -65,6 +66,27 @@ class TestScanAndState(unittest.TestCase):
 
     def tearDown(self):
         edb.METRICS_ROOT = self._root
+
+    def test_checkpoint_study_waits_for_complete_task_and_final_scores(self):
+        directory = os.path.join(self.tmp, 'custom')
+        arm = os.path.join(directory, 'fits', 'toy__cs')
+        os.makedirs(arm)
+        spec = {'prefix': 'ex_', 'models': ['toy'], 'artifact_root': directory}
+        json.dump({'unfinished': True}, open(os.path.join(arm, 'block0.json'), 'w'))
+        self.assertEqual(edb.scan_arms('EX', spec), [])
+        json.dump({'task': {'tag': 'toy__cs', 'model': 'toy'}},
+                  open(os.path.join(arm, 'COMPLETE.json'), 'w'))
+        partial = edb.scan_arms('EX', spec)
+        self.assertEqual(len(partial), 1)
+        self.assertIsNone(partial[0][7])
+        with open(os.path.join(directory, 'all_model_window_rows.csv'), 'w') as handle:
+            writer = csv.DictWriter(handle, fieldnames=['tag', 'corr', 'mmc', 'payout', 'n_dates'])
+            writer.writeheader()
+            writer.writerow({'tag': 'toy__cs', 'corr': .1, 'mmc': .05, 'payout': .06, 'n_dates': 468})
+        finished = edb.scan_arms('EX', spec)
+        self.assertEqual(finished[0][1], 'ex_toy__cs')
+        self.assertEqual(finished[0][6:10], (468., .1, .05, .06))
+        self.assertIsNone(finished[0][5])  # per-fold active-ID dimension is not guessed
 
     def _write(self, name, corr=0.1, mmc=0.05):
         json.dump(

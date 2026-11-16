@@ -1,0 +1,14 @@
+cores=4 ram=12 name=e131_lgb_B0 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B0 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_B0C -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B0C --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_B1 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms B1 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M1 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M2 -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M2 --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_FULL -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms FULL --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_ADDED_ONLY -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms ADDED_ONLY --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M1FB -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1FB --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_P_NM -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms P_NM --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_P_HIST -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms P_HIST --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_MISS_ONLY -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms MISS_ONLY --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M1_no_ret -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1_no_ret --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M1_no_maxvol -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1_no_maxvol --n-jobs 4 --seeds 0 1 2 3 4
+cores=4 ram=12 name=e131_lgb_M1_no_trend -- python3 experiments/e131_litmom_fillind_factorial.py --model lgb_ktz --arms M1_no_trend --n-jobs 4 --seeds 0 1 2 3 4

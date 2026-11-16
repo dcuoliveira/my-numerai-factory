@@ -1,0 +1,1 @@
+cores=8 ram=24 name=e150_obs_scorefast -- python3 -u experiments/e150_finish_scoring.py --workers 6

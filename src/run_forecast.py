@@ -100,6 +100,16 @@ def parse_args():
                              "pinned min_child_samples is not silently rewritten "
                              "from the block size. Use it to vary one thing (a "
                              "cadence, a feature set) with the model held fixed")
+    parser.add_argument("--save-cv-results", action="store_true",
+                        help="write EVERY scored candidate (params, per-fold CV "
+                             "CORR/BMC/objective, and MMC on the real meta model) "
+                             "to results/tuning/<tournament>/<model>/<run>_cv.csv, "
+                             "for hyperparameter importance. Adds one predict per "
+                             "candidate per fold for the MMC scorer.")
+    parser.add_argument("--reseed-per-refit", action="store_true",
+                        help="draw a FRESH random-search candidate set at every "
+                             "refit (seed + refit index) instead of re-scoring the "
+                             "same n_iter points at each refit")
     parser.add_argument("--model-options", type=str, default=None,
                         help="JSON dict of constructor options for the WRAPPER, "
                              "e.g. '{\"embed_dim\": 8}'. This configures the "
@@ -170,6 +180,16 @@ def parse_args():
                              "rolling. This is the dial that varies how much data "
                              "the model actually trains on -- unlike --min-train, "
                              "which only drops blocks that fall short")
+    parser.add_argument("--tune-window", type=str, default=None,
+                        help="SEARCH hyperparameters on this many periods (or a "
+                             "months form) ending where the training window "
+                             "ends, with inner folds that each train on "
+                             "--train-window periods; then fit the winner on "
+                             "the training window alone. Needed when the "
+                             "training window is too short to hold a purged "
+                             "fold -- 22 periods or fewer at embargo 20 -- and "
+                             "you still want every refit tuned from scratch. "
+                             "Default: tune on the training window itself")
     parser.add_argument("--inner-cv", type=str, default="purged",
                         choices=["purged", "kfold"],
                         help="how the INNER hyperparameter CV splits the training "
@@ -389,6 +409,14 @@ def write_outputs(predictions, periods_table, results, tournament, model, run_na
         suffix = "json" if kind == "metrics" else "csv"
         paths[kind] = os.path.join(directory, "{}.{}".format(run_name, suffix))
 
+    cv_candidates = results.pop("cv_candidates", None)
+    if cv_candidates is not None:
+        directory = os.path.join("results", "tuning", tournament, model)
+        os.makedirs(directory, exist_ok=True)
+        paths["cv_candidates"] = os.path.join(directory, "{}_cv.csv".format(run_name))
+        cv_candidates.to_csv(paths["cv_candidates"], index=False)
+        results["cv_candidates_file"] = paths["cv_candidates"]
+
     predictions.to_csv(paths["forecast"], index=False)
     periods_table.to_csv(paths["per_period"])
     hyperparams_table(results).to_csv(paths["hyperparams"], index=False)
@@ -440,6 +468,14 @@ def main():
     refit_every = resolve_refit_every(args)
     min_train = resolve_periods(args, args.min_train)
     train_window = resolve_periods(args, args.train_window) if args.train_window else None
+    tune_window = resolve_periods(args, args.tune_window) if args.tune_window else None
+    if tune_window is not None:
+        if args.cv_scheme != "rolling":
+            raise SystemExit("--tune-window needs --cv-scheme rolling: an expanding "
+                             "window already searches on all the history it has")
+        if tune_window <= train_window:
+            raise SystemExit("--tune-window (%d) must exceed --train-window (%d) to "
+                             "change anything" % (tune_window, train_window))
 
     run_name = args.run_name or "{}_{}_{}".format(
         args.task, args.metric, args.cv_scheme
@@ -489,6 +525,7 @@ def main():
         scheme=args.cv_scheme,
         inner_cv=args.inner_cv,
         train_window=train_window,
+        tune_window=tune_window,
         n_iter=args.n_iter,
         n_splits=args.n_splits,
         n_jobs=args.n_jobs,
@@ -503,6 +540,8 @@ def main():
         bmc_reference=args.bmc_reference,
         proxy_alpha=args.proxy_alpha,
         min_train=min_train,
+        save_cv_results=args.save_cv_results,
+        reseed_per_refit=args.reseed_per_refit,
     )
 
     elapsed = (time() - started) / 60.0

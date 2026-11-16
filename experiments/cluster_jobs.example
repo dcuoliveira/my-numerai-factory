@@ -1,0 +1,29 @@
+# Jobs for the cluster resource manager:
+#
+#     python3 -m src.cluster plan --jobs experiments/cluster_jobs.example
+#     python3 -m src.cluster run  --jobs experiments/cluster_jobs.example
+#
+# One job per line. `key=value` pairs before a standalone ` -- ` size the slot;
+# everything after it is the command, run from the repo root with
+# /home/danielco/miniconda3/bin first on PATH (bare python3 is the 3.8 sandbox).
+# A line with no ` -- ` is a command with the defaults: cores=1 ram=4 gpu=0.
+#
+#   cores=N  cpus pinned to the job. It sees exactly these -- nproc reports N,
+#            so n_jobs=-1 inside the job stays inside the slot.
+#   ram=N    GB. Admission control only: summed and never overbooked in the
+#            placement, but nothing stops a job that asked for less than it
+#            uses. These hosts are cgroup v1, where a user unit's MemoryMax is
+#            recorded and ignored.
+#   gpu=N    cards. Needs --gpu-slots 1 (the strict 30% of a 2-card box is 0),
+#            and only deepfive has a working driver.
+#   name=X   unit name (nmr-X) and log name (logs/cluster/X.out). Must be
+#            unique: `stop` addresses jobs by name.
+#
+# There is no queue and no dependency graph. `run` launches what fits NOW and
+# prints what did not fit; it does not wait for capacity or order jobs against
+# each other. Chain dependent steps inside one job's command, or run the second
+# batch after the first finishes.
+
+cores=8 ram=16 name=e120_ridge -- python3 -m src.run_forecast crypto ridge_glmnet --task regression --metric corr --cv-scheme rolling --data-version crypto/v2.0-fenccausal --run-name e120_ridge
+cores=8 ram=16 name=e120_lgb -- python3 -m src.run_forecast crypto lgb_ktz --task regression --metric corr --cv-scheme rolling --data-version crypto/v2.0-fenccausal --run-name e120_lgb
+cores=4 ram=8 name=e120_rf -- python3 -m src.run_forecast crypto rf_ktz --task regression --metric corr --cv-scheme rolling --data-version crypto/v2.0-fenccausal --run-name e120_rf

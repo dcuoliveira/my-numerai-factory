@@ -1,0 +1,1 @@
+cores=16 ram=40 name=e138_score -- bash -c "E138_WORKERS=16 python3 experiments/e138_carver_macro_evaluation.py"

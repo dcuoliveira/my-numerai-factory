@@ -1,0 +1,1 @@
+cores=9 ram=40 name=e139_score -- bash -c "E139_WORKERS=9 python3 experiments/e139_carver_macro_infl_evaluation.py --audit && E139_WORKERS=9 python3 experiments/e139_carver_macro_infl_evaluation.py"

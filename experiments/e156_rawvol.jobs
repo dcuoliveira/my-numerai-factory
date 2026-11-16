@@ -1,0 +1,13 @@
+cores=4 ram=8 name=e156_rid_exrawvol -- python3 -u experiments/e156_rawvol_addback.py --fit --model ridge --arm EXRAWVOL --n-jobs 4
+cores=4 ram=8 name=e156_rid_add20 -- python3 -u experiments/e156_rawvol_addback.py --fit --model ridge --arm ADD20 --n-jobs 4
+cores=4 ram=8 name=e156_rid_add60 -- python3 -u experiments/e156_rawvol_addback.py --fit --model ridge --arm ADD60 --n-jobs 4
+cores=4 ram=8 name=e156_rid_full -- python3 -u experiments/e156_rawvol_addback.py --fit --model ridge --arm FULL --n-jobs 4
+cores=4 ram=8 name=e156_lgb_exrawvol -- python3 -u experiments/e156_rawvol_addback.py --fit --model lgb_ktz --arm EXRAWVOL --n-jobs 4
+cores=4 ram=8 name=e156_lgb_add20 -- python3 -u experiments/e156_rawvol_addback.py --fit --model lgb_ktz --arm ADD20 --n-jobs 4
+cores=4 ram=8 name=e156_lgb_add60 -- python3 -u experiments/e156_rawvol_addback.py --fit --model lgb_ktz --arm ADD60 --n-jobs 4
+cores=4 ram=8 name=e156_lgb_full -- python3 -u experiments/e156_rawvol_addback.py --fit --model lgb_ktz --arm FULL --n-jobs 4
+cores=4 ram=8 name=e156_mlp_exrawvol -- python3 -u experiments/e156_rawvol_addback.py --fit --model mlp_ktz --arm EXRAWVOL --n-jobs 4
+cores=4 ram=8 name=e156_mlp_add20 -- python3 -u experiments/e156_rawvol_addback.py --fit --model mlp_ktz --arm ADD20 --n-jobs 4
+cores=4 ram=8 name=e156_mlp_add60 -- python3 -u experiments/e156_rawvol_addback.py --fit --model mlp_ktz --arm ADD60 --n-jobs 4
+cores=4 ram=8 name=e156_mlp_full -- python3 -u experiments/e156_rawvol_addback.py --fit --model mlp_ktz --arm FULL --n-jobs 4
+cores=2 ram=8 name=e156_finish -- python3 -u experiments/e156_rawvol_addback.py --finish --n-jobs 2

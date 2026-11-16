@@ -1,0 +1,13 @@
+cores=4 ram=12 name=e150_obs_rid_main -- python3 experiments/e150_observed_batch.py --model ridge --group main --n-jobs 4
+cores=4 ram=12 name=e150_obs_rid_sources -- python3 experiments/e150_observed_batch.py --model ridge --group sources --n-jobs 4
+cores=4 ram=12 name=e150_obs_rid_gates -- python3 experiments/e150_observed_batch.py --model ridge --group gates --n-jobs 4
+cores=4 ram=12 name=e150_obs_rid_controls -- python3 experiments/e150_observed_batch.py --model ridge --group controls --n-jobs 4
+cores=4 ram=12 name=e150_obs_lgb_main -- python3 experiments/e150_observed_batch.py --model lgb_ktz --group main --n-jobs 4
+cores=4 ram=12 name=e150_obs_lgb_sources -- python3 experiments/e150_observed_batch.py --model lgb_ktz --group sources --n-jobs 4
+cores=4 ram=12 name=e150_obs_lgb_gates -- python3 experiments/e150_observed_batch.py --model lgb_ktz --group gates --n-jobs 4
+cores=4 ram=12 name=e150_obs_lgb_controls -- python3 experiments/e150_observed_batch.py --model lgb_ktz --group controls --n-jobs 4
+cores=4 ram=12 name=e150_obs_mlp_main -- python3 experiments/e150_observed_batch.py --model mlp_ktz --group main --n-jobs 4
+cores=4 ram=12 name=e150_obs_mlp_sources -- python3 experiments/e150_observed_batch.py --model mlp_ktz --group sources --n-jobs 4
+cores=4 ram=12 name=e150_obs_mlp_gates -- python3 experiments/e150_observed_batch.py --model mlp_ktz --group gates --n-jobs 4
+cores=4 ram=12 name=e150_obs_mlp_controls -- python3 experiments/e150_observed_batch.py --model mlp_ktz --group controls --n-jobs 4
+cores=1 ram=12 name=e150_obs_finish -- python3 experiments/e150_observed_finish.py

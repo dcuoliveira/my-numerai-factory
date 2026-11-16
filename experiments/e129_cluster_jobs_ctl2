@@ -1,0 +1,2 @@
+# E129: SACI_04's control re-run on the frozen crypto/v2.0-asof (the live-refreshed v2.0 had moved the split).
+cores=1 ram=16 name=e129_ctl_saci04b -- env ONLY="ctl_saci04" NO_MAIL=1 E129_SJ=1 E129_NJ=1 bash experiments/e129_rfleaf_members_crypto.sh

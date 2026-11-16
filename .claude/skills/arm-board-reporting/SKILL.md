@@ -185,8 +185,8 @@ runner a `NO_MAIL=1` escape hatch so a dry run does not page anyone.
 
 ## Publishing a board
 
-The default artifact is an interactive HTML file, and it runs all five checks
-above for you:
+**The deliverable is always the PDF** from `report_pdf` (below). The interactive HTML
+runs the same five checks and is a working view for slicing, not the thing you send:
 
 ```bash
 python3 -m src.analysis.report_html --model lgb --runs 'fe_lgb_reg_*' \
@@ -198,7 +198,7 @@ range, toggle series in the chart. Narrowing the range re-ranks the table and
 re-screens the ensembles with it, so the sections never describe different
 windows. One file, no network.
 
-`report_pdf` takes the identical flags and produces the archival form:
+`report_pdf` takes the identical flags and produces the deliverable:
 
 ```bash
 python3 -m src.analysis.report_pdf --model lgb --runs 'fe_lgb_reg_*' \

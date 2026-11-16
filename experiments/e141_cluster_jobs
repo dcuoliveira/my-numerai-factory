@@ -1,0 +1,7 @@
+cores=6 ram=14 name=e141_lgb_a -- python3 experiments/e141_macrobeta_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms FULL ADDED_ONLY F_PRICE F_RATES F_INFL
+cores=6 ram=14 name=e141_lgb_b -- python3 experiments/e141_macrobeta_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms W60 W120 NO_PRICE NO_RATES
+cores=6 ram=14 name=e141_lgb_c -- python3 experiments/e141_macrobeta_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms NO_INFL FULL_H P_WARM P_NM
+cores=6 ram=14 name=e141_mlp -- python3 experiments/e141_macrobeta_evaluation.py --fit --model mlp_ktz --n-jobs 6
+cores=1 ram=14 name=e141_rid -- bash -c 'python3 experiments/e141_macrobeta_evaluation.py --fit --model ridge --n-jobs 1 && python3 experiments/e141_macrobeta_evaluation.py --fit --model ridge --tune --n-jobs 1'
+cores=3 ram=14 name=e141_lgb_t -- python3 experiments/e141_macrobeta_evaluation.py --fit --model lgb_ktz --tune --n-jobs 3
+cores=3 ram=14 name=e141_mlp_t -- python3 experiments/e141_macrobeta_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

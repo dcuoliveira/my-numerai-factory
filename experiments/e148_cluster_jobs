@@ -1,0 +1,8 @@
+cores=2 ram=16 name=e148_ridge -- python3 experiments/e148_c2resid_evaluation.py --fit --model ridge --n-jobs 2
+cores=4 ram=16 name=e148_lgb_a -- python3 experiments/e148_c2resid_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms FULL ADDED_ONLY F_RIDGE F_RESMOM
+cores=4 ram=16 name=e148_lgb_b -- python3 experiments/e148_c2resid_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_RAW F_RES F_COV
+cores=4 ram=16 name=e148_lgb_c -- python3 experiments/e148_c2resid_evaluation.py --fit --model lgb_ktz --n-jobs 4 --arms F_GRP FULL_H P_WARM P_NM
+cores=3 ram=16 name=e148_mlp -- python3 experiments/e148_c2resid_evaluation.py --fit --model mlp_ktz --n-jobs 3
+cores=4 ram=16 name=e148_tune_ridge -- python3 experiments/e148_c2resid_evaluation.py --fit --model ridge --tune --n-jobs 4
+cores=4 ram=16 name=e148_tune_lgb -- python3 experiments/e148_c2resid_evaluation.py --fit --model lgb_ktz --tune --n-jobs 4
+cores=3 ram=16 name=e148_tune_mlp -- python3 experiments/e148_c2resid_evaluation.py --fit --model mlp_ktz --tune --n-jobs 3

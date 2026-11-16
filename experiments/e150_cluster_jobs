@@ -1,0 +1,11 @@
+cores=4 ram=24 name=e150_rid -- bash -c 'python3 experiments/e150_macrovol_evaluation.py --fit --model ridge --n-jobs 4 && python3 experiments/e150_macrovol_evaluation.py --fit --model ridge --tune --n-jobs 4 --arms B_COV VC_COV ALL'
+cores=6 ram=24 name=e150_lgb_a -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms B_COV VC_COV F_GOLD F_SP500
+cores=6 ram=24 name=e150_lgb_b -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms F_DXY F_Y10 F_VIXLVL F_VIXVOV
+cores=6 ram=24 name=e150_lgb_c -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms ALL NO_EXPO EXPO_ONLY
+cores=6 ram=24 name=e150_lgb_d -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms LOO_GOLD LOO_SP500 LOO_DXY
+cores=6 ram=24 name=e150_lgb_e -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms LOO_Y10 LOO_VIXLVL LOO_VIXVOV
+cores=6 ram=30 name=e150_lgb_f -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --n-jobs 6 --arms CTL_SCALAR PLC_CIRC PLC_FUTURE
+cores=6 ram=30 name=e150_mlp_a -- python3 experiments/e150_macrovol_evaluation.py --fit --model mlp_ktz --n-jobs 6 --arms B_COV VC_COV F_GOLD F_SP500 F_DXY F_Y10 F_VIXLVL F_VIXVOV ALL NO_EXPO EXPO_ONLY
+cores=6 ram=30 name=e150_mlp_b -- python3 experiments/e150_macrovol_evaluation.py --fit --model mlp_ktz --n-jobs 6 --arms LOO_GOLD LOO_SP500 LOO_DXY LOO_Y10 LOO_VIXLVL LOO_VIXVOV CTL_SCALAR PLC_CIRC PLC_FUTURE
+cores=6 ram=24 name=e150_lgb_t -- python3 experiments/e150_macrovol_evaluation.py --fit --model lgb_ktz --tune --n-jobs 6 --arms B_COV VC_COV ALL
+cores=6 ram=24 name=e150_mlp_t -- python3 experiments/e150_macrovol_evaluation.py --fit --model mlp_ktz --tune --n-jobs 6 --arms B_COV VC_COV ALL

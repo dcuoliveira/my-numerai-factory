@@ -1,0 +1,7 @@
+cores=4 ram=30 name=e147_ridge -- python3 experiments/e147_group_importance.py --fit --model ridge --n-jobs 4
+cores=4 ram=30 name=e147_mlp_shipped -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups MOM REV VOLU VOLA PRICE SIZE ALL22
+cores=4 ram=30 name=e147_mlp_pcs -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups C2COV C2AR C2FTCOV C2FTAR
+cores=4 ram=30 name=e147_mlp_c2cov_full -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups C2COV_FULL
+cores=4 ram=30 name=e147_mlp_c2ar_full -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups C2AR_FULL
+cores=4 ram=30 name=e147_mlp_c2ftcov_full -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups C2FTCOV_FULL
+cores=4 ram=30 name=e147_mlp_c2ftar_full -- python3 experiments/e147_group_importance.py --fit --model mlp_ktz --n-jobs 4 --groups C2FTAR_FULL
