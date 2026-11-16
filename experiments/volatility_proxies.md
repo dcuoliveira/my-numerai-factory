@@ -113,3 +113,9 @@ The PDF and CSV tables report absolute full-universe performance, paired
 matched comparisons, and the coverage diagnostics. Raw source manifests,
 feature specifications, cut-date checks, parameter picks and forecasts are in
 `results/volatility_replacement`.
+
+The replacement runner accepts `--mlp-epochs` and `--mlp-device cuda`.
+The epoch count applies to each MLP fit, including inner search candidates
+and each final refit seed. The CUDA path uses a fixed PyTorch training loop
+and runs folds serially on the selected GPU. The CPU path advances the
+scikit-learn MLP by one epoch per call.

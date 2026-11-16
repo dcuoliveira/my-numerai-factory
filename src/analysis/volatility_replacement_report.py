@@ -250,7 +250,7 @@ def report(root):
             (.309, "Fresh model fits", "Eleven folds use 130 training dates, a 22-date purge and 130 prediction dates. "
              "The last 40 training dates select parameters by inner CORR after an internal 22-date purge. Ridge "
              "tests 13 alphas. LightGBM tests depths 3/5 and 100/250 trees. The ReLU MLP tests two architectures "
-             "and two penalties, fits 25 epochs and averages three fresh refits with paired seeds."),
+             f"and two penalties, fits {run['mlp_epochs']:,} epochs and averages three fresh refits with paired seeds."),
             (.177, "Interpretation", "The nine columns were selected from earlier development studies on overlapping "
              "dates. Results are exploratory. The packaged dataset contains later rows for future use. Training "
              "and scoring here stop at the original February 19, 2026 development cutoff."),
