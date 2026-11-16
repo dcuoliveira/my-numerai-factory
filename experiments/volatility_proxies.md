@@ -126,3 +126,13 @@ width before validation and refitting. Use `--reuse-non-mlp` with the prior
 experiment directory and a separate output directory containing the same
 dataset and coverage artifacts to retain the original Ridge and LightGBM
 results. The report compares the rerun with the original MLP.
+
+For the approximately one-million-parameter MLP, use
+`--mlp-widths 984 984 --mlp-device cuda` and run multipliers 1 and 10 in
+separate output directories with the same replacement and coverage inputs.
+Use `--reuse-non-mlp` with the prior 10× study to reuse Ridge and LightGBM.
+CUDA fits checkpoint model weights, Adam state, and shuffle state every
+300 epochs and at completion. Resume by repeating the command with the same
+output directory and settings. The final report accepts each completed run
+as a separate `--addon` on the prior 10× report. It adds performance rows
+and cumulative payout comparisons for the matched feature sets.
