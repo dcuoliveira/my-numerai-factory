@@ -272,7 +272,7 @@ def report(root):
                 prior[prior.model.ne("MLP")].reset_index(drop=True),
             )
             original_mlp = summarize(prior).query("sample == 'routed' and model == 'MLP'").set_index("arm")
-            updated_mlp = routed.loc["MLP"]
+            updated_mlp = routed.loc["MLP"].assign(model="MLP")
             comparison = pd.concat({"Previous": original_mlp, "Rerun": updated_mlp},
                                    names=["run"]).reset_index()
             comparison.to_csv(root / "mlp_epoch_comparison.csv", index=False)
