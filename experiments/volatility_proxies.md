@@ -64,3 +64,19 @@ The download is retrospective. The cut-date replays check calculation timing.
 Historical provider availability and live execution parity require independent
 evidence. The causal panel-age control and retrospective source-availability
 placebos are diagnostics and stay out of model selection.
+
+## Consolidated window comparison
+
+After the original sweeps complete, run
+`python -m src.analysis.volatility_consolidated` with the same single-threaded
+BLAS settings. It replays the recorded Ridge selections for raw 120,
+own-history percentile 40, and own-history bins 40 and 120. The fold's
+Ridge + v2 implementation also nominates the variant for the four-point
+LightGBM add-on search. All 112 forecast series use the original test folds
+and proxy-specific cohorts.
+
+The consolidated PDF, score table and two labeled prediction-correlation
+matrices appear in `results/volatility_proxies/consolidated`. The matrices
+average daily Spearman correlations, once for full-universe routed forecasts
+and once for covered-model forecasts on the intersection of asset-date keys.
+The companion count matrices give the number of dates used by each pair.
