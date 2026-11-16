@@ -2,6 +2,22 @@
 
 Conventions for working in this repo. The pipeline is `src/`.
 
+## Keep Claude Code and Codex in sync
+
+When the user asks to add repository context or skills, make equivalent
+additions for both agents in the same change. Put context in both
+`CLAUDE.md` and `AGENTS.md`, and add matching skills under
+`.claude/skills/` and `.agents/skills/`. Use each agent's own paths and
+invocation syntax, then verify that both versions give the same guidance.
+If the user explicitly limits the request to one agent, follow that scope.
+
+## Commit and push repository changes
+
+After verifying each requested repository change, commit it and push it to the
+branch's configured remote. Stage only files that belong to the requested
+work. If the user explicitly asks to keep a change local, follow that scope.
+Report any commit or push failure.
+
 ## What is running right now
 
 `results/experiments.db` -- a SQLite index of every numbered study. **Read it
@@ -158,6 +174,14 @@ systemd expands `$` there and collapses `$$` to `$` before bash sees it.
 
 There is no queue and no dependency graph: `run` launches what fits now and
 prints what did not.
+
+## Numerai Crypto missing values
+
+Before creating, extending, rebuilding, testing or evaluating a Numerai Crypto
+dataset with potentially missing candidate features, read and follow
+[the missing-value implementation skill](.claude/skills/numerai-crypto-missing-values/SKILL.md).
+Before accepting or interpreting the experiment, apply
+[the missing-value audit skill](.claude/skills/numerai-crypto-missing-values-audit/SKILL.md).
 
 ## Reporting results
 
@@ -493,3 +517,8 @@ must change before any LSTM or LSTM blend can be submitted:
 
 Backtest artifacts under `results/forecast/` are out-of-sample predictions for
 historical dates and must never be uploaded to a live round.
+
+## MLP training compute
+
+For Timmermann–Vulicevic epoch schedules, FLOP budgets, and compute scaling,
+use [`/timmermann-mlp-compute`](.claude/skills/timmermann-mlp-compute/SKILL.md).
