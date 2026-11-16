@@ -16,7 +16,7 @@ from src.analysis.volatility_experiment import (
     route, score_date, select_model,
 )
 from src.analysis.volatility_proxy_report import (
-    INK, MUTED, TEAL, paragraph, save, section, stats, subhead, table,
+    INK, MUTED, TEAL, max_drawdown, paragraph, save, section, stats, subhead, table,
 )
 from src.data_mani.volatility_proxies import FAMILIES
 
@@ -239,15 +239,35 @@ def summarize_scores(output):
                            processing=processing, window=window, baseline=baseline)
                 for metric in ("corr", "mmc", "payout", "corr_all"):
                     row[metric] = dates[metric][name].mean()
+                payout = dates["payout"][name].dropna()
+                row["max_drawdown"] = max_drawdown(payout) if len(payout) else np.nan
+                row["calmar"] = row["payout"] / row["max_drawdown"] if row["max_drawdown"] > 0 else np.nan
                 row["meta_dates"] = dates["mmc"][name].count()
                 if baseline:
                     for metric in ("corr", "mmc"):
                         delta, _, lo, hi, _, _ = stats(dates[metric][name] - dates[metric][baseline])
                         row.update({f"delta_{metric}": delta, f"{metric}_lo": lo, f"{metric}_hi": hi})
                 rows.append(row)
-    summary = pd.DataFrame(rows)
+    summary = pd.DataFrame(rows).sort_values("payout", ascending=False, kind="stable").reset_index(drop=True)
+    summary.insert(0, "rank", np.arange(1, len(summary) + 1))
     summary.to_csv(output / "consolidated_scores.csv", index=False)
     return summary
+
+
+def payout_leaderboard(summary):
+    return pd.DataFrame({
+        "Rank": summary["rank"],
+        "Model": summary.model,
+        "Proxy": summary.proxy,
+        "Processing": summary.processing,
+        "Payout": summary.payout.map("{:.5f}".format),
+        "CORR": summary["corr"].map("{:.5f}".format),
+        "Proxy MMC": summary.mmc.map("{:.5f}".format),
+        "Max DD": summary.max_drawdown.map("{:.3f}".format),
+        "Calmar": summary.calmar.map("{:.4f}".format),
+        "CORR all": summary.corr_all.map("{:.5f}".format),
+        "Δ MMC": summary.delta_mmc.map(lambda x: f"{x:+.5f}" if pd.notna(x) else "—"),
+    })
 
 
 def matrix_figure(matrix, title, subtitle):
@@ -355,7 +375,10 @@ def write_report(output):
                 suff += " The second line gives the matched Δ proxy MMC."
             fig = page(i, model_label, suff + " All scores are from routed forecasts on the same 468 meta-covered dates.")
             entries = []
-            for proxy, group in data.groupby("proxy", sort=False):
+            for proxy in PROXIES.values():
+                group = data[data.proxy.eq(proxy)].set_index("processing").loc[
+                    [kind for kind, _, _ in SETTINGS]
+                ].reset_index()
                 values = [proxy]
                 for row in group.itertuples(index=False):
                     value = f"{row.corr:.5f} / {row.mmc:.5f}"
@@ -408,6 +431,20 @@ def write_report(output):
             subhead(fig, y, heading)
             paragraph(fig, y - .045, body)
         save(pdf, fig)
+
+        leaderboard = payout_leaderboard(summary)
+        rows_per_page = 28
+        for start in range(0, len(leaderboard), rows_per_page):
+            rows = leaderboard.iloc[start:start + rows_per_page]
+            fig = page(9 + start // rows_per_page, "Performance ranked by payout",
+                       f"Ranks {rows.Rank.iloc[0]}–{rows.Rank.iloc[-1]} of {len(leaderboard)}. "
+                       "Mean payout = 0.1 × CORR + proxy MMC on the 468 matched meta dates.")
+            table(fig, rows, [.05, .148, .90, .61],
+                  [.047, .184, .11, .103, .081, .078, .089, .071, .074, .08, .083], font=8.5)
+            paragraph(fig, .122, "Max DD is maximum cumulative payout drawdown. Calmar is mean payout divided by "
+                      "Max DD. CORR all uses all 1,430 test dates. Δ MMC is relative to the matched control.",
+                      size=9, width=160)
+            save(pdf, fig)
     print(f"{destination}: {len(summary)} forecast series", flush=True)
 
 
