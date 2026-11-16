@@ -19,6 +19,7 @@ from src.analysis.volatility_proxy_report import (
 )
 from src.analysis.volatility_replacement import ARMS, MODELS
 from src.data_mani.build_volatility_replacement import NEW, REMOVED
+from src.prediction.metrics import summarize as summarize_period_scores
 
 LABELS = dict(zip(ARMS, ("Original · full", "Original · matched", "Replacement · matched"), strict=True))
 COLORS = dict(zip(MODELS, ("#147a78", "#5d4a98", "#bc6033"), strict=True))
@@ -86,6 +87,7 @@ def audit(root, run, dataset, scores):
 def summarize(scores):
     summary = scores.groupby(["sample", "model", "arm"], sort=False).agg(
         corr=("corr", "mean"), mmc=("mmc", "mean"), payout=("payout", "mean"),
+        payout_sharpe=("payout", lambda x: summarize_period_scores(x)["sharpe"]),
         maxdd=("payout", lambda x: max_drawdown(x.dropna())), corr_all=("corr_all", "mean"),
         dates=("mmc", "count"))
     summary["calmar"] = summary.payout / summary.maxdd.replace(0, np.nan)
@@ -139,12 +141,13 @@ def report(root):
             for arm in ARMS:
                 row = routed.loc[(model, arm)]
                 rows.append([model, LABELS[arm], f"{row['corr']:.5f}", f"{row.mmc:.5f}",
-                             f"{row.payout:.5f}", f"{row.maxdd:.4f}", f"{row.calmar:.4f}",
+                             f"{row.payout:.5f}", f"{row.payout_sharpe:.4f}",
+                             f"{row.maxdd:.4f}", f"{row.calmar:.4f}",
                              f"{row.corr_all:.5f}"])
         comparison = pd.DataFrame(rows, columns=["Model", "Feature set", "CORR", "Proxy MMC", "Payout",
-                                                 "Max DD", "Calmar", "CORR all"])
+                                                 "p.sharpe", "Max DD", "Calmar", "CORR all"])
         table(fig, comparison, [.065, .438, .87, .322],
-              [.12, .23, .106, .112, .111, .107, .102, .112])
+              [.10, .20, .10, .11, .10, .10, .09, .09, .11])
         subhead(fig, .402, "Replacement minus original on matched rows")
         payout = paired[paired["sample"].eq("routed") & paired.metric.eq("payout")].set_index("model")
         rows = []
@@ -159,7 +162,8 @@ def report(root):
               [.065, .191, .87, .16], [.15, .14, .15, .14, .26, .16])
         paragraph(fig, .152, f"Headline metrics share {len(dates)} dates from {dates.min():%Y-%m-%d} through "
                   f"{dates.max():%Y-%m-%d} and the same meta-observed assets per date. CORR all uses the full "
-                  "scored development calendar. Calmar is mean payout divided by maximum cumulative payout drawdown.",
+                  "scored development calendar. p.sharpe divides mean payout by its population standard deviation. "
+                  "Calmar divides mean payout by maximum cumulative payout drawdown.",
                   size=9.5)
         save(pdf, fig)
 
@@ -280,11 +284,11 @@ def report(root):
                        f"The previous run used {prior_run['mlp_epochs']} epochs per fit. "
                        f"The rerun {epoch_text} on {run['mlp_device'].upper()}.")
             rows = [[row.run, LABELS[row.arm], f"{row.corr:.5f}", f"{row.mmc:.5f}",
-                     f"{row.payout:.5f}", f"{row.maxdd:.4f}"]
+                     f"{row.payout:.5f}", f"{row.payout_sharpe:.4f}", f"{row.maxdd:.4f}"]
                     for row in comparison.itertuples(index=False)]
             table(fig, pd.DataFrame(rows, columns=["Run", "Feature set", "CORR", "Proxy MMC",
-                                                  "Payout", "Max DD"]),
-                  [.065, .447, .87, .29], [.16, .28, .14, .14, .14, .14])
+                                                  "Payout", "p.sharpe", "Max DD"]),
+                  [.065, .447, .87, .29], [.13, .25, .13, .13, .12, .12, .12])
             subhead(fig, .397, "Fixed epochs per fit")
             schedule = [[width, units, epochs] for width, settings in run["mlp_epoch_schedule"].items()
                         for units, epochs in settings.items()]
