@@ -82,3 +82,34 @@ and score CSV rank all 112 combinations by descending mean payout on the
 average daily Spearman correlations, once for full-universe routed forecasts
 and once for covered-model forecasts on the intersection of asset-date keys.
 The companion count matrices give the number of dates used by each pair.
+
+## Replace the shipped volatility columns
+
+The replacement dataset retains the base parquet's asset-date keys, targets
+and 20 other shipped inputs. Nine fixed volatility features replace the
+shipped 20- and 60-day volatility columns. The estimator variants use earlier
+fold nominations, with ties preferring the standard formula and daily bars.
+The two semivariance columns use the most frequent joint variant. Only rows
+with all nine values enter the joint cross-sectional binning. Partial
+availability is recorded in the sidecar and the stored replacement block
+is missing for those rows.
+
+```bash
+export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+python -m src.data_mani.fetch_volatility_prices --extend-from results/volatility_proxies \
+    --output results/volatility_replacement
+python -m src.data_mani.build_volatility_replacement
+python -m src.analysis.volatility_replacement
+python -m src.analysis.volatility_replacement_report
+```
+
+The candle extension preserves the old snapshot, including its source gaps,
+and downloads later bars through the latest training cutoff in the local v2.0
+panel. The experiment reuses the original 11 development folds and stops at
+February 19, 2026. Ridge, LightGBM and a ReLU MLP train from scratch on the
+original full universe, original matched coverage and replacement matched
+coverage. Covered model predictions use the original full model's rank slots.
+The PDF and CSV tables report absolute full-universe performance, paired
+matched comparisons, and the coverage diagnostics. Raw source manifests,
+feature specifications, cut-date checks, parameter picks and forecasts are in
+`results/volatility_replacement`.

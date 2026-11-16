@@ -89,20 +89,25 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=12)
     parser.add_argument("--cache-only", action="store_true")
+    parser.add_argument("--extend-from", type=Path,
+                        help="Preserve a development snapshot and append full-panel history")
     args = parser.parse_args()
     cache = args.output / "source_cache"
     cache.mkdir(parents=True, exist_ok=True)
     panel = pd.read_parquet(args.panel, columns=["ucid", "date"])
-    panel = panel[panel.date <= CUTOFF]
+    if args.extend_from is None:
+        panel = panel[panel.date <= CUTOFF].copy()
     panel["ucid"] = panel["ucid"].astype(int)
     bounds = panel.groupby("ucid").date.agg(["min", "max"])
     # Fixed BTC and ETH benchmark series span the whole estimation period.
     bounds.loc[[1, 1027], "min"] = panel.date.min()
-    bounds.loc[[1, 1027], "max"] = CUTOFF
+    bounds.loc[[1, 1027], "max"] = panel.date.max()
     tasks = []
     for ucid, row in bounds.iterrows():
         first = row["min"] - pd.Timedelta(days=800)
         last = row["max"] - pd.Timedelta(days=1)
+        if args.extend_from and row["min"] <= CUTOFF:
+            first = CUTOFF
         for start in pd.date_range(first, last, freq="550D"):
             tasks.append((int(ucid), start, min(start + pd.Timedelta(days=549), last)))
     rows, manifest = [], []
@@ -116,6 +121,9 @@ def main():
     candles = pd.DataFrame(rows, columns=[
         "ucid", "bar_date", "bar_close", "source_symbol", "open", "high", "low", "close",
     ])
+    if args.extend_from:
+        previous = pd.read_parquet(args.extend_from / "ohlc.parquet")
+        candles = pd.concat([previous, candles], ignore_index=True)
     if candles.duplicated(["ucid", "bar_date"]).any():
         raise ValueError("Duplicate candles")
     bars_tmp = args.output / "ohlc.tmp"
@@ -124,7 +132,7 @@ def main():
     pd.DataFrame(manifest).to_json(request_tmp, orient="records", indent=2)
     bars_tmp.replace(args.output / "ohlc.parquet")
     request_tmp.replace(args.output / "price_requests.json")
-    print(f"{len(rows):,} bars, {sum('error' in row for row in manifest)} failed requests", flush=True)
+    print(f"{len(candles):,} bars, {sum('error' in row for row in manifest)} failed requests", flush=True)
 
 
 if __name__ == "__main__":
