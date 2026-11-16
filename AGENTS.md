@@ -23,3 +23,8 @@ dataset with potentially missing candidate features, use
 [`$numerai-crypto-missing-values`](.agents/skills/numerai-crypto-missing-values/SKILL.md)
 before implementation. Before accepting or interpreting the resulting experiment,
 use [`$numerai-crypto-missing-values-audit`](.agents/skills/numerai-crypto-missing-values-audit/SKILL.md).
+
+## MLP training compute
+
+For Timmermann–Vulicevic epoch schedules, FLOP budgets, and compute scaling,
+use [`$timmermann-mlp-compute`](.agents/skills/timmermann-mlp-compute/SKILL.md).

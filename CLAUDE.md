@@ -288,3 +288,8 @@ must change before any LSTM or LSTM blend can be submitted:
 
 Backtest artifacts under `results/forecast/` are out-of-sample predictions for
 historical dates and must never be uploaded to a live round.
+
+## MLP training compute
+
+For Timmermann–Vulicevic epoch schedules, FLOP budgets, and compute scaling,
+use [`/timmermann-mlp-compute`](.claude/skills/timmermann-mlp-compute/SKILL.md).
