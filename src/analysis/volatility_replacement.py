@@ -24,7 +24,7 @@ MLP_EPOCHS = 25
 MLP_GRID = [(units, alpha) for units in ((32,), (64, 32)) for alpha in (.0001, .01)]
 
 
-def cuda_mlp(x, y, xe, units, alpha, seed, epochs):
+def cuda_mlp(x, y, xe, units, alpha, seed, epochs, checkpoint=None):
     import torch
     from torch import nn
 
@@ -39,7 +39,16 @@ def cuda_mlp(x, y, xe, units, alpha, seed, epochs):
     model = nn.Sequential(*layers).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=.001)
     weights = [layer.weight for layer in model if isinstance(layer, nn.Linear)]
-    for _ in range(epochs):
+    start = 0
+    if checkpoint and checkpoint.exists():
+        state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        torch.cuda.set_rng_state(state["rng"].cpu())
+        start = state["epoch"]
+        if start > epochs:
+            raise ValueError(f"Checkpoint exceeds epoch budget: {checkpoint}")
+    for epoch in range(start, epochs):
         order = torch.randperm(len(x), device=x.device)
         for batch in order.split(256):
             optimizer.zero_grad(set_to_none=True)
@@ -48,6 +57,12 @@ def cuda_mlp(x, y, xe, units, alpha, seed, epochs):
             loss = .5 * residual.square().mean() + .5 * alpha * penalty / len(batch)
             loss.backward()
             optimizer.step()
+        if checkpoint and ((epoch + 1) % 300 == 0 or epoch + 1 == epochs):
+            temporary = checkpoint.with_suffix(".tmp")
+            torch.save(dict(model=model.state_dict(), optimizer=optimizer.state_dict(),
+                            rng=torch.cuda.get_rng_state(), epoch=epoch + 1), temporary)
+            temporary.replace(checkpoint)
+            print(f"{checkpoint.stem}: epoch {epoch + 1:,}/{epochs:,}", flush=True)
     with torch.inference_mode():
         return model(xe).flatten().cpu().numpy()
 
@@ -57,7 +72,7 @@ def recipe_epochs(inputs, units, multiplier):
     return multiplier * (max(int(.2 * parameters ** .8), 1) + 10)
 
 
-def mlp_predict(x, y, xe, parameters, seeds, epochs, device):
+def mlp_predict(x, y, xe, parameters, seeds, epochs, device, checkpoints=None):
     scaler = StandardScaler()
     x = scaler.fit_transform(x)
     xe = scaler.transform(xe)
@@ -67,7 +82,8 @@ def mlp_predict(x, y, xe, parameters, seeds, epochs, device):
         fitted = []
         for seed in seeds:
             if device == "cuda":
-                fitted.append(cuda_mlp(x, y, xe, units, alpha, seed, budget))
+                checkpoint = checkpoints / f"{units}-{alpha}-{seed}.pt" if checkpoints else None
+                fitted.append(cuda_mlp(x, y, xe, units, alpha, seed, budget, checkpoint))
                 continue
             model = MLPRegressor(hidden_layer_sizes=units, activation="relu", solver="adam",
                                  alpha=alpha, batch_size=256, learning_rate_init=.001,
@@ -79,7 +95,7 @@ def mlp_predict(x, y, xe, parameters, seeds, epochs, device):
     return np.column_stack(predictions)
 
 
-def fit_model(model, x, y, dates, fold, epochs, device):
+def fit_model(model, x, y, dates, fold, epochs, device, checkpoints=None):
     train = np.flatnonzero((dates >= fold.train_start) & (dates <= fold.train_end))
     inner = np.flatnonzero((dates >= fold.train_start) & (dates <= fold.inner_train_end))
     validate = np.flatnonzero((dates >= fold.validation_start) & (dates <= fold.train_end))
@@ -91,11 +107,16 @@ def fit_model(model, x, y, dates, fold, epochs, device):
         return pred, param, score
 
     original = x.astype(np.float32, copy=False)
-    inner_preds = mlp_predict(original[inner], y[inner], original[validate], MLP_GRID, SEEDS[:1], epochs, device)
+    inner_dir = checkpoints / "search" if checkpoints else None
+    refit_dir = checkpoints / "refit" if checkpoints else None
+    for directory in (inner_dir, refit_dir):
+        if directory:
+            directory.mkdir(parents=True, exist_ok=True)
+    inner_preds = mlp_predict(original[inner], y[inner], original[validate], MLP_GRID, SEEDS[:1], epochs, device, inner_dir)
     scores = np.mean([cc_fast(inner_preds[ix], y[validate[ix]])
                       for ix in groups(dates[validate])], axis=0)
     pick = int(np.argmax(scores.round(12)))
-    preds = mlp_predict(original[train], y[train], original[test], MLP_GRID[pick:pick + 1], SEEDS, epochs, device)
+    preds = mlp_predict(original[train], y[train], original[test], MLP_GRID[pick:pick + 1], SEEDS, epochs, device, refit_dir)
     return preds[:, 0], repr(MLP_GRID[pick]), float(scores[pick])
 
 
@@ -144,7 +165,10 @@ def write_fold(fold, panel, original, covered, replacement, output, epochs, devi
         for arm, cols in zip(ARMS, (original, original_covered, replacement), strict=True):
             yc, dc = (y, dates) if arm == "original_full" else (y[covered], dates_covered)
             if mlp_fits is None:
-                predicted, parameter, score = fit_model(model, cols, yc, dc, fold, epochs[cols.shape[1]], device)
+                checkpoints = (output / "checkpoints" / f"fold-{fold.fold}-{arm}"
+                               if model == "MLP" and device == "cuda" else None)
+                predicted, parameter, score = fit_model(model, cols, yc, dc, fold, epochs[cols.shape[1]],
+                                                        device, checkpoints)
             else:
                 predicted, parameter, score = mlp_fits[arm]
             predictions[arm] = predicted
@@ -209,6 +233,7 @@ def run_mlp_arm(task):
 
 
 def main():
+    global MLP_GRID
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--panel", type=Path, default=Path("data/crypto/v2.0/train.parquet"))
     parser.add_argument("--meta", type=Path, default=Path("data/crypto/v2.0/historical_meta_models.parquet"))
@@ -218,6 +243,7 @@ def main():
     parser.add_argument("--mlp-epochs", type=int, default=MLP_EPOCHS)
     parser.add_argument("--mlp-device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--mlp-recipe-multiplier", type=int)
+    parser.add_argument("--mlp-widths", type=int, nargs="+")
     parser.add_argument("--reuse-non-mlp", type=Path)
     args = parser.parse_args()
     if args.mlp_recipe_multiplier is not None and args.mlp_recipe_multiplier < 1:
@@ -232,6 +258,10 @@ def main():
         if not torch.cuda.is_available():
             parser.error("CUDA is unavailable")
         args.workers = 1
+    if args.mlp_widths:
+        if min(args.mlp_widths) < 1:
+            parser.error("--mlp-widths expects positive integers")
+        MLP_GRID = [(tuple(args.mlp_widths), alpha) for alpha in (.0001, .01)]
     path = args.output / "v2.0_volatility_replacement.parquet"
     panel, original, covered, replacement = model_inputs(args.panel, args.meta, path)
     check_scoring()
@@ -251,6 +281,13 @@ def main():
     epochs = {width: ({units: recipe_epochs(width, units, args.mlp_recipe_multiplier)
                        for units, _ in MLP_GRID} if args.mlp_recipe_multiplier else args.mlp_epochs)
               for width in (original.shape[1], replacement.shape[1])}
+    if args.mlp_device == "cuda":
+        signature = json.dumps(dict(inputs=inputs, epochs=repr(epochs), grid=MLP_GRID, seeds=SEEDS),
+                               sort_keys=True)
+        config_path = args.output / "cuda_checkpoint_config.json"
+        if config_path.exists() and config_path.read_text() != signature:
+            raise ValueError("Checkpoint inputs or training settings changed")
+        config_path.write_text(signature)
     worker_args = (panel, original, covered, replacement, args.output, epochs, args.mlp_device, reuse, folds)
     if args.workers == 1:
         records = [write_fold(fold, *worker_args[:-1]) for fold in folds]

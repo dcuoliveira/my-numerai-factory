@@ -105,11 +105,31 @@ def matched_deltas(scores):
                                        "ci_low", "ci_high", "positive_days", "dates"])
 
 
-def report(root):
+def read_addons(root, run, addons):
+    results = []
+    for source in addons:
+        addon_run = json.loads((source / "run_manifest.json").read_text())
+        if list(addon_run["inputs"].values()) != list(run["inputs"].values()):
+            raise ValueError(f"Different experiment inputs in {source}")
+        addon_scores = pd.read_parquet(source / "scores.parquet").sort_values("date", kind="stable")
+        addon_dataset = json.loads((source / "dataset_manifest.json").read_text())
+        audit(source, addon_run, addon_dataset, addon_scores)
+        name = f"MLP 1M · {addon_run['mlp_recipe_multiplier']}×"
+        results.append(addon_scores[addon_scores.model.eq("MLP")].assign(model=name))
+    names = [frame.model.iloc[0] for frame in results]
+    if len(names) != len(set(names)):
+        raise ValueError(f"Duplicate MLP add-ons for {root}")
+    return results
+
+
+def report(root, addons=()):
     dataset = json.loads((root / "dataset_manifest.json").read_text())
     run = json.loads((root / "run_manifest.json").read_text())
     scores = pd.read_parquet(root / "scores.parquet").sort_values("date", kind="stable")
     audit(root, run, dataset, scores)
+    addon_scores = read_addons(root, run, addons)
+    if addon_scores:
+        scores = pd.concat([scores, *addon_scores], ignore_index=True)
     summary = summarize(scores)
     paired = matched_deltas(scores)
     summary.to_csv(root / "performance.csv", index=False)
@@ -131,7 +151,8 @@ def report(root):
         section(fig, number, title, subtitle)
         return fig
 
-    with PdfPages(root / "volatility_replacement_report.pdf",
+    temporary_pdf = root / "volatility_replacement_report.tmp"
+    with PdfPages(temporary_pdf,
                   metadata={"Title": "Numerai Crypto v2.0 volatility replacement"}) as pdf:
         fig = page(1, "Replacing volatility in Numerai Crypto v2.0",
                    "New MLP fits with the original Ridge and LightGBM forecasts."
@@ -272,7 +293,7 @@ def report(root):
             prior = pd.read_parquet(Path(reuse) / "scores.parquet").sort_values("date", kind="stable")
             prior_run = json.loads((Path(reuse) / "run_manifest.json").read_text())
             pd.testing.assert_frame_equal(
-                scores[scores.model.ne("MLP")].reset_index(drop=True),
+                scores[scores.model.isin(("Ridge", "LightGBM"))].reset_index(drop=True),
                 prior[prior.model.ne("MLP")].reset_index(drop=True),
             )
             original_mlp = summarize(prior).query("sample == 'routed' and model == 'MLP'").set_index("arm")
@@ -300,14 +321,60 @@ def report(root):
                       "the architecture and regularization after training. Final forecasts average three fresh refits.",
                       size=9.5)
             save(pdf, fig)
+
+        if addon_scores:
+            models = ["MLP", *[frame.model.iloc[0] for frame in addon_scores]]
+            fig = page(7 if reuse else 6, "MLP size and compute comparison",
+                       "All metrics use the same 468 days. The previous report's MLP is shown alongside completed additions.")
+            rows = []
+            for model in models:
+                for arm in ARMS:
+                    row = routed.loc[(model, arm)]
+                    rows.append([model, LABELS[arm], f"{row['corr']:.5f}", f"{row.mmc:.5f}",
+                                 f"{row.payout:.5f}", f"{row.payout_sharpe:.4f}", f"{row.maxdd:.4f}"])
+            table(fig, pd.DataFrame(rows, columns=["Model", "Feature set", "CORR", "Proxy MMC",
+                                                  "Payout", "p.sharpe", "Max DD"]),
+                  [.065, .335, .87, .413], [.17, .25, .12, .12, .12, .11, .11])
+            selected = paired[paired["sample"].eq("routed") & paired.metric.eq("payout")].set_index("model")
+            subhead(fig, .294, "Matched payout change and 95% block interval")
+            intervals = [[model, f"{selected.loc[model, 'delta']:+.5f}",
+                          f"[{selected.loc[model, 'ci_low']:+.5f}, {selected.loc[model, 'ci_high']:+.5f}]"]
+                         for model in models]
+            table(fig, pd.DataFrame(intervals, columns=["Model", "Replacement − original", "95% block interval"]),
+                  [.065, .108, .87, .142], [.34, .33, .33])
+            save(pdf, fig)
+
+            fig = page(8 if reuse else 7, "Cumulative payout for the MLP additions",
+                       "Matched forecasts share the same training rows per fold and the same evaluation universe.")
+            axes = []
+            for i, arm in enumerate(ARMS[1:]):
+                ax = fig.add_axes([.085 + i * .458, .25, .38, .49])
+                axes.append(ax)
+                ax.set_title(LABELS[arm], color=INK, loc="left")
+                for model in models:
+                    value = meta.loc[meta.model.eq(model) & meta.arm.eq(arm)].set_index("date").payout.sort_index()
+                    initial = pd.Series([0.], index=[value.index[0] - pd.Timedelta(days=1)])
+                    ax.plot(pd.concat([initial, value.cumsum()]), label=model, linewidth=1.55)
+                styled_axis(ax)
+                ax.tick_params(axis="x", labelrotation=30)
+            low, high = min(ax.get_ylim()[0] for ax in axes), max(ax.get_ylim()[1] for ax in axes)
+            for ax in axes:
+                ax.set_ylim(low, high)
+            axes[0].set_ylabel("Cumulative payout score")
+            handles, labels = axes[0].get_legend_handles_labels()
+            fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(.5, .12),
+                       frameon=False, ncol=3)
+            save(pdf, fig)
+    temporary_pdf.replace(root / "volatility_replacement_report.pdf")
     print(routed[["corr", "mmc", "payout", "maxdd"]].to_string(), flush=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("results/volatility_replacement"))
+    parser.add_argument("--addon", type=Path, action="append", default=[])
     args = parser.parse_args()
-    report(args.output)
+    report(args.output, args.addon)
 
 
 if __name__ == "__main__":
