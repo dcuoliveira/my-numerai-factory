@@ -56,6 +56,7 @@ MODELS = ("IA_01", "IA_02", "IA_03", "IA_04")
 LOSSES = ("mmc", "mse")
 TARGET = features.TARGET
 PERIODS, GAP, VALID, FOLDS = 130, 22, 30, 4
+END = pd.Timestamp("2026-10-14")
 
 
 def model_params(name):
@@ -94,6 +95,9 @@ def tasks():
     meta = pd.read_parquet(META)[["date", "id", "prediction"]].rename(
         columns={"id": "ucid", "prediction": "meta"})
     raw = raw.merge(meta, how="left", on=["date", "ucid"], validate="one_to_one")
+    # Pin the panel to E185's last date so both studies score the same 520 dates
+    # (train.parquet gained 2026-10-15 after E185 ran).
+    raw = raw.loc[raw.date.le(END)]
     raw = raw.sort_values(["symbol", "date"], ignore_index=True)
     dates = pd.DatetimeIndex(raw.date.unique()).sort_values()
     sets = {name: registry.get(name)["feature_set"] for name in MODELS}
@@ -302,7 +306,7 @@ def main():
         models={n: {k: (list(v) if isinstance(v, tuple) else v) for k, v in model_params(n).items()}
                 for n in MODELS},
         losses=LOSSES, seeds=args.seeds, device=args.device, train_periods=PERIODS, gaps=GAP,
-        validation_periods=VALID, folds=FOLDS, epochs="TV reference max(floor(0.2 P^0.8),1)+10"), indent=2) + "\n")
+        validation_periods=VALID, folds=FOLDS, panel_end=str(END.date()), epochs="TV reference max(floor(0.2 P^0.8),1)+10"), indent=2) + "\n")
 
 
 if __name__ == "__main__":
