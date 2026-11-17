@@ -3588,6 +3588,33 @@ STUDIES["E184"] = {
     "models": ["tabpfn_head"], "expected_arms": 19,
 }
 
+STUDIES["E185"] = {
+    "title": "IA_01..IA_04 sklearn MLPs at 1x and 10x Timmermann-Vulicevic epochs",
+    "idea": "Paired retrain of the four live MLP legs (sklearn MLPRegressor, pinned registry configs, IA_01 from its "
+            "November cache) on 4 rolling holdouts (130 train / 22 gap / 30 val / 130 test dates, 520 scored): current "
+            "recipe vs fixed 1x TV reference epochs vs 10x final vs 10x validation-selected checkpoint, same weights path. "
+            "Writes OUTSIDE results/metrics/: results/ia_mlp_10x/ (run.py, build_report.py, mlp_10x_report.pdf). "
+            "Ran 2026-11-16 on westeros; registered after the fact on 2026-11-17.",
+    "runner": "results/ia_mlp_10x/run.py",
+    "prefix": "e185_", "scout_prefix": None,
+    "models": ["mlp"], "expected_arms": 0,
+}
+
+STUDIES["E186"] = {
+    "title": "IA_01..IA_04 as torch MLPs (sklearn init) trained on an MMC loss at TV reference epochs",
+    "idea": "Same data, folds and pinned configs as E185, but the network is TorchMLPRegressor._build (sklearn "
+            "Glorot init, float64, Adam, sklearn L2) trained for exactly the TV reference epochs "
+            "max(floor(0.2 P^0.8),1)+10 with no early stopping, on whole-date batches. Arms: per-date negative BMC "
+            "against the real meta model (torch_mmc) vs half-MSE in the same loop (torch_mse), 5 seeds each; paired "
+            "against E185's sklearn 'before' and 'reference' arms on the same 520 dates. Fold 0 trains 66% of rows on "
+            "dates before the meta model exists, where the loss reduces to per-date CORR. Writes OUTSIDE "
+            "results/metrics/: results/e186_ia_torch_mmc/.",
+    "runner": "experiments/e186_ia_torch_mmc.py",
+    "prefix": "e186_", "scout_prefix": None,
+    "models": ["torch_mlp"], "expected_arms": 0,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
