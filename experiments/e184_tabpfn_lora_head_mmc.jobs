@@ -1,0 +1,4 @@
+# E184: TabPFN + new output layer, LoRA, MMC objective, TV epoch count (4,763). One GPU on deepfive, ~21 days.
+#   python3 -m src.cluster run --jobs experiments/e184_tabpfn_lora_head_mmc.jobs --gpu-slots 1 --only deepfive
+# Resumable: relaunching the same line continues from models/tabpfn/e184/state.pt.
+cores=4 ram=24 gpu=1 name=e184_tabpfn_lora_head_mmc -- python3 -m src.analysis.tabpfn_lora_head_mmc --run-name e184

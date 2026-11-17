@@ -3569,6 +3569,25 @@ STUDIES["E182"] = {
 }
 
 
+STUDIES["E184"] = {
+    "title": "TabPFN + a new output layer, LoRA fine-tuned on an MMC objective for the TV epoch count",
+    "idea": "src/analysis/tabpfn_lora_head_mmc.py: LoRA r=8 on every attention q/k/v/out projection (E102's set, "
+            "backbone frozen) plus a NEW zero-initialised Linear(192->1) on each query row's final hidden state (the "
+            "input of TabPFN's output_projection), added as a residual to the bar-distribution mean, so step 0 is "
+            "zero-shot. Loss = 1 - BMC against the real meta model (E45's mmc_loss), one date's cross-section per "
+            "step, context = 130 dates before the T-20 wall (4096 rows). Leak-safe meta-covered training dates only: "
+            "38 dates 2024-05-07..2024-06-27, 11,400 rows. Epochs = Timmermann-Vulicevic floor(0.2*P^0.8)+10 with "
+            "P = 295,105 trainable (LoRA 294,912 + layer 193) -> 4,763 epochs, 180,994 steps, no early stopping; "
+            "measured 375 s/epoch on one RTX 2070 -> ~21 days. Walk-forward eval on E19's 510 dates at epochs "
+            "1,3,10,30,100,300,1000,3000 (descriptive) and 4763 (pre-specified result): e184_ep<N> (LoRA+layer), "
+            "e184_lora_ep<N> (layer dropped), e184_zs (matched n_est=1 zero-shot). Writes forecasts/metrics under "
+            "the tabpfn_head model tree (results/*/crypto/tabpfn_head/), resumable state models/tabpfn/e184/state.pt. "
+            "deepfive GPU via src.cluster (experiments/e184_tabpfn_lora_head_mmc.jobs).",
+    "runner": "src/analysis/tabpfn_lora_head_mmc.py",
+    "prefix": "e184_", "scout_prefix": None,
+    "models": ["tabpfn_head"], "expected_arms": 19,
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
