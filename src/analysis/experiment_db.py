@@ -3540,6 +3540,22 @@ def print_arms(study_id, db_path=DB_PATH):
         connection.close()
 
 
+STUDIES["E182"] = {
+    "title": "Volatility replacement: ~1M-parameter MLP at 1x and 10x epoch schedule",
+    "idea": "Add-on to the volatility-replacement study (experiments/volatility_proxies.md): ReLU MLP widths 984x984 "
+            "(~1M params, overparameterised) trained on CUDA at the size-dependent recipe schedule x1 and x10 "
+            "(overcomputation), on original full / original matched / replacement-volatility matched v2.0 inputs, "
+            "11 development folds to 2026-02-19. Ridge/LightGBM reused from results/volatility_replacement_mlp_10x. "
+            "Writes OUTSIDE results/metrics/: results/volatility_replacement_mlp_1m_{1x,10x}/, checkpointed every "
+            "300 epochs; queue results/volatility_replacement_mlp_1m_1x/queue.sh. Report = the 10x report "
+            "(results/volatility_replacement_mlp_10x/volatility_replacement_report.pdf) re-rendered with each run as --addon, "
+            "keeping the prior 10x MLP. Launched 2026-11-16 on westeros GPU; registered after launch on 2026-11-17.",
+    "runner": "src/analysis/volatility_replacement.py",
+    "prefix": "e182_", "scout_prefix": None,
+    "models": ["mlp"], "expected_arms": 0,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
@@ -3579,18 +3595,3 @@ def main(argv=None):
 if __name__ == "__main__":
     raise SystemExit(main())
 
-
-STUDIES["E182"] = {
-    "title": "Volatility replacement: ~1M-parameter MLP at 1x and 10x epoch schedule",
-    "idea": "Add-on to the volatility-replacement study (experiments/volatility_proxies.md): ReLU MLP widths 984x984 "
-            "(~1M params, overparameterised) trained on CUDA at the size-dependent recipe schedule x1 and x10 "
-            "(overcomputation), on original full / original matched / replacement-volatility matched v2.0 inputs, "
-            "11 development folds to 2026-02-19. Ridge/LightGBM reused from results/volatility_replacement_mlp_10x. "
-            "Writes OUTSIDE results/metrics/: results/volatility_replacement_mlp_1m_{1x,10x}/, checkpointed every "
-            "300 epochs; queue results/volatility_replacement_mlp_1m_1x/queue.sh. Report = the 10x report "
-            "(results/volatility_replacement_mlp_10x/volatility_replacement_report.pdf) re-rendered with each run as --addon, "
-            "keeping the prior 10x MLP. Launched 2026-11-16 on westeros GPU; registered after launch on 2026-11-17.",
-    "runner": "src/analysis/volatility_replacement.py",
-    "prefix": "e182_", "scout_prefix": None,
-    "models": ["mlp"], "expected_arms": 0,
-}
