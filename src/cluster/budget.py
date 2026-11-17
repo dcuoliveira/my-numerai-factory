@@ -96,9 +96,17 @@ class Placement:
         return "nmr-%s" % self.job.name
 
 
-def core_cap(host, share=SHARE):
-    """Our hard ceiling on a host: floor(share * cores), at least 0."""
-    return max(0, int(math.floor(host.cores * share)))
+def core_cap(host, share=SHARE, extra_cores=0):
+    """
+    Our hard ceiling on a host: floor(share * cores), at least 0.
+
+    extra_cores is a ONE-OFF allowance on top of the share, added per host after
+    the floor (`--extra-cores N`, default 0). It exists so a user can explicitly
+    grant N more cores per machine for one batch without changing the standing
+    30% rule. It never lifts the physical limit: available_cores still refuses
+    cores that other people's load is using.
+    """
+    return max(0, int(math.floor(host.cores * share)) + int(extra_cores))
 
 
 def ram_cap_gb(host, share=SHARE):
@@ -119,14 +127,14 @@ def gpu_cap(host, share=SHARE, gpu_slots=None):
     return max(0, min(int(gpu_slots), host.gpus))
 
 
-def available_cores(host, share=SHARE):
+def available_cores(host, share=SHARE, extra_cores=0):
     """
     Cores we may still start work on: our remaining budget, but never more
     than the machine physically has free after everyone else's load.
     """
     if not host.reachable:
         return 0
-    budget_left = core_cap(host, share) - host.our_cores
+    budget_left = core_cap(host, share, extra_cores) - host.our_cores
     physically_free = host.cores - host.our_cores - host.others_load
     return max(0, int(min(budget_left, math.floor(physically_free))))
 
@@ -208,7 +216,7 @@ def pick_cpus(host, want, also_taken=()):
     return tuple(out)
 
 
-def distribute(jobs, hosts, share=SHARE, gpu_slots=None):
+def distribute(jobs, hosts, share=SHARE, gpu_slots=None, extra_cores=0):
     """
     Assign jobs to hosts under the share cap. Returns (placements, unplaced).
 
@@ -225,7 +233,7 @@ def distribute(jobs, hosts, share=SHARE, gpu_slots=None):
     for h in hosts:
         pool[h.name] = {
             "host": h,
-            "cores": available_cores(h, share),
+            "cores": available_cores(h, share, extra_cores),
             "ram": available_ram_gb(h, share),
             "gpus": list(free_gpus(h, share, gpu_slots)),
             "taken": [],

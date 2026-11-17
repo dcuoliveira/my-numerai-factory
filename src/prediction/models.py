@@ -2078,6 +2078,68 @@ class TabNetKtzWrapper(TabNetWrapper):
         ]
 
 
+class TabNetKtzTVWrapper(TabNetWrapper):
+    """
+    tabnet_ktz with the epoch count TIED to model size: the Timmermann-Vulicevic
+    schedule (src/prediction/tabnet_tv.py) and no max_epochs axis.
+
+    Each candidate trains for E = floor(0.2 * P**0.8) + 10 epochs, where P is the
+    trainable parameter count of the network ITS sampled settings build on THIS
+    dataset's column count. The pairing is guaranteed by construction rather
+    than by grid design.
+
+    The space is capped where TV becomes unaffordable inside a search. Width
+    stays at 8-16, steps at 2-5, and GLU depth at 1-2 per kind. That bounds TV at
+    roughly 150-840 epochs on raw (22 columns) and 180-910 on fenccausal (44),
+    against ~1,400-11,700 for tabnet_ktz's width 32-64 and 7-step corners.
+    Every other axis keeps tabnet_ktz's range. epoch_mult and epoch_cap are
+    pinned at 1 / None, so each fit runs exactly its TV count. Unpin
+    epoch_mult (e.g. 0.5, 1, 2) to test budgets around the schedule.
+    """
+
+    WIDTHS = [8, 16]
+    N_STEPS = [2, 3, 4, 5]
+    GAMMAS = TabNetKtzWrapper.GAMMAS
+    N_INDEPENDENT = [1, 2]
+    N_SHARED = [1, 2]
+    LAMBDA_SPARSE = TabNetKtzWrapper.LAMBDA_SPARSE
+    MOMENTUM = TabNetKtzWrapper.MOMENTUM
+    MASK_TYPES = TabNetKtzWrapper.MASK_TYPES
+    LEARNING_RATES = TabNetKtzWrapper.LEARNING_RATES
+    BATCH_SIZES = TabNetKtzWrapper.BATCH_SIZES
+    VIRTUAL_BATCH_SIZES = TabNetKtzWrapper.VIRTUAL_BATCH_SIZES
+    EPOCH_MULT = [1.0]
+
+    def __init__(self, task="regression", seed=None, n_jobs=-1, device="cpu"):
+        super().__init__(task=task, seed=seed, n_jobs=n_jobs, device=device)
+        self.model_name = "tabnet_ktz_tv"
+        from src.prediction.tabnet_tv import TabNetTVRegressor
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        self.ModelClass = Pipeline(
+            [("scale", StandardScaler()),
+             ("net", TabNetTVRegressor(seed=seed, device=device))])
+        shared = {
+            "net__n_steps": self.N_STEPS,
+            "net__gamma": self.GAMMAS,
+            "net__n_independent": self.N_INDEPENDENT,
+            "net__n_shared": self.N_SHARED,
+            "net__lambda_sparse": self.LAMBDA_SPARSE,
+            "net__momentum": self.MOMENTUM,
+            "net__mask_type": self.MASK_TYPES,
+            "net__learning_rate": self.LEARNING_RATES,
+            "net__batch_size": self.BATCH_SIZES,
+            "net__virtual_batch_size": self.VIRTUAL_BATCH_SIZES,
+            "net__epoch_rule": ["tv"],
+            "net__epoch_mult": self.EPOCH_MULT,
+        }
+        self.param_grid = [
+            dict(shared, **{"net__n_d": [w], "net__n_a": [w]})
+            for w in self.WIDTHS
+        ]
+
+
 # --------------------------------------------------------------------------- #
 # TabPFN -- a tabular FOUNDATION model, no per-dataset training at all
 # --------------------------------------------------------------------------- #
@@ -2369,6 +2431,7 @@ MODELS = {
     "torch_mlp_loss": TorchMLPLossWrapper,
     "tabnet": TabNetWrapper,
     "tabnet_ktz": TabNetKtzWrapper,
+    "tabnet_ktz_tv": TabNetKtzTVWrapper,
     "tabpfn": TabPFNWrapper,
     "tabpfn_clf": TabPFNClfWrapper,
     "gp": GPWrapper,

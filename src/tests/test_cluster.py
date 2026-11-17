@@ -47,6 +47,11 @@ class TestTheCap(unittest.TestCase):
     def test_share_is_configurable_but_defaults_to_30pc(self):
         self.assertAlmostEqual(SHARE, 0.30)
         self.assertEqual(core_cap(host(cores=64), share=0.5), 32)
+        # One-off --extra-cores: added after the floor, never past physical free.
+        self.assertEqual(core_cap(host(cores=64), extra_cores=10), 29)
+        self.assertEqual(core_cap(host(cores=32), extra_cores=10), 19)
+        self.assertEqual(available_cores(host(cores=64, load1=0.0), extra_cores=10), 29)
+        self.assertEqual(available_cores(host(cores=32, load1=28.0), extra_cores=10), 4)
 
     def test_saturated_host_offers_nothing(self):
         """deepsix on 2026-10-23: load 44 on 32 cores. Its 9-core budget is

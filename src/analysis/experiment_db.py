@@ -3174,6 +3174,19 @@ STUDIES["E159"] = {
 
 
 
+STUDIES["E183"] = {
+    "title": "TabNet with epochs tied to model size (Timmermann-Vulicevic), raw + fenccausal, 2 seeds",
+    "idea": "tabnet_ktz_tv: no max_epochs axis; each candidate trains E = floor(0.2*P^0.8)+10 epochs from the "
+            "trainable parameter count P of the network its sampled settings build on the dataset's column count "
+            "(src/prediction/tabnet_tv.py). Space capped at width 8-16, steps 2-5, GLU depth 1-2 (TV 136-906 "
+            "epochs). E158's walk-forward and per-candidate capture (--save-cv-results, --reseed-per-refit), "
+            "n_iter 40, seeds 42/43. Compares TV-length training with E153/E158's 30-150 epochs and feeds "
+            "src.analysis.hparam_importance. Launched with a one-off src.cluster --extra-cores 10.",
+    "runner": "experiments/e183_tabnet_tv_crypto.sh",
+    "prefix": "e183_", "scout_prefix": "e183scout_",
+    "models": ["tabnet_ktz_tv"], "expected_arms": 4,
+}
+
 def study_of(run_name, model=None):
     """
     Which numbered study wrote this run, from its prefix and model tree.

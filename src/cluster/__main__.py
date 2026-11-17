@@ -16,7 +16,7 @@ def _probe(args):
     print("%-13s %5s %6s %7s %5s   %s" % ("host", "cores", "RAM", "load1", "gpu", "we may use"))
     total_cores = 0
     for h in live:
-        cores = available_cores(h, args.share)
+        cores = available_cores(h, args.share, args.extra_cores)
         total_cores += cores
         gpus = free_gpus(h, args.share, args.gpu_slots)
         note = (" (%s)" % h.note) if h.note else ""
@@ -29,8 +29,10 @@ def _probe(args):
     down = [h for h in found if h not in live]
     if down:
         print("\nunreachable: " + ", ".join("%s (%s)" % (h.name, h.note) for h in down))
-    print("\n%d cores available across %d hosts at a %.0f%% share."
-          % (total_cores, len(live), args.share * 100))
+    print("\n%d cores available across %d hosts at a %.0f%% share%s."
+          % (total_cores, len(live), args.share * 100,
+             " + %d extra cores per host (one-off)" % args.extra_cores
+             if args.extra_cores else ""))
     if any(h.gpus for h in live) and not args.gpu_slots:
         box = ", ".join(h.name for h in live if h.gpus)
         print("GPU: 0 slots. floor(%.2f x 2 cards) is 0, so the 30%% rule forbids GPU work "
@@ -53,7 +55,8 @@ def _plan_common(args):
     live = [h for h in hostmod.reachable(found) if h.name not in set(args.exclude or ())]
     if args.only:
         live = [h for h in live if h.name in set(args.only)]
-    placements, unplaced = distribute(jobs, live, args.share, args.gpu_slots)
+    placements, unplaced = distribute(jobs, live, args.share, args.gpu_slots,
+                                      args.extra_cores)
 
     busy = set()
     for host, rows in mgr.status(names=[h.name for h in live], timeout=args.timeout).items():
@@ -175,6 +178,10 @@ def main(argv=None):
     parent = argparse.ArgumentParser(add_help=False)
     parent.add_argument("--share", type=float, default=SHARE,
                         help="fraction of each machine we may use (default %.2f)" % SHARE)
+    parent.add_argument("--extra-cores", type=int, default=0,
+                        help="ONE-OFF allowance: this many cores per host on top of "
+                             "floor(share * cores). Default 0 keeps the standing rule; "
+                             "pass it only when explicitly granted for a batch")
     parent.add_argument("--gpu-slots", type=int, default=None,
                         help="cards we may use per host; default is the strict "
                              "floor(share * cards), which is 0 on a 2-card box")

@@ -1,0 +1,9 @@
+# E183 tabnet_ktz_tv (TV epochs tied to size). CPU, 2 torch threads per search worker.
+# Launched with the one-off `--extra-cores 10` allowance and `--exclude lovelace`
+# (lovelace already carries E158 raw_s43 outside the manager, which the probe cannot see).
+# Also relaunches E158 fenccausal_s43 (killed 2026-11-17 by linger-off) with its own runner, unchanged.
+cores=18 ram=32 name=e183_raw_s42 -- env E183_ARM=raw E183_SEED=42 E183_SEARCH_JOBS=9 E183_THREADS=2 bash experiments/e183_tabnet_tv_crypto.sh
+cores=18 ram=32 name=e183_fenccausal_s42 -- env E183_ARM=fenccausal E183_SEED=42 E183_SEARCH_JOBS=9 E183_THREADS=2 bash experiments/e183_tabnet_tv_crypto.sh
+cores=18 ram=32 name=e183_raw_s43 -- env E183_ARM=raw E183_SEED=43 E183_SEARCH_JOBS=9 E183_THREADS=2 bash experiments/e183_tabnet_tv_crypto.sh
+cores=12 ram=24 name=e183_fenccausal_s43 -- env E183_ARM=fenccausal E183_SEED=43 E183_SEARCH_JOBS=6 E183_THREADS=2 bash experiments/e183_tabnet_tv_crypto.sh
+cores=9 ram=24 name=e158_fenccausal_s43 -- env E158_ARM=fenccausal E158_SEED=43 E158_SEARCH_JOBS=3 E158_THREADS=3 bash experiments/e158_tabnet_ktz_hparams_crypto.sh
