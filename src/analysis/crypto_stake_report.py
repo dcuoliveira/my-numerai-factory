@@ -70,10 +70,12 @@ STAKED_SLOTS = [
     ("curupira_01", "CURUPIRA_01"),
     ("cu_sa_ia_bo_02", "CU_SA_IA_BO_02"),
     ("cu_sa_ia_bo_ma_r_01", "CU_SA_IA_BO_MA_R_01"),
+    ("cu_sa_ia_bo_ma_01", "CU_SA_IA_BO_MA_01"),
 ]
 COLOUR = {"CURUPIRA_08": "#c0392b", "CURUPIRA_05": "#2c6fbb",
           "CU_SA_IA_BO_01": "#e08a1e", "CURUPIRA_01": "#3f8f4f",
-          "CU_SA_IA_BO_02": "#8e44ad", "CU_SA_IA_BO_MA_R_01": "#00897b"}
+          "CU_SA_IA_BO_02": "#8e44ad", "CU_SA_IA_BO_MA_R_01": "#00897b",
+          "CU_SA_IA_BO_MA_01": "#6d4c41"}
 
 #: Section 3 colours a round's diamond by SETTLEMENT STATUS, not by model, so the
 #: scheme reads the same way in every panel: red while the figure is still a
