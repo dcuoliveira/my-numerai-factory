@@ -47,6 +47,27 @@ durable record and holds the FINDINGS, written once a study is over. The
 database is the operational view and holds where things GOT TO. Neither replaces
 the other.
 
+### Register every experiment before launch
+
+Every experiment gets a number and a registration BEFORE it launches -- no
+exceptions for "quick" reruns, add-on runs, GPU queues, or anything outside
+`results/metrics/` (e.g. a study that writes its own output directory). An
+unregistered job cannot be found later by `experiment_db` or by grep, which
+is how the 1M-parameter volatility MLP runs ran for a day with no study id
+(registered after the fact as E182). Before starting any run:
+
+1. Take the next free id: `grep -oE '"E[0-9]+"' src/analysis/experiment_db.py | sort -V | tail -1`, plus one.
+2. Add a `STUDIES["E<n>"]` entry to `src/analysis/experiment_db.py`
+   (title, idea, runner, prefix, models, expected_arms). If the study writes
+   outside `results/metrics/`, say where in `idea`.
+3. Add a `### E<n>: <title> (registered <date>)` section to
+   `experiments/EXPERIMENTS.md` with the user's request, design, launch
+   command, host and output paths.
+4. Commit both before (or together with) launching, and tell the user the id.
+
+If you find a running or finished job with no id, register it the same way
+before reporting on it.
+
 One trap: the `payout` column there is `0.1*corr + mmc` rebuilt from the two
 stored means. That is fine for ranking a list and wrong for a claim -- see the
 next section.
