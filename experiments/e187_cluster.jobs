@@ -1,0 +1,9 @@
+# E187 tabnet_ktz_tv on every deployed dataset (raw/fenccausal reused from E183). 9-core slots, 4 search workers x 2 threads.
+cores=9 ram=32 name=e187_allfeat_pp_fenc -- env E187_ARM=allfeat_pp_fenc E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_allfeat_pp -- env E187_ARM=allfeat_pp E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_allfeat -- env E187_ARM=allfeat E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_tenc_onehot -- env E187_ARM=tenc_onehot E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_onehot_roll -- env E187_ARM=onehot_roll E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_cumlag3 -- env E187_ARM=cumlag3 E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_interact -- env E187_ARM=interact E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh
+cores=9 ram=32 name=e187_tenc -- env E187_ARM=tenc E187_SEED=42 E187_SEARCH_JOBS=4 E187_THREADS=2 bash experiments/e187_tabnet_tv_deployed_crypto.sh

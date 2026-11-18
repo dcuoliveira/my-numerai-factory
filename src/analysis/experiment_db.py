@@ -3187,6 +3187,17 @@ STUDIES["E183"] = {
     "models": ["tabnet_ktz_tv"], "expected_arms": 4,
 }
 
+STUDIES["E187"] = {
+    "title": "tabnet_ktz_tv (TV epochs tied to size) on every dataset behind a deployed slot",
+    "idea": "E183's model, space and walk-forward (n_iter 40, --save-cv-results, --reseed-per-refit), seed 42, "
+            "one arm per deployed feature set: tenc, interact, cumlag3, onehot_roll, tenc_onehot, allfeat, "
+            "allfeat_pp, allfeat_pp_fenc. raw and fenccausal reuse e183_*_s42. allfeat_pp_lag3 not run (no "
+            "research dataset). Wide sets train 1,059-2,944 TV epochs.",
+    "runner": "experiments/e187_tabnet_tv_deployed_crypto.sh",
+    "prefix": "e187_", "scout_prefix": "e187scout_",
+    "models": ["tabnet_ktz_tv"], "expected_arms": 8,
+}
+
 def study_of(run_name, model=None):
     """
     Which numbered study wrote this run, from its prefix and model tree.
