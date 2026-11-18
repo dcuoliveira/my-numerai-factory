@@ -455,7 +455,8 @@ def bar_chart(points, colour, width=760, height=190, pad=(16, 18, 42, 62)):
         out.append('<line x1="%d" y1="%.1f" x2="%d" y2="%.1f" stroke="%s"/>'
                    % (pl, y, width - pr, y, "#9aa0a6" if abs(v) < 1e-12 else "#eceff1"))
         out.append('<text x="%d" y="%.1f" font-size="10" fill="#5f6368" '
-                   'text-anchor="end">%+.3f</text>' % (pl - 6, y + 3, v))
+                   'text-anchor="end">%s</text>'
+                   % (pl - 6, y + 3, ("%+.1f%%" % (100 * v)) if pct else "%+.3f" % v))
     for i, (x, v) in enumerate(points):
         cx = pl + step * (i + 0.5)
         if v is None:
@@ -520,7 +521,7 @@ def box_stats(values):
 
 
 def box_plot(rounds, boxes, latest, colour, paths=None, colours=None,
-             width=760, height=210, pad=(16, 18, 42, 62)):
+             width=760, height=210, pad=(16, 18, 42, 62), pct=False):
     """
     Per-round box of the pending payout's visited values, latest marked.
 
@@ -531,6 +532,9 @@ def box_plot(rounds, boxes, latest, colour, paths=None, colours=None,
     so the chart is interactive without a plotting library.
     """
     pt, pr, pb, pl = pad
+    # pct: values are returns (payout / stake); axis and tips read in percent.
+    fmt = (lambda v: "%+.2f%%" % (100 * v)) if pct else signed
+    unit = "" if pct else " NMR"
     flat = [v for b in boxes if b for v in (b["lo"], b["hi"])] + list(
         x for x in latest if x is not None) + [0.0]
     lo, hi = min(flat), max(flat)
@@ -582,11 +586,11 @@ def box_plot(rounds, boxes, latest, colour, paths=None, colours=None,
         out.append('<text x="%.1f" y="%d" font-size="9" fill="#5f6368" text-anchor="middle" '
                    'transform="rotate(-90 %.1f %d)">%s</text>'
                    % (cx, height - pb + 18, cx, height - pb + 18, rnd))
-        tip = "round %s<br>latest %s NMR<br>%d scoring day%s" % (
-            rnd, signed(now) if now is not None else "&ndash;",
+        tip = "round %s<br>latest %s%s<br>%d scoring day%s" % (
+            rnd, fmt(now) if now is not None else "&ndash;", unit,
             len(path), "" if len(path) == 1 else "s")
         if box and box["n"] > 1:
-            tip += "<br>range %s &hellip; %s" % (signed(box["lo"]), signed(box["hi"]))
+            tip += "<br>range %s &hellip; %s" % (fmt(box["lo"]), fmt(box["hi"]))
         zones.append('<rect class="hz" x="%.1f" y="%d" width="%.1f" height="%d" '
                      'fill="transparent" data-tip="%s"/>'
                      % (cx - step / 2, pt, step, h, tip))
@@ -798,6 +802,14 @@ def render(ctx):
              'open one day is a single point; the box grows toward its final width as the round '
              'ages through its 20-day window. Rounds shown are year to date.</p>')
     h.extend(ctx["panels"])
+
+    # 3b ------------------------------------------------------------------- #
+    h.append("<h2>3b &middot; Model by model &mdash; round stake returns</h2>")
+    h.append('<p class="cap">The same boxes as section 3, but every daily value is divided by '
+             'that round\'s own stake, so each box is the round\'s return (payout / NMR at risk) '
+             'and rounds of very different stake size share one scale. Click a model to expand it; '
+             'the diamond is the latest day, blue once the round has resolved. Year to date.</p>')
+    h.extend(ctx.get("ret_panels", []))
 
     # 4 -------------------------------------------------------------------- #
     h.append("<h2>4 &middot; Realised correlation (live)</h2>")
@@ -1349,7 +1361,7 @@ def build(live, rates, built, slot_of):
     # of that round's pending payout across its scoring days (its daily path from
     # intraRound); the diamond is the latest day. No snapshot history needed --
     # the whole path is served per round.
-    panels = []
+    panels, ret_panels = [], []
     for position, m in enumerate(order):
         # Section 3 is always year to date: only rounds opened this year, and the
         # header summarises those rather than the all-time book above.
@@ -1408,10 +1420,35 @@ def build(live, rates, built, slot_of):
                           'bound: cum low &hellip; high</div>'
                           % (PENDING_COLOUR, PENDING_COLOUR, PENDING_COLOUR))
             panels.append(band_chart(cum_line, band, PENDING_COLOUR))
+        # Same rounds, same boxes, but each daily value divided by that round's
+        # own stake: the round's return. Stake size drops out, so rounds staked
+        # at 3 NMR and at 45 NMR sit on one scale.
+        rrows = [r for r in rows if r["at_risk"]]
+        if rrows:
+            rpaths = [[v / r["at_risk"] for v in r["path"]] for r in rrows]
+            rets = [p[-1] for p in rpaths]
+            mean_ret = float(np.mean(rets))
+            ret_panels.append('<details class="panel"%s><summary>%s &mdash; %d YTD rounds '
+                              '&middot; mean round return <span class="%s">%+.2f%%</span>'
+                              '</summary><div class="pbody">'
+                              % (open_attr, m, len(rrows), klass(mean_ret), 100 * mean_ret))
+            ret_panels.append('<div class="ctitle">%s &mdash; spread of the round stake return '
+                              '(payout / stake) across each round\'s scoring days</div>' % m)
+            ret_panels.append('<div class="bandkey">'
+                              '<span class="dia" style="color:%s">&#9670;</span>latest (current pending)'
+                              '<span class="dia" style="color:%s">&#9670;</span>resolved (settled)</div>'
+                              % (PENDING_COLOUR, RESOLVED_COLOUR))
+            ret_panels.append(box_plot([r["round"] for r in rrows],
+                                       [box_stats(p) for p in rpaths], rets, PENDING_COLOUR,
+                                       paths=rpaths, pct=True,
+                                       colours=[RESOLVED_COLOUR if r["resolved"] else PENDING_COLOUR
+                                                for r in rrows]))
+            ret_panels.append("</div></details>")
         else:
             panels.append('<p class="cap">No scored rounds yet &mdash; nothing to plot.</p>')
         panels.append("</div></details>")
     ctx["panels"] = panels
+    ctx["ret_panels"] = ret_panels
     ctx["per"] = per
     ctx["order"] = order
     return ctx

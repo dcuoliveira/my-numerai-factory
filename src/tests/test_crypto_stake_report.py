@@ -187,3 +187,12 @@ def test_html_and_plain_summaries_carry_the_same_figure():
     assert "resolved P&amp;L    +0.5000 NMR" in ctx["top_text"]
     assert "resolved P&L    +0.5000 NMR" in ctx["plain_text"]
     assert "&amp;" not in ctx["plain_text"], "HTML entity leaked into the mail body"
+
+
+def test_return_boxplots_divide_by_each_rounds_own_stake():
+    """Section 3b: a 0.5 NMR payout on 10 NMR staked reads +5.00%, not +0.5."""
+    ctx = R.build(fixture([one_round(1337, 10.0, 0.50, resolved=True)]),
+                  NO_FX, BUILT, dict(R.STAKED_SLOTS))
+    panels = "".join(ctx["ret_panels"])
+    assert "latest +5.00%" in panels
+    assert "mean round return" in panels and "+5.00%" in panels
