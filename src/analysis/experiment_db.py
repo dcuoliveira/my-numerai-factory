@@ -3626,6 +3626,23 @@ STUDIES["E186"] = {
 }
 
 
+STUDIES["E188"] = {
+    "title": "Compute scaling laws for IARA-family MLPs (fenccausal), MSE+L2 vs MMC loss",
+    "idea": "TV Appendix A.1 MLP (5 x [Linear(w), ReLU, LayerNorm], dropout 0.1 on the 3 interior blocks, He-normal, "
+            "training-moment standardisation) at 35 distinct sizes P = 217..1,001,777 (36 targets 200..1M; 700 and "
+            "800 share w=8), trained for E(P) = max(floor(0.2 P^0.8),1)+10 epochs in full, Adam lr 0.01, clip 1.0, "
+            "fp32 deterministic, retained checkpoint = best 5-epoch median validation score. Loss A: MSE + alpha "
+            "sum||W||^2 (alpha from a 4-value validation sweep at 1k/10k/100k); loss B: per-era meta-neutralised "
+            "correlation (whole-era batches). 4 folds (E186 splitter, 22-date gaps), 5 seeds -> 1,400 runs + 48 "
+            "sweep runs. Scaling laws L/R2/payout/era-Sharpe vs PetaFLOP-days via variable projection + pairs "
+            "bootstrap; ridge baselines. Writes OUTSIDE results/metrics/: results/e188_iara_scaling/ "
+            "(runs/<id>/*.parquet, claims/, alpha.json, reports).",
+    "runner": "experiments/e188_iara_scaling.py",
+    "prefix": "e188_", "scout_prefix": None,
+    "models": ["torch_mlp"], "expected_arms": 0,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
