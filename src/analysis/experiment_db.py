@@ -3642,6 +3642,25 @@ STUDIES["E188"] = {
     "models": ["torch_mlp"], "expected_arms": 0,
 }
 
+STUDIES["E189"] = {
+    "title": "Normalisation of frozen Chronos-2-Synth hidden states: 5 axes x 7 transforms, ridge only",
+    "idea": "Frozen autogluon/chronos-2-synth (rev 3607918a, eval, no fine-tune) cov-mode target-patch state "
+            "(768-d input to output_patch_embedding, E143 extractor, cache /scratch/danielco/c2syn verified "
+            "against frozen panel data/crypto/v2.0-asof-e189). Embedding-only pooled ridge (repo 'ridge'; no "
+            "ridge_ktz exists) on 35 arms = axes {CS across assets, TS per-asset history, POOL dates x assets, "
+            "DIM within vector, GRP across assets within causal size group} x transforms {z, robust, min-max, "
+            "pct rank, rank-normal, clipped z +-3, Numerai 5-bin}, + RAW, B_ALL (v2.0 full universe), B_COV "
+            "(v2.0 on covered rows). E131 block schedule (11 dev blocks 130/22/130 + test block 2026-02-20.."
+            "2026-08-20 held for confirmation), inner pick on last 40 train dates after 22 purge, common alpha "
+            "grid 1e-3..1e9 (25 log pts), train-referenced transforms refit per inner/outer fold. Routed R_SLOT "
+            "vs B_ALL and covered-only scoring. Writes OUTSIDE results/metrics/: "
+            "results/reports/crypto/e189_c2norm/ (preds, scores, manifest, report) and /scratch/danielco/e189/ "
+            "(transform parameters, verification states).",
+    "runner": "experiments/e189_c2norm.py",
+    "prefix": "e189_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(

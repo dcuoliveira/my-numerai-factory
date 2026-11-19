@@ -1715,3 +1715,153 @@ Measured (section 0): every fold has 39,000 train rows / 130 eras, 9,000 / 30 va
 Design: `experiments/e188_iara_scaling.py` (stages measure / smoke / worker / status). Architecture, initialisation, optimiser, epochs and checkpoint rule as the spec; target centred at 0.5 so validation R^2 is against predicting 0.5. Loss A alpha chosen from {0, 1e-6, 1e-4, 1e-2} by mean retained validation R^2 at P = 1k/10k/100k x 4 folds (seed 42), written to `alpha.json` automatically before any loss-A grid job starts. 5 seeds (42-46) x 4 folds x 35 sizes x 2 losses = 1,400 runs + 48 sweep runs. Per run: per-epoch parquet (losses, val CORR/MMC/CWMM/payout/era stats, grad-norm band, pred spread, churn, cumulative PFLOP-days), diagnostics parquet on a log + dense-tail epoch grid (train metrics, per-layer weight norm and update ratio), log-step snapshots, loss-B estimability (batch vs full-epoch MMC, two-batch gradient cosine), per-era test scores of the retained checkpoint.
 
 Launch on `westeros` (the lab cluster is not reachable from this host): 8 GPU workers on the GTX 1080 Ti for P > 30k and 12 CPU workers for P <= 30k, each `systemd-run --user --unit nmr-e188-{gpu,cpu}N python3 experiments/e188_iara_scaling.py worker ...`, file-claim queue under `results/e188_iara_scaling/claims/`. Measured throughput: ~2.8 ms/step effective for the 1M network with 8 processes sharing the card; estimate 3-4 days wall time. The GPU is shared with E182. Logs `logs/e188/`.
+
+### E189: normalisation of frozen Chronos-2-Synth hidden states, 5 axes x 7 transforms (registered 2026-11-19)
+
+**Request (user, 2026-11-19).** How does normalisation change the predictive value of frozen
+Chronos-2-Synth hidden states for Numerai Crypto? Use the walk-forward "Ridge KTZ" workflow, tuned
+from scratch per feature set, over all 35 pairings of 5 normalisation axes and 7 transformations, with
+raw-embedding, v2.0 full-universe and v2.0 matched-coverage ridge baselines. Register the full design
+first, validate before the full run, select on development evidence only and confirm on a reserved
+chronological period.
+
+**"Ridge KTZ" resolved.** There is no `ridge_ktz` in `src/prediction/models.py`; KTZ priors exist only
+for lgb/catboost/rf/mlp/tabnet, and every prior study (E131, E132, E145, E159 `MODEL_ALIASES`, E170)
+maps "ridge_ktz" to the repo's `ridge` wrapper (`RidgeWrapper` = plain `sklearn.linear_model.Ridge`,
+no scaler, `fit_intercept=True`, which centres but does not scale X). The tuning workflow is the
+feature-set-evaluation protocol of E131-E146 (`experiments/e133_histfe_factorial.py`): `H.blocks`,
+`H.pick`, `H.fit_predict`. E189 uses that estimator and that workflow; only the alpha grid is widened
+(below), as the protocol's 6-value grid was set for 22 binned features, not 768 heterogeneous ones.
+
+**Frozen extraction (reused cache, verified before use).**
+- Model `autogluon/chronos-2-synth` at HF revision `3607918a9fd027d5c465d8213e46b98e2c041cea`
+  (120M Chronos-2 architecture, d_model 768, pretrained on synthetic series only), `eval()`,
+  `inference_mode`, fp16 autocast (E143 measured cosine >= 0.99999 against fp32). No fine-tuning.
+  Venv `/scratch/danielco/chronos2/venv`: chronos-forecasting 2.3.2, torch 2.7.1+cu118,
+  transformers 5.17.0, numpy 2.2.6, pandas 2.3.3.
+- Extractor `src/data_mani/chronos2_syn_repr.py`, mode `cov`: per (ucid, D) the coin's
+  `target_binned_return_20` series as target with its 22 v2.0 features as covariates, one group of 23
+  variates per coin (`group_ids` = coin, so group attention never mixes coins). Context = last 256 grid
+  steps up to the label wall; label wall = last grid date <= D - 35 days (E142: label resolves ~30d
+  after its date, train served 32d behind live); features of dates in (wall, D] enter as known-future
+  covariates (NaN -> 0.5 with mask 1); a row needs >= 32 resolved labels in its context, else no state
+  (NaN). Horizon h = grid steps from wall to D, `num_output_patches = ceil(h/16)`, selected patch =
+  `(h-1)//16`, i.e. the output patch containing D's step.
+- Extraction point: `Chronos2Model.forward` slices `encoder_outputs[0][:, -num_output_patches:]` (after
+  `final_layer_norm`) into `output_patch_embedding`; the extractor returns `hidden[target_rows,
+  -n_patches:][:, patch]` -- that exact tensor, target variate only. Shape per row (768,), float16 on
+  disk. One vector per covered (asset, date); no PCA, pooling or quantiles.
+- Cache `/scratch/danielco/c2syn/part_000..034.npz` (`cov_rows`, `cov_reps`), keys
+  `rows.parquet` (sha256 f346ba66...), written 2026-11-06 for E143 from the then-current v2.0 panel.
+  Verified 2026-11-19: its 523,096 keys equal today's refreshed `data/crypto/v2.0` rows <= 2026-10-05
+  in order; shipped features and label equal `v2.0-asof` (2026-10-24) on all 504,196 shared rows.
+  Frozen panel for this study: `data/crypto/v2.0-asof-e189/` (copy of v2.0 on 2026-11-19, train
+  sha256 778b47ce..., meta 5a047870...). Before the full run a GPU replay (validation step 3/4 below)
+  must reproduce cached states from the frozen panel; if it does not, the cache is rebuilt and
+  this section amended before any arm is fitted.
+- Provenance vs causality. Pipeline causality is the wall/context rule above (cut-date replay
+  tests it). Model provenance: synthetic-only pretraining, so no real crypto series can have been
+  memorised; the architecture and synthetic generator were designed by the Chronos-2 authors after
+  work on real data (incl. periods overlapping 2020-2026), a weak, unquantifiable channel recorded
+  as a limitation, not a leak.
+
+**Tensor and rows.** E[t,a,j], t = panel dates <= 2026-08-20 (the last resolved 20-day label),
+a = ucid, j = 0..767; explicit date/ucid/coordinate maps; missing (a,t) stay NaN, never balanced.
+One row per (date, asset) = that asset/date's 768 normalised coordinates, nothing else (no other
+assets, adjacent dates, targets or identifiers). The 22 v2.0 features are Chronos covariates and the
+B_* baselines only, never appended to an embedding arm.
+
+**Common causal coverage mask.** M(a,t) = 1 iff the cov state exists (rule above; it depends only
+on labels before the wall). In the study window 87.5% of rows, 244..296 covered of 300 per date
+(>= 20 on every date, so the per-date minimum below never binds there). Every embedding arm and
+B_COV fit, tune, normalise and predict on exactly M = 1 rows; uncovered rows enter no statistic.
+
+**Normalisation axes** (reference set for coordinate j of row (t,a)):
+1. `CS` across assets: covered rows of date t (min 20; else rows of that date excluded from all arms).
+2. `TS` per-asset time: asset a's covered rows on the fold's TRAINING dates only (min 30; an asset
+   with fewer uses the POOL reference of that fold -- preregistered fallback, share reported).
+3. `POOL` dates x assets: all covered rows on the fold's training dates.
+4. `DIM` embedding dimensions: the 768 coordinates of row (t,a) itself (per row, not per coordinate).
+5. `GRP` across assets within size group: covered rows of date t in the same group. Group = the
+   row's shipped `feature_market_cap_avg_20d` bin on date t (the causal size bucket of E148), merged
+   to 3 groups: small {0, .25}, mid {.5}, large {.75, 1} (5/20/50/20/5 -> 25/50/25%, because the
+   5-bucket edges hold ~13 covered coins). Min group size 20; a smaller (t, group) cell uses the CS
+   reference of date t. Frozen before any arm is scored; never chosen on performance.
+CS, DIM and GRP use only the current snapshot (no future dates, no labels), applied identically to
+historical training rows (each on its own date's snapshot). TS and POOL references are fitted on the
+fold's training partition and frozen for its validation/test rows, refitted separately for the inner
+fold (fit dates only) and for the outer fold (all 130 training dates).
+
+**Transformations** (x = value, R = reference values, n = |R|, float64, eps = 1e-6):
+1. `Z`: (x - mean R) / sd R (ddof 0).
+2. `ROB`: (x - median R) / (q75 - q25), linear-interpolated quantiles.
+3. `MM`: (x - min R) / (max R - min R), clipped to [0, 1] (only train-referenced axes can exceed it).
+4. `PCT`: p = (L + 0.5 E) / n with L = #{r < x}, E = #{r = x} (mid-rank; equals (avg rank - 0.5)/n
+   inside the reference, and evaluates new rows against the frozen training distribution).
+5. `RNK`: Phi^-1(clip(p, 0.5/n, 1 - 0.5/n)).
+6. `CZ`: clip(Z, -3, 3).
+7. `BIN`: q = clip((L + 0.5 E - 0.5)/(n - 1), 0, 1), bins 0/.25/.5/.75/1 at inclusive cuts
+   .05/.25/.75/.95 in integer arithmetic -- for x inside R this is exactly
+   `history_features.bin_ties_preserved` (Numerai's rule, 38,720/38,720 shipped cross-sections), so
+   `CS_BIN` reproduces the repo's cross-sectional processing (what build_c2syn_c2ft did to these
+   dims); BIN on TS/POOL/DIM/GRP is an experimental extension, labelled as such.
+Constant reference (sd, IQR or range < eps, or n = 1): neutral value Z/ROB/CZ/RNK 0, MM/PCT/BIN 0.5.
+Ties: mid-rank throughout. NaN: preserved (uncovered rows carry none; any NaN coordinate in a covered
+vector is a blocking validation error). Downstream: none -- the arm's matrix goes straight to Ridge
+(intercept only); no fillna, rank-binning or scaler runs after the transform.
+
+**Arms (38).** `N_<AXIS>_<TF>` for the 35 pairings; `RAW` (float16 states as float32, no
+normalisation); `B_ALL` (22 v2.0 features, NaN -> 0.5 as the shipped convention, every row);
+`B_COV` (same features, M = 1 rows only). One pooled ridge per arm per block; every arm tuned from
+scratch; no coefficients or penalties shared.
+
+**Walk-forward and tuning (from the repo).** Label `target_binned_return_20`. Dev = E131's 11 blocks
+over the 1,602 panel dates < 2026-02-20 (`H.blocks`: train 130 dates, purge 22, predict next 130;
+predictions 2020-08-28..2026-02-19). Confirmation = block 11, train = last 130 dates before a 22-date
+purge, predict 2026-02-20..2026-08-20 (130 dates, the keys of
+`results/reports/crypto/e132_feed_fillind/preds/keys.parquet`); reserved now, before any arm is fitted
+or inspected. Inner tuning (`H.pick` rule): fit on train[:-62], validate on the last 40 train dates,
+criterion = mean per-date Spearman(pred, label) on the arm's eligible val rows; refit on all 130
+dates with the pick. Alpha grid, common to all 38 arms: 25 log-spaced values 1e-3..1e9 (half-decade).
+Expansion rule (inner data only): if a block's pick is a grid end, extend 6 points (3 decades) on that
+side and re-pick, at most twice; every boundary pick and expansion is recorded. Scale audit: per arm
+and block, trace(X'X)/(n p) is reported next to the chosen alpha. Ridge is deterministic; seed 0.
+
+**Scoring.** Per date, numerai_corr and MMC (`correlation_contribution` vs the lagged-in-file meta
+model, available 2024-05-07..2026-08-06), payout = 0.1 corr + mmc per date, via `e131_analysis`
+(`corr_one`, `contrib_one`, `describe`: mean, sd, sharpe, max drawdown, NW lag-20 t, 20-date block
+bootstrap). Two views: (a) routed full universe, E134/E135 `R_SLOT` -- B_ALL ranks every coin;
+covered coins are reordered by the arm (or B_COV) inside the exact set of B_ALL's covered rank slots;
+uncovered coins keep their exact B_ALL rank; (b) covered-only diagnostics on M = 1 rows. Payout/MMC
+comparisons use the common meta window.
+
+**Selection and inference (preregistered).** Primary metric: dev mean routed CORR (all dev dates).
+Families of paired per-date NW(lag 20) tests, Holm-corrected within family: (i) 35 arms vs RAW,
+(ii) 35 arms vs B_COV (routed), (iii) within each axis 7 transforms vs the axis's dev-best,
+(iv) within each transform 5 axes vs its dev-best; plus the "indistinguishable set" = arms not
+Holm-significantly below the dev-best (34 tests). Selected arm = argmax dev routed CORR, frozen, then
+evaluated on confirmation against RAW, B_COV and B_ALL (Holm over these 3). Confirmation numbers for
+the other arms are reported as exploratory only. Stability: per dev block, dev halves; coverage
+cohorts: size group, coin tenure tercile (prior covered rows), date coverage-share tercile. Valid
+conclusions include "indistinguishable", "raw is competitive" and "none beats v2.0".
+
+**Validation before the full run** (`--validate`, JSON in the output dir): key alignment and one
+vector per covered key; width 768 and finiteness; GPU re-extraction of 4 dates from the frozen panel
+vs cache; cut-date replay (`--audit-cut` path) of 4 dates vs cache and of their transformed features;
+future-perturbation invariance of earlier features on every axis; per-axis reference-set unit tests;
+inner-fold statistics drawn only from inner fit dates; deterministic ties/constants/NaN/small groups;
+identical scored keys and folds across the 35 arms + RAW + B_COV; uncovered rows unable to move any
+statistic; routing preserves uncovered ranks and the covered slot set. Then the missing-values audit
+(`.claude/skills/numerai-crypto-missing-values-audit`) before any interpretation.
+
+**Commands** (host deepfour for GPU checks; ridge arms through `src.cluster`):
+```bash
+CUDA_VISIBLE_DEVICES=0 HF_HOME=/scratch/danielco/hf HF_HUB_DISABLE_XET=1 /scratch/danielco/chronos2/venv/bin/python experiments/e189_extract_verify.py
+python3 -m pytest -q src/tests/test_embedding_norm.py
+python3 experiments/e189_c2norm.py --validate
+python3 -m src.cluster run --jobs experiments/e189_c2norm.jobs
+python3 experiments/e189_c2norm.py --score && python3 experiments/e189_c2norm.py --report
+```
+**Outputs.** `results/reports/crypto/e189_c2norm/` (preds/<arm>.parquet with all panel keys and
+coverage, picks, scores, manifest.json with fingerprints, validation.json, report PDF);
+`/scratch/danielco/e189/` (per-block transform parameters, replay states).
