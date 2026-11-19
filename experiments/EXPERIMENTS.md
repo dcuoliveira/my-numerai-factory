@@ -1865,3 +1865,34 @@ python3 experiments/e189_c2norm.py --score && python3 experiments/e189_c2norm.py
 **Outputs.** `results/reports/crypto/e189_c2norm/` (preds/<arm>.parquet with all panel keys and
 coverage, picks, scores, manifest.json with fingerprints, validation.json, report PDF);
 `/scratch/danielco/e189/` (per-block transform parameters, replay states).
+
+**Findings (2026-11-19, all 38 arms; report `results/reports/crypto/e189_c2norm/E189_report.pdf`).**
+Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth states competitive with v2.0.**
+
+| | dev routed CORR | dev payout | test routed CORR | test payout |
+|---|---|---|---|---|
+| B_ALL (v2.0, full universe) | 0.1182 | 0.1021 | 0.1218 | 0.0320 |
+| B_COV (v2.0, covered rows, routed) | 0.1121 | 0.1004 | 0.1238 | 0.0330 |
+| RAW (embedding, no normalisation) | 0.0960 | 0.0507 | 0.0990 | 0.0262 |
+| N_POOL_MM (dev-best, selected) | 0.0990 | 0.0560 | 0.0995 | 0.0274 |
+| N_CS_BIN (repo's cross-sectional bins) | 0.0973 | 0.0562 | 0.0995 | 0.0268 |
+| N_TS_* range | 0.067-0.079 | 0.048-0.061 | 0.069-0.089 | 0.032-0.036 |
+
+- **Across transformations and the CS/POOL/DIM/GRP axes, normalisation is a null.** 28 of those arms fall within 0.096 +- 0.004 dev routed CORR. 22 of 35 are indistinguishable from the dev-best after Holm over 34 tests. Ranking of arms between dev halves: Spearman 0.34.
+- **vs RAW:** no arm is better after Holm. The best is N_POOL_MM, +0.0030 (t +2.27, Holm p 0.64). **The TS axis is the one robust effect, and it is harmful:** -0.017 to -0.029 CORR (Holm-significant for 6 of 7; TS_MM t -3.0, Holm p 0.09). Its payout is flat against RAW, so own-history scaling seems to strip the coin-level component the meta model already prices.
+- **vs matched v2.0 (B_COV, routed):** every arm is lower, at -0.013 to -0.045 CORR. Only TS is Holm-significant; the others sit at t -1.6 to -2.4. On the meta window 2024-05-07..2026-08-06, payout is lower by -0.040 to -0.059, uncorrected t -2.4 to -4.7.
+- **Confirmation** (2026-02-20..2026-08-20, frozen N_POOL_MM; Holm over 3): +0.0004 CORR vs RAW (t +0.34), -0.024 vs B_COV (t -1.54), -0.022 vs B_ALL (t -1.43). Payout deltas are inside their bootstrap intervals.
+- **Cohorts (covered-only):** the states beat B_COV on small coins (dev 0.081 vs 0.063) and middle-tenure coins, and lose badly on large and old coins (0.058 vs 0.109). Young coins are worst for every model.
+- **Penalty:** the grid was adequate. Boundary picks remaining after the registered expansion: N_TS_Z, N_TS_CZ, N_TS_BIN and B_ALL, one block each. Median alpha/(n var) is 0.3-8.6 across embedding arms.
+- **Validation:**
+  - extraction is bit-exact at 4 dates, from the frozen panel and from cut panels;
+  - transformed features replay exactly from cut-panel states;
+  - future perturbation leaves every arm's earlier features invariant;
+  - the live-path prediction replay matches stored predictions to <= 2.2e-13;
+  - routing assertions passed on every date.
+
+  **Missing-values audit: PASS WITH CONDITIONS.** The conditions: a retrospectively served universe; coverage tied to tenure, with no tenure placebo (immaterial for a negative claim); expansion-unequal search budgets (<= 12 candidates); TS sends ~10% of rows per block to its POOL fallback.
+
+**Limitations.** Ridge only; the zero-shot cov state only; the label-wall horizon is fixed at 25 weekday steps (output patch 1). fp16 states quantise coordinates, producing ties, which mid-ranks handle. The confirmation block was used by earlier studies for other feature sets. Chronos-2-Synth's synthetic-only pretraining rules out memorising real series, but its design postdates real-data work over these years (weak channel).
+
+**How to apply:** do not normalise these states expecting to rescue them. Together with E143/E144/E146, this closes frozen Chronos-2 hidden states as ridge features. If they are ever used again, CS or POOL scaling are equivalent defaults; avoid per-coin own-history scaling.

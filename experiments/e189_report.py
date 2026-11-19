@@ -91,7 +91,6 @@ def grid(series):
 def cohorts(arms):
     """Covered-only per-date CORR within size group, tenure tercile and date-coverage tercile."""
     k = pd.read_parquet(os.path.join(ROOT, "preds", "RAW.parquet"), columns=["symbol", "ucid", "date", "covered", "group", "kind", M.T20])
-    df = pd.read_parquet(M.DATA, columns=["ucid", "date"]).reset_index(drop=True) if False else None  # noqa: F841
     full = pd.read_parquet(os.path.join(ROOT, "preds", "B_ALL.parquet"), columns=["ucid", "date", "covered"])
     # tenure: number of the coin's EARLIER covered rows in the cache up to that date (causal)
     allk = pd.read_parquet(M.DATA).reset_index()[["ucid", "date"]]
@@ -178,9 +177,6 @@ def main():
     conf["p_holm"] = holm(conf["p"])
     confp = pd.DataFrame({ref: paired(S, best, ref, "payout", "test") for ref in ("RAW", "B_COV", "B_ALL")}).T
     conf["pay_delta"], conf["pay_t"], conf["pay_boot_lo"], conf["pay_boot_hi"] = confp["delta"], confp["t"], confp["boot_lo"], confp["boot_hi"]
-    base = pd.DataFrame({a: paired(S, a, b, c, k) for a, b, c, k in
-                         [("RAW", "B_COV", "corr", "dev"), ("RAW", "B_ALL", "corr", "dev"), ("B_COV", "B_ALL", "corr", "dev"),
-                          ("RAW", "B_COV", "corr", "test"), ("B_COV", "B_ALL", "corr", "test")]}.items() if False} or {}).T
     base = pd.DataFrame([dict(comparison="%s - %s (%s %s)" % (a, b, k, c), **paired(S, a, b, c, k)) for a, b, c, k in
                          [("RAW", "B_COV", "corr", "dev"), ("RAW", "B_ALL", "corr", "dev"), ("B_COV", "B_ALL", "corr", "dev"),
                           ("RAW", "B_COV", "payout", "dev"), ("B_COV", "B_ALL", "payout", "dev"),
