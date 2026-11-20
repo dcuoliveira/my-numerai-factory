@@ -3695,6 +3695,25 @@ STUDIES["E191"] = {
 }
 
 
+STUDIES["E192"] = {
+    "title": "Options 1-3 for the Chronos-2-Synth state with ONE RIDGE PER COIN: own, own | LOO mean of others, flat concat of all coins",
+    "idea": "The user's original options 2 and 3 (which cannot change a date's ranking in E189/E190's pooled ridge) refitted "
+            "per coin, where each coin weights the date-common part with its own coefficients. E189 design (frozen cov-mode "
+            "768-d states, cache /scratch/danielco/c2syn, panel data/crypto/v2.0-asof-e189, E131 blocks + held-out test "
+            "block 2026-02-20..2026-08-20, R_SLOT routing, E189 scorer). Blocks: OWN x_i; LOO [x_i | (S_d - x_i)/(n_d - 1)] "
+            "over covered coins on the date; CAT every coin's state in fixed slots (0 when absent), via the date Gram "
+            "K[d,d'] = sum_c x_c,d . x_c,d' so the ~1M columns are never formed. Arms C_{OWN,LOO,CAT} (state only), "
+            "CV_{OWN,LOO,CAT} (22 v2.0 + state), CV_B (v2.0 only, per coin); RAW states. Ridge with intercept per coin and "
+            "block in dual form (checked == sklearn to 1e-12), one alpha per arm and block shared by coins, picked on the "
+            "inner fold by E189's rule; coins with < 30 training rows (< 20 inner) take the pooled twin's prediction. "
+            "Pooled twins reused: RAW/B_COV/B_ALL (E189), V_RAW (E190). Writes OUTSIDE results/metrics/: "
+            "results/reports/crypto/e192_c2percoin/.",
+    "runner": "experiments/e192_c2percoin.py",
+    "prefix": "e192_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 7,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

@@ -1942,3 +1942,20 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 - Limitation: lgb with one seed (house norm is 5) to keep cost ~1 h.
 
 **Launch:** `python3 experiments/e191_c2cross.py --fit --arms ...` (ridge arms on deepfour; lgb arms via `python3 -m src.cluster run --jobs experiments/e191_c2cross.jobs`), then `--score`, `--report`. Outputs: `results/reports/crypto/e191_c2cross/`.
+
+### E192: options 1-3 for the Chronos-2-Synth state, one ridge per coin (registered 2026-11-20)
+
+**Request (user):** "What if instead of estimating ridge in the panel of assets I estimate it one asset at a time and then put them together? Does my original 2 and 3 work in that case?" then "Run my original 2 and 3 per coin then." The original options: (1) own hidden state, (2) own hidden state + average of the other assets' hidden states, (3) flat concatenation of all assets' hidden states for the time step.
+
+**Why per coin changes the answer:** pooled (E189/E190), the date-common part of options 2 and 3 enters every coin with the same weight and cannot reorder a date; per coin, each coin has its own weights on it, so it can.
+
+**Design:** E189's design and code path (frozen Chronos-2-Synth cov-mode 768-d states, cache `/scratch/danielco/c2syn`, panel `data/crypto/v2.0-asof-e189`, E131 11 dev blocks + test block 2026-02-20..2026-08-20 held for confirmation, R_SLOT routing vs B_ALL plus covered-only scores, E189 scorer).
+- Blocks per coin i, date d (RAW states): OWN `x_i`; LOO `[x_i | (S_d - x_i)/(n_d - 1)]` over the covered coins on d; CAT every coin's state in a fixed slot, 0 when absent.
+- Arms: `C_OWN`, `C_LOO`, `C_CAT` (state only); `CV_OWN`, `CV_LOO`, `CV_CAT` (22 v2.0 features + state); `CV_B` (v2.0 only, per coin) as the per-coin control.
+- Model: ridge with an unpenalised intercept fitted separately for each coin and block on that coin's covered training rows (<= 130), solved in dual form (centred Gram, one eigendecomposition per coin, all alphas in one pass). CAT uses the date Gram `K[d,d'] = sum_c x_c,d . x_c,d'`, built once, so the ~1M-column matrix is never formed. `--check` confirms the dual solve equals sklearn `Ridge` on explicit features to 1.2e-12 (relative) for 3 coins x 7 arms, CAT included.
+- Alpha: one per arm and block, shared by all coins, picked by E189's inner rule (fit on train[:-62], validate on the last 40 train dates, mean per-date Spearman over modelled coins, 25-pt grid 1e-3..1e9 + boundary expansion).
+- Coins with < 30 covered training rows in the block (< 20 on the inner fold) take the pooled twin's prediction (RAW for C_*, V_RAW for CV_OWN/LOO/CAT, B_COV for CV_B); the share is logged per block.
+- Comparisons: LOO and CAT vs OWN (does the cross-asset part add anything per coin), each per-coin arm vs its pooled twin, CV_* vs CV_B and B_COV; paired Newey-West lag 20, Holm over all pairs per window and metric.
+- Caveats stated up front: per coin there are <= 130 rows with 768-300k columns and ~95% label overlap, so the shared alpha carries the regularisation; per-coin intercepts rank coins by their own recent mean target (the same in every arm, so the OWN/LOO/CAT contrast is clean); RAW scale only, so in CV_* one alpha shrinks v2.0 and the state together (E190's finding).
+
+**Launch (hamilton, cluster manager):** `python3 -m src.cluster run --jobs experiments/e192_c2percoin.jobs` -> `python3 experiments/e192_c2percoin.py --fit --workers 7`; then `--score`, `--report`, PDF via `python3 -m src.analysis.html_pdf`. Outputs: `results/reports/crypto/e192_c2percoin/` (preds, picks, dual_check.json, scores, table, tests, report). Log `logs/cluster/e192_c2percoin.out`.
