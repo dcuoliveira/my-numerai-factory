@@ -2198,3 +2198,16 @@ routed, NW lag 20 (dev n=1430 dates, test n=130):
   where the MLP collapses. Its dev F_COV loss (t -2.67) measures collapse, not the features.
 - Verdict for the E198 question is unchanged: do not add crypto/v2.0-cs. lgb picks lean to num_leaves 4 /
   colsample 0.1 on both arms; ridge picks span 0.1..1e5 across blocks (unstable).
+
+**E193-E197 findings (2026-11-20, all 5 x 38 arms; tables `results/reports/crypto/e193_e197_tsfm_tables.pdf`,
+per-model `results/reports/crypto/<id>_<model>norm/table_by_payout.csv`).** Routed dev payout (11 blocks,
+468 periods), B_COV (v2.0 on the same rows) 0.1004, B_ALL 0.1021. Best state arm per model -- every one
+is N_TS_MM, as in E189 (Chronos-2-Synth 0.0609):
+Timestral 0.0683 (sharpe_p 0.77, test 0.0516), TabPFN-TS 0.0667 (0.82, test 0.0277), Toto 2.0 0.0626
+(0.71, test 0.0251), t0 0.0586 (0.66, test 0.0352), TempoPFN 0.0574 (0.65, test 0.0464).
+No state arm of any model comes within 0.03 payout of v2.0 on its own rows; RAW states run 0.031
+(TempoPFN) to 0.050 (TabPFN-TS, Toto). GRP (within size group) is the worst axis for every model.
+The ranking between models is not tested (no paired Newey-West tests in this pass); the 0.057-0.068
+spread may be noise. Reading: swapping the foundation model does not change E189's answer -- frozen
+TSFM states alone are far below the 22 shipped features. Marginal value IN ADDITION to v2.0
+(E190-style merge) was not run.
