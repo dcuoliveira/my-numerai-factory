@@ -66,10 +66,46 @@ VARIANT = os.environ.get("E198_VARIANT", "")
 if VARIANT == "e199":
     STUDY, OUT = "E199", "results/reports/crypto/e199_tabnet_percoin"
     TABNET_CFG = dict(TABNET_CFG, batch_size=32, virtual_batch_size=16)
+elif VARIANT == "e200":
+    STUDY, OUT = "E200", "results/reports/crypto/e200_cs_tuned"
+    PRED = os.path.join(OUT, "preds")
+    TABNET = []                              # per-coin TabNet is not searched here (E199 holds it)
 else:
     OUT = ROOT
-PAIRS = [("F_COV", "B_COV", m) for m in MODELS] + [("TN_F", "TN_B", "tabnet"),
-                                                     ("TN_B", "B_COV", "tabnet|ridge"), ("TN_F", "F_COV", "tabnet|ridge")]
+# E200 (E198_VARIANT=e200): E198's pooled arms with an EQUAL-BUDGET hyperparameter search instead of the
+# fixed E131 configs. Every arm (B_ALL, B_COV, F_COV) of a model gets the SAME candidate list, picked per
+# block and per seed on the last INNER_VAL train dates after a PURGE-date gap (mean per-date Spearman with
+# the target, on that arm's own rows and columns), then refitted on the whole 130-date window. Selection
+# reads only train dates, so the test block is never seen by the search.
+TUNE = VARIANT == "e200"
+GRID = {
+    "ridge": {"alpha": [0.1, 1, 10, 65.79332246575683, 316, 1000, 3162, 10000, 31623, 100000]},
+    "lgb_ktz": {"num_leaves": [4, 8, 16], "colsample_bytree": [0.1, 0.17, 0.3], "min_child_samples": [100, 500]},
+    "mlp_ktz": {"mlp__alpha": [0.01, 1.0, 100.0], "mlp__learning_rate_init": [0.01, 0.05011872336272722],
+                "mlp__activation": ["identity", "relu"]},
+}
+PAIRS = [("F_COV", "B_COV", m) for m in MODELS] + ([("TN_F", "TN_B", "tabnet"), ("TN_B", "B_COV", "tabnet|ridge"),
+                                                     ("TN_F", "F_COV", "tabnet|ridge")] if TABNET else [])
+
+
+def candidates(model):
+    import itertools
+    keys = list(GRID[model])
+    return [dict(H.FIXED[model], **dict(zip(keys, v))) for v in itertools.product(*GRID[model].values())]
+
+
+def pick(model, d, cols, train, seed, n_jobs):
+    """Best candidate on the last INNER_VAL train dates after a PURGE gap (E133's --tune rule)."""
+    fit_d, val_d = train[:-(H.INNER_VAL + H.PURGE)], train[-H.INNER_VAL:]
+    fit, val = d[d["date"].isin(fit_d)], d[d["date"].isin(val_d)]
+    best, score = None, -np.inf
+    for params in candidates(model):
+        p = H.fit_predict(model, params, seed, n_jobs, fit[cols].to_numpy(np.float32), fit[T20].to_numpy(),
+                          val[cols].to_numpy(np.float32))
+        sc = val.assign(p=p).groupby("date").apply(lambda g: g["p"].corr(g[T20], method="spearman")).mean()
+        if sc > score:
+            best, score = params, sc
+    return best, score
 
 
 def load():
@@ -112,26 +148,34 @@ def save(parts, path):
 
 
 # ------------------------------------------------------------------ pooled
-def fit_pooled(model, n_jobs, arms):
+def fit_pooled(model, n_jobs, arms, seeds=None):
     df, base, cs = load()
     B = schedule(df)
     for arm in arms:
         cols = cols_of(arm, base, cs)
-        for s in SEEDS[model]:
+        for s in (seeds if seeds is not None else SEEDS[model]):
             path = out_path(model, arm, s)
             if os.path.exists(path):
                 print("skip", path)
                 continue
-            parts, t1 = [], time.time()
+            parts, picks, t1 = [], [], time.time()
             for i, tr, te in B:
                 trm, tem = df["date"].isin(tr), df["date"].isin(te)
                 if arm != "B_ALL":
                     trm, tem = trm & df["cov"], tem & df["cov"]
                 if not tem.any() or trm.sum() < 1000:    # block 0: no covered history yet -> B_ALL there
                     continue
-                pred = H.fit_predict(model, H.FIXED[model], s, n_jobs, df.loc[trm, cols].to_numpy(np.float32),
+                params = H.FIXED[model]
+                if TUNE:
+                    d = df if arm == "B_ALL" else df[df["cov"]]
+                    params, sc = pick(model, d, cols, tr, s, n_jobs)
+                    picks.append(dict(block=i, inner_corr=sc, **{k: str(params[k]) for k in GRID[model]}))
+                pred = H.fit_predict(model, params, s, n_jobs, df.loc[trm, cols].to_numpy(np.float32),
                                      df.loc[trm, T20].to_numpy(), df.loc[tem, cols].to_numpy(np.float32))
                 parts.append(df.loc[tem, ["symbol", "date"]].assign(prediction=pred, block=i))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if TUNE:
+                pd.DataFrame(picks).to_csv(path.replace(".parquet", "_picks.csv"), index=False)
             save(parts, path)
             print("%s %-6s seed %d  %d cols  %.0fs" % (model, arm, s, len(cols), time.time() - t1), flush=True)
 
@@ -317,11 +361,13 @@ td,th{padding:2px 6px;border-bottom:1px solid #ddd;text-align:right}h1{font-size
 <h1>%s: cross-sectional statistics of raw v2.0 features (crypto/v2.0-cs)%s</h1>
 <p>Target target_binned_return_20. Covered arms routed R_SLOT into B_ALL (TabNet into ridge B_ALL); metrics per date,
 averaged over seeds. Development = E131 blocks 0-10; test = block 11 (2026-02-20..2026-08-20). calmar and burn(d)
-compare only rows with the same n. Pooled configs fixed (E131); TabNet one pinned config, one model per coin,
+compare only rows with the same n. %s; TabNet one pinned config, one model per coin,
 coins with &lt; %d covered training rows take ridge B_COV in both TabNet arms.</p>
 %s<h2>Paired deltas, Newey-West lag 20</h2>%s
 <img style="width:100%%" src="data:image/png;base64,%s"><img style="width:100%%" src="data:image/png;base64,%s">
-</body></html>""" % (STUDY, STUDY, ", per-coin TabNet refitted (batch 32)" if VARIANT else "", MIN_ROWS, tabs, fmt(deltas), figs[0], figs[1])
+</body></html>""" % (STUDY, STUDY, {"e199": ", per-coin TabNet refitted (batch 32)", "e200": ", equal-budget hyperparameter search"}.get(VARIANT, ""),
+                       ("Pooled configs SEARCHED per block and seed, same candidates for every arm (grid %s)" % GRID) if TUNE
+                       else "Pooled configs fixed (E131)", MIN_ROWS, tabs, fmt(deltas), figs[0], figs[1])
     path = os.path.join(OUT, "%s_cs_report.html" % STUDY)
     with open(path, "w") as h:
         h.write(html)
@@ -337,15 +383,16 @@ def main():
     ap.add_argument("--arms", nargs="+", default=POOLED)
     ap.add_argument("--arm", choices=TABNET)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seeds", nargs="+", type=int, default=None)
     ap.add_argument("--n-jobs", type=int, default=4)
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     os.makedirs(PRED, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "config.json"), "w") as h:
-        json.dump(dict(study=STUDY, seeds=SEEDS, tabnet=TABNET_CFG, min_rows=MIN_ROWS, fixed=H.FIXED), h, indent=1, default=str)
+        json.dump(dict(study=STUDY, seeds=SEEDS, tune=TUNE, grid=GRID if TUNE else None, tabnet=TABNET_CFG, min_rows=MIN_ROWS, fixed=H.FIXED), h, indent=1, default=str)
     if a.fit_pooled:
-        fit_pooled(a.model, a.n_jobs, a.arms)
+        fit_pooled(a.model, a.n_jobs, a.arms, a.seeds)
     elif a.fit_tabnet:
         fit_tabnet(a.arm, a.seed, a.workers)
     elif a.score:

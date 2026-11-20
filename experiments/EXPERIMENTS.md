@@ -2141,3 +2141,32 @@ approved), then `python3 -m src.cluster run --jobs experiments/e199_cluster.jobs
 (TN_B / TN_F seeds 0+2 on dostoievski, seed 1 on tolstoi), waiter `nmr-e199_score` on hamilton. A first launch was
 stopped within minutes, before any output: coins with 30-31 training rows are under batch 32, which the new wrapper
 guard rejects; the runner now caps batch at the coin's row count (identical in both arms). ETA ~7 h.
+
+### E200: E198 with an equal-budget hyperparameter search (registered 2026-11-20)
+
+User request: "Replace this experiment with the same version but hyperparamenter searched. Formulate it and run now."
+E198 (fixed E131 configs, tuned on v2.0's 22 features) stays as the record; E200 is its searched replacement.
+
+**Hypothesis.** Same as E198: adding the 15 `feature_cs_*` columns (F_COV) beats plain v2.0 on the same covered rows
+(B_COV), now with each arm's hyperparameters searched rather than inherited from v2.0.
+
+**Design.** Everything E198's (crypto/v2.0-cs, arms B_ALL / B_COV / F_COV, E131 blocks 0-10 + test block 11, seeds
+ridge 0 / lgb_ktz and mlp_ktz 0-2, R_SLOT routing into each model's B_ALL, NW lag 20), except the config. Equal-budget
+search, E133's `--tune` rule: per block and per seed, every candidate is fitted on the train window minus its last
+62 dates, scored on the last 40 train dates (after a 22-date purge) by mean per-date Spearman with
+target_binned_return_20 on that arm's own rows and columns, and the winner is refitted on all 130 train dates.
+Selection reads train dates only, so the test block never enters the search. One candidate list per model, identical
+across arms, built on top of the E131 fixed config:
+- ridge `alpha` in {0.1, 1, 10, 65.8, 316, 1000, 3162, 1e4, 3.16e4, 1e5} (10). The first smoke run with a 1e4 top
+  picked the edge in most blocks, so the grid was widened to 1e5 before launch. 1e5 is still picked often: for rank
+  scoring, ridge as alpha -> infinity tends to the X'y direction, so the top of the grid is near that limit.
+- lgb_ktz `num_leaves` {4, 8, 16} x `colsample_bytree` {0.1, 0.17, 0.3} x `min_child_samples` {100, 500} (18).
+- mlp_ktz `alpha` {0.01, 1, 100} x `learning_rate_init` {0.01, 0.0501} x `activation` {identity, relu} (12).
+Per-coin TabNet is not searched here (E199 holds the fixed-config rerun). Picks are written per arm and seed to
+`preds/<model>/<arm>_s<seed>_picks.csv`. Primary comparison: F_COV - B_COV per model, dev and test separately.
+
+**Launch (2026-11-20 ~09:45, from hamilton).** Runner `E198_VARIANT=e200 python3 experiments/e198_cs_eval.py`.
+`python3 -m src.cluster run --jobs experiments/e200_cluster.jobs`: lgb_ktz one lane per arm (B_ALL 2 cores on hopper,
+B_COV on dostoievski, F_COV on tolstoi, 1 core each, all 3 seeds in sequence); `nmr-e200_score` on hamilton fits ridge
+(already fitted at registration, about 10 s per arm) and mlp_ktz, waits for the 9 lgb files, scores, and prints
+`results/reports/crypto/e200_cs_tuned/E200_cs_report.pdf`. ETA about 3-4 h (the cluster is near its 30% share).

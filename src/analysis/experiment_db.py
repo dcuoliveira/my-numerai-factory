@@ -3815,6 +3815,20 @@ STUDIES["E199"] = {
     "artifact_root": "results/reports/crypto/e199_tabnet_percoin",
 }
 
+STUDIES["E200"] = {
+    "title": "E198 with an equal-budget hyperparameter search: does v2.0-cs beat v2.0 when every arm is tuned?",
+    "idea": "E198's pooled arms (B_ALL / B_COV / F_COV on ridge, lgb_ktz, mlp_ktz) used E131's fixed configs, tuned on v2.0. "
+            "E200 searches instead: the SAME candidate list for every arm of a model (ridge alpha 0.1..1e5, 10; lgb "
+            "num_leaves x colsample x min_child, 18; mlp alpha x lr x activation, 12), picked per block and seed on the last "
+            "40 train dates after a 22-date purge by mean per-date Spearman, refit on all 130 dates. Same rows, blocks, seeds, "
+            "routing and test block as E198; per-coin TabNet not searched (E199). Writes OUTSIDE results/metrics/: "
+            "results/reports/crypto/e200_cs_tuned/.",
+    "runner": "E198_VARIANT=e200 experiments/e198_cs_eval.py",
+    "prefix": "e200_", "scout_prefix": None,
+    "models": ["ridge", "mlp_ktz", "lgb_ktz"], "expected_arms": 9,
+    "artifact_root": "results/reports/crypto/e200_cs_tuned",
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

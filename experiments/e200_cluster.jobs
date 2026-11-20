@@ -1,0 +1,4 @@
+cores=2 ram=20 name=e200_lgb_ball -- bash -c 'E198_VARIANT=e200 python3 experiments/e198_cs_eval.py --fit-pooled --model lgb_ktz --arms B_ALL --n-jobs 2'
+cores=1 ram=20 name=e200_lgb_bcov -- bash -c 'E198_VARIANT=e200 python3 experiments/e198_cs_eval.py --fit-pooled --model lgb_ktz --arms B_COV --n-jobs 1'
+cores=1 ram=20 name=e200_lgb_fcov -- bash -c 'E198_VARIANT=e200 python3 experiments/e198_cs_eval.py --fit-pooled --model lgb_ktz --arms F_COV --n-jobs 1'
+cores=1 ram=30 name=e200_score -- bash experiments/e200_score.sh
