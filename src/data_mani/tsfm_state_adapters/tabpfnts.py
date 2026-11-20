@@ -39,7 +39,7 @@ class Extractor:
         self.reg = TabPFNRegressor(model_path=CKPT_DEFAULT, device=device, n_estimators=1, random_state=0,
                                    fit_mode="low_memory", ignore_pretraining_limits=True)
         self.checkpoint = "%s sha256=%s" % (CKPT_DEFAULT, CKPT_SHA256)
-        self.dim = None
+        self.dim = 512                     # TabPFN-3 test-token width (checked on every call)
         self.notes = ("per row: TabPFN fit on resolved context steps X=[step index, 22 feats], y=label; "
                       "state=get_embeddings of D's test row, n_estimators=1")
 
@@ -55,5 +55,5 @@ class Extractor:
             e = np.asarray(self.reg.get_embeddings(Xte, data_source="test"))
             out.append(e.reshape(-1, e.shape[-1])[0])
         r = np.stack(out).astype(np.float32)
-        self.dim = r.shape[1]
+        assert r.shape[1] == self.dim, r.shape
         return r

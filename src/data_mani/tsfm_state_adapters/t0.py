@@ -36,15 +36,13 @@ class Extractor:
             p.requires_grad_(False)
         self.ps = self.model.patch_size
         self.cap = Capture(self.model.decoder, pre=True)
-        self.dim = None
         try:
             from huggingface_hub import HfApi
             rev = HfApi().model_info(CKPT).sha
         except Exception:
             rev = "unknown"
         self.checkpoint = "%s@%s" % (CKPT, rev)
-        self.dim = int(self.model.transformer.layers[0].attention.embed_dim) if hasattr(
-            self.model.transformer, "layers") else None
+        self.dim = int(self.model.config.embed_dim)
         self.notes = "target=label, future covariates=22 features over ctx+h; state=decoder input, target row, token ctx_patches-1+j"
 
     def states(self, y, X, F, h, last_dates):
@@ -62,6 +60,4 @@ class Extractor:
             assert hid.shape[0] == b * (1 + X.shape[1]), hid.shape
             cp = hid.shape[1] - hp
             out.append(hid[:b, cp - 1 + j].float().cpu().numpy())
-        r = np.concatenate(out)
-        self.dim = r.shape[1]
-        return r
+        return np.concatenate(out)

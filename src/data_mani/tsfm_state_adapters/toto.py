@@ -11,12 +11,13 @@ masked. model.forecast with decode_block_size=None: one forward pass (the leader
 
 State: Toto is a next-patch decoder; forecast patch j is read from x_out[..., -(block+1):-1][j],
 the input of output_head. The state is that tensor at the target variate and j = (h-1)//patch_size.
+Runs in fp32: under fp16 autocast every state came out NaN (checked 2026-11-20), the fp32 pass is finite.
 """
 import os
 
 import numpy as np
 
-from .common import Capture, autocast, chunks
+from .common import Capture, chunks
 
 CKPT = os.environ.get("TOTO_CKPT", "Datadog/Toto-2.0-313m")
 
@@ -57,7 +58,7 @@ class Extractor:
                       "series_ids": t.zeros(b, 1, dtype=t.long, device=self.device),
                       "known_dynamic": t.nan_to_num(kd), "known_dynamic_mask": kdm,
                       "known_dynamic_series_ids": t.zeros(b, kd.shape[1], dtype=t.long, device=self.device)}
-            with t.inference_mode(), autocast(t, self.device):
+            with t.inference_mode():                            # fp32: fp16 autocast overflows to NaN (u-muP scales)
                 self.model.forecast(inputs, horizon=h, decode_block_size=None, has_missing_values=True)
             hid = self.cap.x                                    # (B, n_var + 22, block, D)
             out.append(hid[:, 0, j].float().cpu().numpy())

@@ -1,0 +1,13 @@
+# E193 ridge arms (toto). python3 -m src.cluster run --jobs experiments/e193_totonorm.jobs
+cores=4 ram=28 name=e193_00 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_Z N_TS_CZ N_DIM_PCT
+cores=4 ram=28 name=e193_01 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_ROB N_TS_BIN N_DIM_RNK
+cores=4 ram=28 name=e193_02 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_MM N_POOL_Z N_DIM_CZ
+cores=4 ram=28 name=e193_03 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_PCT N_POOL_ROB N_DIM_BIN
+cores=4 ram=28 name=e193_04 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_RNK N_POOL_MM N_GRP_Z
+cores=4 ram=28 name=e193_05 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_CZ N_POOL_PCT N_GRP_ROB
+cores=4 ram=28 name=e193_06 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_CS_BIN N_POOL_RNK N_GRP_MM
+cores=4 ram=28 name=e193_07 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_TS_Z N_POOL_CZ N_GRP_PCT
+cores=4 ram=28 name=e193_08 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_TS_ROB N_POOL_BIN N_GRP_RNK
+cores=4 ram=28 name=e193_09 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_TS_MM N_DIM_Z N_GRP_CZ
+cores=4 ram=28 name=e193_10 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_TS_PCT N_DIM_ROB N_GRP_BIN
+cores=4 ram=28 name=e193_11 -- python3 -u experiments/e193_tsfm_norm.py --tsfm toto --fit --arms N_TS_RNK N_DIM_MM RAW
