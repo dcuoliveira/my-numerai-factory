@@ -98,6 +98,9 @@ def main():
     ap.add_argument("--shards", type=int, default=1)
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--claim", action="store_true",
+                    help="ignore --shard: take parts from the LAST one down, claiming each with an O_EXCL lock file "
+                         "(extra workers next to running shards; a part both start is computed twice, written once)")
     ap.add_argument("--audit-cut", nargs="+", default=None)
     a = ap.parse_args()
     out = os.path.join(OUT, a.model)
@@ -142,12 +145,18 @@ def main():
     os.makedirs(out, exist_ok=True)
     cov = covered_ids()
     parts = [steps[i:i + PART] for i in range(0, len(steps), PART)]
-    for k, block in enumerate(parts):
-        if k % a.shards != a.shard:
+    order = list(enumerate(parts))[::-1] if a.claim else list(enumerate(parts))
+    for k, block in order:
+        if not a.claim and k % a.shards != a.shard:
             continue
         path = os.path.join(out, "part_%03d.npz" % k)
         if os.path.exists(path):
             continue
+        if a.claim:
+            try:
+                os.close(os.open(path + ".lock", os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            except FileExistsError:
+                continue
         t0 = time()
         I, R = [], []
         for s in block:
