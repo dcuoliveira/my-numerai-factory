@@ -2151,6 +2151,16 @@ records `failed=True`; non-finite predictions are also sent to the fallback (6f0
 The other three lanes started before the guard; if one crashes it is relaunched the same way. Report the share of
 failed fits per arm with the findings.
 
+**Findings (2026-11-20).** Every per-coin TabNet fit now trains (batch 32). Fits that diverged and fell back to ridge B_COV: TN_B 0.03% / 0.07% of rows in seeds 0 / 2 (the guard was added after seed 1 ran), TN_F 0%. Report: `results/reports/crypto/e199_tabnet_percoin/E199_cs_report.pdf`. Paired Newey-West lag 20, dev n=1430 / test n=130:
+
+| comparison | ΔCORR dev (t) | Δpayout dev (t) | ΔCORR test (t) | Δpayout test (t) |
+|---|---|---|---|---|
+| TN_F − TN_B (CS columns, per-coin) | −0.0074 (−3.46) | −0.0049 (−1.25) | +0.0079 (+1.14) | +0.0033 (+0.51) |
+| TN_B − ridge B_COV | −0.0454 (−6.63) | −0.0234 (−2.65) | −0.0371 (−2.83) | +0.0073 (+0.78) |
+| TN_F − ridge F_COV | −0.0453 (−6.53) | −0.0254 (−3.65) | −0.0302 (−3.10) | +0.0150 (+1.75) |
+
+Verdict: REJECT. The CS columns hurt per-coin TabNet's dev CORR, as they hurt the pooled ridge in E198. Per-coin TabNet (CORR ~0.07-0.09) sits far below pooled ridge (~0.12). Its test MMC is higher (TN_F vs ridge F_COV, t +2.25), but that is one 130-date block after dev losses, so it is not a lead.
+
 ### E200: E198 with an equal-budget hyperparameter search (registered 2026-11-20)
 
 User request: "Replace this experiment with the same version but hyperparamenter searched. Formulate it and run now."
