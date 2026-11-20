@@ -76,8 +76,15 @@ def main():
                     continue
             done_setup.add(m)
             if n_preds(m) < N_ARMS:
-                rc, out = sh("%s -m src.cluster run --jobs experiments/%s_%snorm.jobs --extra-cores 8 --only hamilton hopper lovelace "
-                             "dostoievski tolstoi" % (PY, sid, m), timeout=900)
+                # only jobs with an arm still missing: `run` places jobs in file order, so finished jobs at the top
+                # would otherwise take every free slot and only print "skip"
+                have = {os.path.basename(f)[:-8] for f in glob.glob(os.path.join(root(m), "preds", "*.parquet"))}
+                lines = open("experiments/%s_%snorm.jobs" % (sid, m)).read().splitlines()
+                todo = [l for l in lines[1:] if set(l.split("--arms")[1].split()) - have]
+                jobs = os.path.join("logs/tsfm", "%s_todo.jobs" % sid)
+                open(jobs, "w").write("\n".join(lines[:1] + todo) + "\n")
+                rc, out = sh("%s -m src.cluster run --jobs %s --extra-cores 8 --only hamilton hopper lovelace "
+                             "dostoievski tolstoi" % (PY, jobs), timeout=900)
                 started = [l for l in out.splitlines() if l.strip().startswith("ok")]
                 if started:
                     log("cluster", m, "started", len(started))
