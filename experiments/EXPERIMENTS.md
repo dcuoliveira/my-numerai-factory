@@ -1959,3 +1959,82 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 - Caveats stated up front: per coin there are <= 130 rows with 768-300k columns and ~95% label overlap, so the shared alpha carries the regularisation; per-coin intercepts rank coins by their own recent mean target (the same in every arm, so the OWN/LOO/CAT contrast is clean); RAW scale only, so in CV_* one alpha shrinks v2.0 and the state together (E190's finding).
 
 **Launch (hamilton, cluster manager):** `python3 -m src.cluster run --jobs experiments/e192_c2percoin.jobs` -> `python3 experiments/e192_c2percoin.py --fit --workers 7`; then `--score`, `--report`, PDF via `python3 -m src.analysis.html_pdf`. Outputs: `results/reports/crypto/e192_c2percoin/` (preds, picks, dual_check.json, scores, table, tests, report). Log `logs/cluster/e192_c2percoin.out`.
+
+### E193: E189 rerun with Toto 2.0 states (registered 2026-11-20)
+
+**Request (user, 2026-11-20).** "Register a new E189 with updated number and replace chronos-2 with toto,
+TabPFN-TS, TempoPFN, t0, and timemistral. Run one full experiment for each and report one table per new
+tsfm with corr, mmc, payout, sharpe.p, maxdd.p, and sort descending by payout." One study per model:
+E193 Toto 2.0, E194 TabPFN-TS, E195 TempoPFN, E196 t0, E197 Timestral ("timemistral").
+
+**Design shared by E193-E197 = E189 with only the frozen state swapped.** Everything downstream of the
+state is E189's code path unchanged (`experiments/e193_tsfm_norm.py --tsfm <model>` imports
+`experiments/e189_c2norm.py` and points it at the new cache): frozen panel `data/crypto/v2.0-asof-e189`,
+rows <= 2026-08-20, E189's covered set (449,471 rows; the extractor recomputes the >= 32-resolved-labels
+rule and asserts it equals the Chronos-2 cache's row set part by part), the 35 `N_<axis>_<tf>` arms
+(axes CS/TS/POOL/DIM/GRP x transforms Z/ROB/MM/PCT/RNK/CZ/BIN) + `RAW`, repo `ridge` (sklearn Ridge,
+intercept, no scaler), E131 blocks (11 dev blocks + held-out test block 2026-02-20..2026-08-20), inner
+alpha pick on the last 40 train dates after a 22-date purge, alpha grid 1e-3..1e9 (25 pts) + boundary
+expansion, train-referenced transforms refit per fold, R_SLOT routing against B_ALL. `B_ALL` and
+`B_COV` are copied from E189 (identical rows, schedule, model and coverage -> identical predictions).
+
+**State extraction** (`src/data_mani/tsfm_states.py`, adapters in `src/data_mani/tsfm_state_adapters/`):
+per covered (ucid, D), the label series `target_binned_return_20` up to the wall (last grid date <=
+D - 35d) in a 256-step context, the 22 shipped features over the context and, for the h steps from the
+wall to D, as known-future covariates (NaN -> 0.5), exactly E189's inputs. Each adapter keeps ONE vector:
+the model's last hidden state of the target series at the forecast position holding D -- the tensor its
+forecasting head reads -- no pooling, PCA or quantiles; fp16 autocast on the RTX 2070s, frozen weights,
+eval, no fine-tuning. Output `/scratch/danielco/tsfmstates/<model>/part_XXX.npz` (`cov_rows`,
+`cov_reps`, float16) + `manifest.json` (checkpoint revision, dim, notes).
+
+**Per-model choices.**
+- E193 Toto 2.0, `Datadog/Toto-2.0-313m`, venv `/scratch/danielco/tsfm2/venv_toto`: target + 22
+  `known_dynamic` covariates in one series; one forward pass (`decode_block_size=None`, leaderboard
+  setting); state = `output_head` input (next-patch token) of the target variate at patch (h-1)//ps.
+- E194 TabPFN-TS, TabPFN-3 time-series checkpoint (sha256 pinned), venv `/scratch/danielco/tsfm/envs/tabpfnts`:
+  one TabPFN fit per row on the resolved context steps, X = [step index, 22 features], y = label; the
+  test row is D (its step index and features); state = `get_embeddings` of that test row, n_estimators 1.
+  Calendar/FFT features dropped (irregular early grid, 24/7 market).
+- E195 TempoPFN 38M, venv `/scratch/danielco/tsfm/envs/tempopfn`: UNIVARIATE label series only -- TempoPFN
+  merges batch x channel before its encoder, so covariates cannot reach the target; state = encoder
+  output at prediction position h (input of `model.mlp`).
+- E196 t0, `theforecastingcompany/t0-gamma`, venv `/scratch/danielco/tsfm2/venv_tt`: target + 22
+  future covariates over context + horizon, `drop_constant_covariates=False`, no symmetric averaging;
+  state = input of the decoder block at token ctx_patches - 1 + (h-1)//ps of the target row.
+- E197 Timestral, `mistralai/Timestral-209M`, venv `/scratch/danielco/tsfm2/venv_tt`: target + 22 known
+  covariates over context + horizon, rows assembled by the forecaster's `_assemble_rows`, one
+  `predict_block`; state = `QuantileHead` input of the target row at the horizon patch holding D
+  (un-mirrored pass only).
+
+**Provenance.** TempoPFN and TabPFN are trained on synthetic priors (the TabPFN-3 time-series
+checkpoint is a fine-tune whose data mix is not fully documented); Toto 2.0, t0 and Timestral saw real
+series in (post-)training, so unlike Chronos-2-Synth a memorisation channel on 2020-2026
+crypto/finance series cannot be ruled out. Recorded as a limitation; E189's cut-date replay (`--audit-cut`) is run per model.
+
+**Launch.** States: `CUDA_VISIBLE_DEVICES=<g> <venv>/bin/python -m src.data_mani.tsfm_states --model <m>
+--shard <k> --shards <n>` on deepfive/deepfour (4 RTX 2070s). Arms: `python3 -m src.cluster run --jobs
+experiments/e193_tsfm_norm.jobs` (per model), then `--score` and `--report` per model, combined tables
+in `results/reports/crypto/e193_e197_tsfm_tables.pdf`. Outputs per study:
+`results/reports/crypto/<id>_<model>norm/` (preds, scores, tables). Host: lovelace (orchestration).
+
+**Reporting.** One table per model: routed dev CORR, MMC, payout, payout Sharpe, payout max drawdown
+(E189 conventions, payout rebuilt per period), all 38 arms sorted by dev payout descending; held-out
+test payout alongside.
+
+### E194: E189 rerun with TabPFN-TS states (registered 2026-11-20)
+
+See E193 for the shared design and request; model-specific choices listed there. Output
+`results/reports/crypto/e194_tabpfntsnorm/`, states `/scratch/danielco/tsfmstates/tabpfnts/`.
+
+### E195: E189 rerun with TempoPFN states (registered 2026-11-20)
+
+See E193. Univariate (label series only). Output `results/reports/crypto/e195_tempopfnnorm/`,
+states `/scratch/danielco/tsfmstates/tempopfn/`.
+
+### E196: E189 rerun with t0 states (registered 2026-11-20)
+
+See E193. Output `results/reports/crypto/e196_t0norm/`, states `/scratch/danielco/tsfmstates/t0/`.
+
+### E197: E189 rerun with Timestral states (registered 2026-11-20)
+
+See E193. Output `results/reports/crypto/e197_timestralnorm/`, states `/scratch/danielco/tsfmstates/timestral/`.

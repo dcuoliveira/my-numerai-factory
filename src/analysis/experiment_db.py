@@ -3714,6 +3714,76 @@ STUDIES["E192"] = {
 }
 
 
+STUDIES["E193"] = {
+    "title": "E189 rerun with Toto 2.0 states instead of Chronos-2-Synth: 5 axes x 7 transforms, ridge only",
+    "idea": "E189's design unchanged except the frozen state: Toto 2.0 (Datadog/Toto-2.0-313m), zero-shot, eval, no fine-tune; label target + 22 features as known_dynamic covariates in one series; state = output_head input (next-patch token) of the target variate at the horizon patch holding D. "
+            "Extractor src/data_mani/tsfm_states.py --model toto (venv /scratch/danielco/tsfm2/venv_toto) on exactly E189's covered rows (asserted equal "
+            "to the Chronos-2 cov cache's row set), wall D-35d, 256-step context, frozen panel data/crypto/v2.0-asof-e189. "
+            "Same 35 N_<axis>_<tf> arms + RAW, repo 'ridge', E131 blocks + held-out test block 2026-02-20..2026-08-20, "
+            "alpha grid 1e-3..1e9 + boundary expansion, R_SLOT routing; B_ALL/B_COV reused from E189 (identical rows, "
+            "schedule and model). Writes OUTSIDE results/metrics/: states /scratch/danielco/tsfmstates/toto/, "
+            "preds/scores results/reports/crypto/e193_totonorm/.",
+    "runner": "experiments/e193_tsfm_norm.py --tsfm toto",
+    "prefix": "e193_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
+STUDIES["E194"] = {
+    "title": "E189 rerun with TabPFN-TS states instead of Chronos-2-Synth: 5 axes x 7 transforms, ridge only",
+    "idea": "E189's design unchanged except the frozen state: TabPFN-TS (TabPFN-3 time-series checkpoint tabpfn-v3-regressor-v3_20260506_timeseries), zero-shot, eval, no fine-tune; one TabPFN fit per row on resolved context steps X=[step index, 22 features], y=label; state = get_embeddings of D's test row, n_estimators=1. "
+            "Extractor src/data_mani/tsfm_states.py --model tabpfnts (venv /scratch/danielco/tsfm/envs/tabpfnts) on exactly E189's covered rows (asserted equal "
+            "to the Chronos-2 cov cache's row set), wall D-35d, 256-step context, frozen panel data/crypto/v2.0-asof-e189. "
+            "Same 35 N_<axis>_<tf> arms + RAW, repo 'ridge', E131 blocks + held-out test block 2026-02-20..2026-08-20, "
+            "alpha grid 1e-3..1e9 + boundary expansion, R_SLOT routing; B_ALL/B_COV reused from E189 (identical rows, "
+            "schedule and model). Writes OUTSIDE results/metrics/: states /scratch/danielco/tsfmstates/tabpfnts/, "
+            "preds/scores results/reports/crypto/e194_tabpfntsnorm/.",
+    "runner": "experiments/e193_tsfm_norm.py --tsfm tabpfnts",
+    "prefix": "e194_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
+STUDIES["E195"] = {
+    "title": "E189 rerun with TempoPFN states instead of Chronos-2-Synth: 5 axes x 7 transforms, ridge only",
+    "idea": "E189's design unchanged except the frozen state: TempoPFN (AutoML-org/TempoPFN 38M), zero-shot, eval, no fine-tune; UNIVARIATE label series only (TempoPFN processes channels independently, so covariates cannot reach the target); state = encoder output at prediction position h (input of model.mlp). "
+            "Extractor src/data_mani/tsfm_states.py --model tempopfn (venv /scratch/danielco/tsfm/envs/tempopfn) on exactly E189's covered rows (asserted equal "
+            "to the Chronos-2 cov cache's row set), wall D-35d, 256-step context, frozen panel data/crypto/v2.0-asof-e189. "
+            "Same 35 N_<axis>_<tf> arms + RAW, repo 'ridge', E131 blocks + held-out test block 2026-02-20..2026-08-20, "
+            "alpha grid 1e-3..1e9 + boundary expansion, R_SLOT routing; B_ALL/B_COV reused from E189 (identical rows, "
+            "schedule and model). Writes OUTSIDE results/metrics/: states /scratch/danielco/tsfmstates/tempopfn/, "
+            "preds/scores results/reports/crypto/e195_tempopfnnorm/.",
+    "runner": "experiments/e193_tsfm_norm.py --tsfm tempopfn",
+    "prefix": "e195_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
+STUDIES["E196"] = {
+    "title": "E189 rerun with t0 states instead of Chronos-2-Synth: 5 axes x 7 transforms, ridge only",
+    "idea": "E189's design unchanged except the frozen state: t0 (theforecastingcompany/t0-gamma), zero-shot, eval, no fine-tune; label target + 22 features as future covariates over context+horizon; state = decoder-block input (next-patch token ctx_patches-1+j) of the target row. "
+            "Extractor src/data_mani/tsfm_states.py --model t0 (venv /scratch/danielco/tsfm2/venv_tt) on exactly E189's covered rows (asserted equal "
+            "to the Chronos-2 cov cache's row set), wall D-35d, 256-step context, frozen panel data/crypto/v2.0-asof-e189. "
+            "Same 35 N_<axis>_<tf> arms + RAW, repo 'ridge', E131 blocks + held-out test block 2026-02-20..2026-08-20, "
+            "alpha grid 1e-3..1e9 + boundary expansion, R_SLOT routing; B_ALL/B_COV reused from E189 (identical rows, "
+            "schedule and model). Writes OUTSIDE results/metrics/: states /scratch/danielco/tsfmstates/t0/, "
+            "preds/scores results/reports/crypto/e196_t0norm/.",
+    "runner": "experiments/e193_tsfm_norm.py --tsfm t0",
+    "prefix": "e196_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
+STUDIES["E197"] = {
+    "title": "E189 rerun with Timestral states instead of Chronos-2-Synth: 5 axes x 7 transforms, ridge only",
+    "idea": "E189's design unchanged except the frozen state: Timestral (mistralai/Timestral-209M), zero-shot, eval, no fine-tune; label target + 22 features as known covariates over context+horizon; state = QuantileHead input of the target row at the horizon patch holding D (un-mirrored pass). "
+            "Extractor src/data_mani/tsfm_states.py --model timestral (venv /scratch/danielco/tsfm2/venv_tt) on exactly E189's covered rows (asserted equal "
+            "to the Chronos-2 cov cache's row set), wall D-35d, 256-step context, frozen panel data/crypto/v2.0-asof-e189. "
+            "Same 35 N_<axis>_<tf> arms + RAW, repo 'ridge', E131 blocks + held-out test block 2026-02-20..2026-08-20, "
+            "alpha grid 1e-3..1e9 + boundary expansion, R_SLOT routing; B_ALL/B_COV reused from E189 (identical rows, "
+            "schedule and model). Writes OUTSIDE results/metrics/: states /scratch/danielco/tsfmstates/timestral/, "
+            "preds/scores results/reports/crypto/e197_timestralnorm/.",
+    "runner": "experiments/e193_tsfm_norm.py --tsfm timestral",
+    "prefix": "e197_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 38,
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
