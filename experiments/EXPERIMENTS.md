@@ -2170,3 +2170,22 @@ Per-coin TabNet is not searched here (E199 holds the fixed-config rerun). Picks 
 B_COV on dostoievski, F_COV on tolstoi, 1 core each, all 3 seeds in sequence); `nmr-e200_score` on hamilton fits ridge
 (already fitted at registration, about 10 s per arm) and mlp_ktz, waits for the 9 lgb files, scores, and prints
 `results/reports/crypto/e200_cs_tuned/E200_cs_report.pdf`. ETA about 3-4 h (the cluster is near its 30% share).
+
+**Findings (2026-11-20). NO IMPROVEMENT -- the CS columns still add nothing once every arm is tuned.** F_COV - B_COV,
+routed, NW lag 20 (dev n=1430 dates, test n=130):
+
+| model | dev dCORR (t) | dev dpayout (t) | test dCORR (t) | test dMMC (t) | test dpayout (t) |
+|---|---|---|---|---|---|
+| ridge | +0.0033 (+1.09) | +0.0041 (+1.01) | +0.0081 (+1.28) | -0.0027 (-0.61) | -0.0017 (-0.35) |
+| lgb_ktz | -0.0018 (-0.65) | -0.0007 (-0.14) | -0.0013 (-0.31) | -0.0045 (-1.66) | -0.0046 (-1.47) |
+| mlp_ktz | -0.0151 (-2.28) | -0.0287 (-2.67) | +0.0041 (+0.42) | -0.0019 (-0.24) | -0.0016 (-0.19) |
+
+- Tuning removes E198's significant losses (ridge dev CORR t -2.20, lgb test MMC t -4.16) but turns up no gain:
+  ridge moves to small positive CORR, still under |t| 2 and with negative test MMC/payout; lgb is null.
+- **The search lowers almost every level.** Dev payout tuned vs fixed: ridge about equal, lgb -0.002 to -0.004 per arm,
+  mlp collapses (B_COV 0.088 -> 0.024, F_COV 0.092 -> -0.004). The 40-date inner validation is too noisy to beat
+  the E131 configs, which were picked on far more data.
+- **mlp_ktz is unreadable**, as in E137: the search often picks alpha 100 (14 of 33 F_COV picks are alpha 100 identity),
+  where the MLP collapses. Its dev F_COV loss (t -2.67) measures collapse, not the features.
+- Verdict for the E198 question is unchanged: do not add crypto/v2.0-cs. lgb picks lean to num_leaves 4 /
+  colsample 0.1 on both arms; ridge picks span 0.1..1e5 across blocks (unstable).
