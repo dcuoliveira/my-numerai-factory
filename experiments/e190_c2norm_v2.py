@@ -66,7 +66,7 @@ def link_reused():
     for a in REUSED:
         for ext in (".parquet", ".picks.json"):
             dst = os.path.join(d, a + ext)
-            if not os.path.exists(dst):
+            if not os.path.lexists(dst):
                 os.symlink(os.path.abspath(os.path.join(E189_ROOT, "preds", a + ext)), dst)
 
 
@@ -93,7 +93,7 @@ def report():
                     continue
                 for met, X in (("corr", C), ("payout", P)):
                     dlt = (X[a] - X[ref]).dropna()
-                    m, t = E.newey_west(dlt.to_numpy())[:2]
+                    m, _, t = E.newey_west(dlt.to_numpy())
                     tests.append(dict(kind=kind, arm=a, vs=ref, metric=met, delta=m, t=t, n=len(dlt),
                                       p=float(2 * (1 - __import__("scipy.stats").stats.norm.cdf(abs(t))))))
     T = pd.DataFrame(rows)
