@@ -159,7 +159,8 @@ def _coin_block(task):
     out = te[["symbol", "date"]].assign(block=i, n_train=len(tr))
     if len(tr) < MIN_ROWS:
         return out.assign(prediction=np.nan)
-    est = TabNetTVRegressor(seed=_G["seed"], **TABNET_CFG)
+    cfg = dict(TABNET_CFG, batch_size=min(TABNET_CFG["batch_size"], len(tr)))   # 30-31-row coins under batch 32
+    est = TabNetTVRegressor(seed=_G["seed"], **cfg)
     est.fit(tr[cols].to_numpy(np.float32), tr[T20].to_numpy(np.float32))
     return out.assign(prediction=np.asarray(est.predict(te[cols].to_numpy(np.float32))).ravel())
 

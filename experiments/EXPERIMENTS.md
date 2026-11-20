@@ -2135,3 +2135,9 @@ already memorising. Pooled arms (B_ALL/B_COV/F_COV), the ridge fallback and rout
 predictions. Runner `E198_VARIANT=e199 python3 experiments/e198_cs_eval.py`; jobs `experiments/e199_cluster.jobs`
 (one per arm and seed, 6 workers), waiter `experiments/e199_score.sh`. Outputs
 `results/reports/crypto/e199_tabnet_percoin/`. Comparisons: TN_F - TN_B, and each against ridge B_COV / F_COV.
+
+**Launch (2026-11-20 ~08:10, from hamilton).** `loginctl enable-linger danielco` on tolstoi and dostoievski (user
+approved), then `python3 -m src.cluster run --jobs experiments/e199_cluster.jobs`: four 4-worker lanes, two per box
+(TN_B / TN_F seeds 0+2 on dostoievski, seed 1 on tolstoi), waiter `nmr-e199_score` on hamilton. A first launch was
+stopped within minutes, before any output: coins with 30-31 training rows are under batch 32, which the new wrapper
+guard rejects; the runner now caps batch at the coin's row count (identical in both arms). ETA ~7 h.
