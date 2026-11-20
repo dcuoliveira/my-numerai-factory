@@ -1928,3 +1928,17 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 - Missing values: rows, coverage and routing are E189's; its audit (PASS WITH CONDITIONS) applies unchanged.
 
 **How to apply:** do not add frozen Chronos-2 states to v2.0 in a single-penalty ridge. The only untested door is a two-penalty / block-scaled ridge; given E143-E190, low prior. Report: `results/reports/crypto/e190_c2norm_v2/E190_report.pdf`.
+
+### E191: cross-asset variants of the Chronos-2-Synth state (registered 2026-11-20)
+
+**Request (user, 2026-11-20):** rerun the E190 experiment with the own hidden state replaced by (2') own + average of other assets' states within the size group, (2'') own minus the other-asset average fed to a nonlinear model, (3') own + a compressed market state with interactions; same performance table. The literal versions (own + all-coin mean; flat concatenation of every coin's state) were declined because under a linear ridge scored per-date rank they reduce to the own state (all-coin LOO mean = date constant - own/(n-1)) or to a date constant (flat concatenation; also ~1M columns).
+
+**Design.** Everything as E190 (frozen states, schedule with test block 2026-02-20..2026-08-20 held for confirmation, inner pick on last 40 train dates after 22 purge, v2.0 22 features always included, train-referenced transforms refit per fold, R_SLOT routing vs E189's B_ALL, covered-row scoring).
+
+- 2' `G_<T>` (ridge, alpha grid + expansion as E189): X = [v2.0 | T(own) | T(m_grp)], m_grp = mean of the OTHER covered coins' raw states in the same date x size group (min cell 40). T in {TS_MM, GRP_MM, POOL_MM, RAW}, applied column-wise. Note GRP_MM(m_grp) is exactly 1 - GRP_MM(own), so G_GRP_MM is a collinear control.
+- 2'' `L_*` (lgb_ktz: E133 FIXED, 6-candidate GRID num_leaves x colsample, same inner pick, one seed 0): L_B_COV = v2.0; L_OWN_RAW = v2.0 + own; L_REL_RAW / L_REL_TS_MM = v2.0 + T(own - m_all), m_all = mean of all OTHER covered coins on the date. POOL_MM is a global monotone map (identical to RAW for trees) and GRP_MM(own - m_all) = GRP_MM(own), so those are not run.
+- 3' `M_<T>` (ridge): X = [v2.0 | T(own) | 16 market PCs | 32x16 products of own PCs and market PCs]; market state = per-date mean of all covered raw states (date-level, uses only that date); market PCA on the fit dates' means, own PCA on fit rows of T(own); all scores standardised on fit rows; refit per inner and outer fold.
+- Comparisons: each arm vs B_COV and vs the matching E190 own-state arm (V_<T>; for L_* vs L_OWN_RAW and L_B_COV); paired Newey-West lag 20, Holm within family; dev for selection, test as confirmation.
+- Limitation: lgb with one seed (house norm is 5) to keep cost ~1 h.
+
+**Launch:** `python3 experiments/e191_c2cross.py --fit --arms ...` (ridge arms on deepfour; lgb arms via `python3 -m src.cluster run --jobs experiments/e191_c2cross.jobs`), then `--score`, `--report`. Outputs: `results/reports/crypto/e191_c2cross/`.

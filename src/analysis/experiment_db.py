@@ -3679,6 +3679,22 @@ STUDIES["E190"] = {
 }
 
 
+STUDIES["E191"] = {
+    "title": "E190 follow-up: cross-asset Chronos-2 state variants (group mean, relative state + LightGBM, market PCs x own PCs)",
+    "idea": "E190 design (frozen C2-Synth cov states, panel data/crypto/v2.0-asof-e189, E131 blocks + held-out test "
+            "block, v2.0 + transformed state, R_SLOT routing) with the own state replaced by: (2') own | leave-one-out "
+            "mean of other covered coins in the same size group on the date, ridge, transforms TS_MM/GRP_MM/POOL_MM/RAW "
+            "(arms G_*); (2'') own minus leave-one-out mean of all other covered coins on the date, lgb_ktz (E133 FIXED + "
+            "6-candidate GRID, seed 0), transforms RAW/TS_MM, with lgb controls v2.0-only and v2.0+own RAW (arms L_*); "
+            "(3') own | 16 market PCs (PCA of per-date cross-sectional mean states on fit dates) | 32 own-PC x 16 "
+            "market-PC products (own PCA on fit rows, scores standardised on fit rows), ridge, TS_MM/GRP_MM/POOL_MM/RAW "
+            "(arms M_*). Writes OUTSIDE results/metrics/: results/reports/crypto/e191_c2cross/.",
+    "runner": "experiments/e191_c2cross.py",
+    "prefix": "e191_", "scout_prefix": None,
+    "models": ["ridge", "lgb_ktz"], "expected_arms": 12,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
