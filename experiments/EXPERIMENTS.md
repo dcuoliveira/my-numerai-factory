@@ -2091,3 +2091,27 @@ route R_SLOT into their own model's B_ALL; TabNet routes into ridge's. Launch:
 and TN_F seeds run in sequence, beside lgb_ktz / mlp_ktz; `experiments/e198_score.sh` waits for all 23 prediction
 files, scores, and prints the PDF on lovelace). Ridge fitted directly on hamilton before launch. Smoke check, ridge
 only: F_COV - B_COV dev CORR -0.0075 (t -2.20), payout -0.0029 (t -1.28); test payout -0.0044 (t -2.30).
+
+**Findings (2026-11-20): REJECT -- the CS columns do not help any model.** Report
+`results/reports/crypto/e198_cs/E198_cs_report.pdf`; tables `table.csv`, `deltas.csv`. Paired F_COV - B_COV
+(routed, Newey-West lag 20), dev n=1430 / test n=130:
+
+| model | dev dCORR (t) | dev dpayout (t) | test dCORR (t) | test dpayout (t) |
+|---|---|---|---|---|
+| ridge | -0.0075 (-2.20) | -0.0029 (-1.28) | +0.0010 (+0.54) | -0.0044 (-2.30) |
+| lgb_ktz | -0.0018 (-0.68) | +0.0002 (+0.06) | -0.0081 (-1.42) | -0.0152 (-3.82) |
+| mlp_ktz | -0.0012 (-0.29) | +0.0039 (+1.04) | +0.0031 (+0.80) | -0.0020 (-0.57) |
+| TabNet per coin, TN_F - TN_B | -0.0411 (-8.75) | -0.0472 (-5.91) | -0.0505 (-4.52) | -0.0239 (-2.26) |
+
+No arm gains at |t| >= 2 anywhere; ridge loses dev CORR and test payout, lgb loses test MMC (t -4.16), mlp is null.
+The trees and MLP -- the only models that can use the date-level regime columns -- get nothing from them, matching
+E68/E108 (day-level momentum regime null). Training on the covered subset alone also costs every pooled model
+against B_ALL (e.g. ridge dev payout 0.0977 vs 0.1007), as the routing standard expects.
+
+Per-coin TabNet is unreliable as a model: the networks are undertrained (predictions mean -0.50 on a [0,1] label;
+~190 single-batch steps per coin at 130 rows), so cross-coin ranks mostly rank per-coin offsets. TN_B's dev
+payout 0.0581 trails ridge B_COV (t -3.24); its test payout 0.0507 (MMC 0.042) beats it (t +2.06) on one
+130-date window with ~95% label overlap, while TN_F loses heavily to TN_B -- 15 more inputs on 130 rows make the
+undertrained fit worse. Read the TabNet arms as "per-coin TabNet at this budget is noise", not as evidence about
+the CS columns. A fair per-coin test would need far more optimisation steps per coin (smaller batch / epoch
+multiplier), registered as an amendment. 20.6% of TabNet rows fell back to ridge B_COV (all of block 0 included).
