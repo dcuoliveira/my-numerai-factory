@@ -3802,6 +3802,19 @@ STUDIES["E198"] = {
     "models": ["ridge", "mlp_ktz", "lgb_ktz", "tabnet_percoin"], "expected_arms": 11,
 }
 
+STUDIES["E199"] = {
+    "title": "E198 rerun of the per-coin TabNet arms with training that actually runs (batch 32): TN_B vs TN_F",
+    "idea": "E198's per-coin TabNets never trained: batch 256 > every coin's <= 130 rows and the wrapper's drop_last dropped "
+            "the only batch (in-sample bias 0.99, train R2 -40). Refit both arms with batch 32 / virtual 16, TV epochs, "
+            "everything else E198's (v2.0-cs, cov_cs_all rows, E131 blocks + test block 11, seeds 0-2, < 30 rows -> ridge "
+            "B_COV, R_SLOT into ridge B_ALL). Batch picked on development coins by training fit only (bias 0.012, train R2 "
+            "0.73). Pooled arms reused from E198. Writes OUTSIDE results/metrics/: results/reports/crypto/e199_tabnet_percoin/.",
+    "runner": "E198_VARIANT=e199 experiments/e198_cs_eval.py",
+    "prefix": "e199_", "scout_prefix": None,
+    "models": ["tabnet_percoin"], "expected_arms": 2,
+    "artifact_root": "results/reports/crypto/e199_tabnet_percoin",
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

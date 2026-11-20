@@ -196,6 +196,11 @@ class TabNetSkRegressor(RegressorMixin, BaseEstimator):
             verbose=int(self.verbose),
             device_name=str(self.device),
         )
+        if len(X) < int(self.batch_size):
+            # drop_last below would drop the only (partial) batch: zero optimiser steps, and
+            # the "fitted" model is its random initialisation (E198's per-coin arms, 2026-11-20).
+            raise ValueError("TabNet: %d training rows < batch_size %d; nothing would be trained"
+                             % (len(X), int(self.batch_size)))
         model.fit(
             X, y,
             max_epochs=int(self.max_epochs), patience=int(self.patience),

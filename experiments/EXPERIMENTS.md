@@ -2115,3 +2115,23 @@ payout 0.0581 trails ridge B_COV (t -3.24); its test payout 0.0507 (MMC 0.042) b
 undertrained fit worse. Read the TabNet arms as "per-coin TabNet at this budget is noise", not as evidence about
 the CS columns. A fair per-coin test would need far more optimisation steps per coin (smaller batch / epoch
 multiplier), registered as an amendment. 20.6% of TabNet rows fell back to ridge B_COV (all of block 0 included).
+
+**Correction (2026-11-20):** the TabNet arms above were UNTRAINED, not undertrained (batch 256 > rows, drop_last); see E199.
+
+### E199: per-coin TabNet arms of E198, refitted so they train (registered 2026-11-20)
+
+User request: "Yes, register and rerun" -- rerun E198's per-coin TabNet arms (`TN_B` without CS columns, `TN_F` with
+them) with enough training to be a fair test.
+
+**Correction to E198.** Its TabNet arms were not undertrained but UNTRAINED. `src/prediction/tabnet.py` fits with
+`drop_last=True`; E198's batch 256 exceeds every coin's <= 130 training rows, so the only (partial) batch was dropped
+every epoch and each "model" is its random initialisation (in-sample |mean pred - mean label| 0.99, train R2 -40 on
+30 development coin-blocks). E198's TabNet rows are void. The wrapper now raises when rows < batch_size.
+
+**Design.** E198 unchanged except TabNet `batch_size=32, virtual_batch_size=16`, TV epochs (epoch_mult 1). Chosen on
+30 development coin-blocks (3 coins x blocks 1-10, seed 0) by TRAINING fit only -- no target score, no test block:
+bias 0.012, median train R2 0.73, about 12 s per fit. Larger budgets were not pursued: R2 0.73 on 130 rows is
+already memorising. Pooled arms (B_ALL/B_COV/F_COV), the ridge fallback and routing baselines are read from E198's
+predictions. Runner `E198_VARIANT=e199 python3 experiments/e198_cs_eval.py`; jobs `experiments/e199_cluster.jobs`
+(one per arm and seed, 6 workers), waiter `experiments/e199_score.sh`. Outputs
+`results/reports/crypto/e199_tabnet_percoin/`. Comparisons: TN_F - TN_B, and each against ridge B_COV / F_COV.

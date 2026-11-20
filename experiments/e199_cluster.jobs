@@ -1,0 +1,7 @@
+cores=6 ram=30 name=e199_tnb0 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_B --seed 0 --workers 6'
+cores=6 ram=30 name=e199_tnb1 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_B --seed 1 --workers 6'
+cores=6 ram=30 name=e199_tnb2 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_B --seed 2 --workers 6'
+cores=6 ram=30 name=e199_tnf0 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_F --seed 0 --workers 6'
+cores=6 ram=30 name=e199_tnf1 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_F --seed 1 --workers 6'
+cores=6 ram=30 name=e199_tnf2 -- bash -c 'E198_VARIANT=e199 python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_F --seed 2 --workers 6'
+cores=1 ram=30 name=e199_score -- bash experiments/e199_score.sh

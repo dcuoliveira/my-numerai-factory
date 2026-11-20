@@ -57,6 +57,17 @@ TABNET = ["TN_B", "TN_F"]
 MIN_ROWS = 30
 TABNET_CFG = dict(n_d=8, n_a=8, n_steps=3, gamma=1.3, n_independent=2, n_shared=2, lambda_sparse=1e-3,
                   learning_rate=0.02, patience=10, batch_size=256, virtual_batch_size=64, device="cpu")
+# E199 (E198_VARIANT=e199): the per-coin TabNet arms refitted so they actually train. E198's batch 256
+# exceeded every coin's <= 130 rows, and drop_last dropped the only batch: zero optimiser steps. Batch 32 /
+# virtual 16 was picked on development coins by training fit alone (in-sample bias 0.012, train R2 0.73).
+# Pooled arms, routing baselines and the ridge fallback are read from E198's preds; TabNet preds and every
+# E199 output go to E199's own directory.
+VARIANT = os.environ.get("E198_VARIANT", "")
+if VARIANT == "e199":
+    STUDY, OUT = "E199", "results/reports/crypto/e199_tabnet_percoin"
+    TABNET_CFG = dict(TABNET_CFG, batch_size=32, virtual_batch_size=16)
+else:
+    OUT = ROOT
 PAIRS = [("F_COV", "B_COV", m) for m in MODELS] + [("TN_F", "TN_B", "tabnet"),
                                                      ("TN_B", "B_COV", "tabnet|ridge"), ("TN_F", "F_COV", "tabnet|ridge")]
 
@@ -90,7 +101,8 @@ def cols_of(arm, base, cs):
 
 
 def out_path(model, arm, seed):
-    return os.path.join(PRED, model, "%s_s%d.parquet" % (arm, seed))
+    pred = os.path.join(OUT, "preds") if model == "tabnet" else PRED
+    return os.path.join(pred, model, "%s_s%d.parquet" % (arm, seed))
 
 
 def save(parts, path):
@@ -215,7 +227,7 @@ def routed(keys, model, arm, seed):
 
 
 def _score_job(job):
-    keys = pd.read_parquet(os.path.join(ROOT, "keys.parquet"))
+    keys = pd.read_parquet(os.path.join(OUT, "keys.parquet"))
     return routed(keys, *job)
 
 
@@ -238,8 +250,8 @@ def score(workers):
     B = schedule(df)
     kind = {d: ("test" if i == 11 else "dev") for i, _, te in B for d in te}
     keys = df.loc[df["date"].isin(list(kind)), ["symbol", "date", T20, "meta_model"]]
-    os.makedirs(ROOT, exist_ok=True)
-    keys.to_parquet(os.path.join(ROOT, "keys.parquet"), index=False)
+    os.makedirs(OUT, exist_ok=True)
+    keys.to_parquet(os.path.join(OUT, "keys.parquet"), index=False)
     jobs = [(m, a, s) for m in MODELS for a in POOLED for s in SEEDS[m]] + \
            [("tabnet", a, s) for a in TABNET for s in SEEDS["tabnet"]]
     missing = [j for j in jobs if not os.path.exists(out_path(*j))]
@@ -247,7 +259,7 @@ def score(workers):
     with ProcessPoolExecutor(workers) as ex:
         per = pd.concat(ex.map(_score_job, jobs))
     per["kind"] = per["date"].map(kind)
-    per.to_parquet(os.path.join(ROOT, "per_date.parquet"), index=False)
+    per.to_parquet(os.path.join(OUT, "per_date.parquet"), index=False)
     daily = per.groupby(["model", "arm", "kind", "date"])[["corr", "mmc", "payout", "covered"]].mean().reset_index()
     table = pd.DataFrame([dict(model=m, arm=a, kind=k, **summarize(g)) for (m, a, k), g in daily.groupby(["model", "arm", "kind"])])
     deltas = []
@@ -264,8 +276,8 @@ def score(workers):
                 r["t_" + met] = t
             deltas.append(r)
     deltas = pd.DataFrame(deltas)
-    table.to_csv(os.path.join(ROOT, "table.csv"), index=False)
-    deltas.to_csv(os.path.join(ROOT, "deltas.csv"), index=False)
+    table.to_csv(os.path.join(OUT, "table.csv"), index=False)
+    deltas.to_csv(os.path.join(OUT, "deltas.csv"), index=False)
     pd.set_option("display.width", 220)
     for k in ("dev", "test"):
         print("\n== %s, sorted by payout" % k)
@@ -298,18 +310,18 @@ def report(table, deltas, daily):
     tabs = "".join("<h2>%s block, sorted by payout</h2>%s" % (k, fmt(table[table.kind == k].drop(columns="kind")
                                                                         .sort_values("PAYOUT", ascending=False)))
                    for k in ("dev", "test"))
-    html = """<!doctype html><html><head><meta charset="utf-8"><title>E198 CS statistics</title>
+    html = """<!doctype html><html><head><meta charset="utf-8"><title>%s CS statistics</title>
 <style>body{font-family:sans-serif;font-size:11px;margin:24px}table{border-collapse:collapse}
 td,th{padding:2px 6px;border-bottom:1px solid #ddd;text-align:right}h1{font-size:18px}h2{font-size:14px}</style></head><body>
-<h1>E198: cross-sectional statistics of raw v2.0 features (crypto/v2.0-cs)</h1>
+<h1>%s: cross-sectional statistics of raw v2.0 features (crypto/v2.0-cs)%s</h1>
 <p>Target target_binned_return_20. Covered arms routed R_SLOT into B_ALL (TabNet into ridge B_ALL); metrics per date,
 averaged over seeds. Development = E131 blocks 0-10; test = block 11 (2026-02-20..2026-08-20). calmar and burn(d)
 compare only rows with the same n. Pooled configs fixed (E131); TabNet one pinned config, one model per coin,
 coins with &lt; %d covered training rows take ridge B_COV in both TabNet arms.</p>
 %s<h2>Paired deltas, Newey-West lag 20</h2>%s
 <img style="width:100%%" src="data:image/png;base64,%s"><img style="width:100%%" src="data:image/png;base64,%s">
-</body></html>""" % (MIN_ROWS, tabs, fmt(deltas), figs[0], figs[1])
-    path = os.path.join(ROOT, "E198_cs_report.html")
+</body></html>""" % (STUDY, STUDY, ", per-coin TabNet refitted (batch 32)" if VARIANT else "", MIN_ROWS, tabs, fmt(deltas), figs[0], figs[1])
+    path = os.path.join(OUT, "%s_cs_report.html" % STUDY)
     with open(path, "w") as h:
         h.write(html)
     print("report:", path)
@@ -328,7 +340,8 @@ def main():
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     os.makedirs(PRED, exist_ok=True)
-    with open(os.path.join(ROOT, "config.json"), "w") as h:
+    os.makedirs(OUT, exist_ok=True)
+    with open(os.path.join(OUT, "config.json"), "w") as h:
         json.dump(dict(study=STUDY, seeds=SEEDS, tabnet=TABNET_CFG, min_rows=MIN_ROWS, fixed=H.FIXED), h, indent=1, default=str)
     if a.fit_pooled:
         fit_pooled(a.model, a.n_jobs, a.arms)
