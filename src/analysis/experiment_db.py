@@ -3662,6 +3662,23 @@ STUDIES["E189"] = {
 }
 
 
+STUDIES["E190"] = {
+    "title": "E189 follow-up: v2.0 + normalised Chronos-2-Synth states (TS_MM, GRP_MM, POOL_MM, RAW), ridge",
+    "idea": "Same design as E189 (frozen cov-mode 768-d states, cache /scratch/danielco/c2syn, frozen panel "
+            "data/crypto/v2.0-asof-e189, repo 'ridge', E131 blocks with test block 2026-02-20..2026-08-20 held "
+            "for confirmation, inner pick on last 40 train dates, alpha grid 1e-3..1e9 + boundary expansion, "
+            "train-referenced transforms refit per fold, R_SLOT routing) but the ridge information set is the 22 "
+            "v2.0 features hstacked with the transformed embedding (790 cols) on covered rows. Arms V_N_TS_MM, "
+            "V_N_GRP_MM, V_N_POOL_MM, control V_RAW (v2.0 + raw states); baselines B_ALL/B_COV and the "
+            "embedding-only E189 arms reused from E189's preds (same schedule, same rows). One shared alpha "
+            "over both blocks, as in the pipeline. Writes OUTSIDE results/metrics/: "
+            "results/reports/crypto/e190_c2norm_v2/ and /scratch/danielco/e190/.",
+    "runner": "experiments/e190_c2norm_v2.py",
+    "prefix": "e190_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 4,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

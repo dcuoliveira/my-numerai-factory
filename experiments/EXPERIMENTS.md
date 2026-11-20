@@ -1896,3 +1896,16 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 **Limitations.** Ridge only; the zero-shot cov state only; the label-wall horizon is fixed at 25 weekday steps (output patch 1). fp16 states quantise coordinates, producing ties, which mid-ranks handle. The confirmation block was used by earlier studies for other feature sets. Chronos-2-Synth's synthetic-only pretraining rules out memorising real series, but its design postdates real-data work over these years (weak channel).
 
 **How to apply:** do not normalise these states expecting to rescue them. Together with E143/E144/E146, this closes frozen Chronos-2 hidden states as ridge features. If they are ever used again, CS or POOL scaling are equivalent defaults; avoid per-coin own-history scaling.
+
+### E190: v2.0 + normalised Chronos-2-Synth states, TS_MM / GRP_MM / POOL_MM (registered 2026-11-20)
+
+**Request (user, 2026-11-20):** take N_TS_MM, N_GRP_MM and N_POOL_MM from E189 and rerun the same experiment, but with the downstream ridge's information set the merge of v2.0 and the embedding instead of the embedding alone.
+
+**Design.** Identical to E189 in every respect except the feature matrix: on covered rows, X = [22 shipped v2.0 features (NaN -> 0.5, the B_* convention) | 768-d transformed state] = 790 columns. Transforms, references (TS/POOL fit on training rows per inner and outer fold, GRP per-date snapshot), schedule (E131 11 dev blocks + test block 11 held for confirmation), inner alpha pick, alpha grid logspace(-3, 9, 25) with the registered boundary expansion, model (repo `ridge`, intercept, no scaler), R_SLOT routing against B_ALL and covered-only scoring are unchanged.
+
+- Arms: `V_N_TS_MM`, `V_N_GRP_MM`, `V_N_POOL_MM`, and control `V_RAW` (v2.0 + raw states), which was added so the transform's effect is separable from the effect of adding the states at all.
+- Reused from E189 (same rows, schedule and code path): `B_ALL`, `B_COV`, `RAW` and the three embedding-only arms.
+- Primary comparison: each V arm vs `B_COV` (does the embedding add to v2.0 on matched rows?); secondary: vs `V_RAW` and vs its E189 embedding-only twin. Paired Newey-West lag 20, Holm within each family, dev only for selection; test block reported as confirmation.
+- Known design limitation, stated up front: one ridge alpha penalises both blocks. In E189 B_COV picked alpha 1e6-3e8 while the embedding arms picked 1e2-1e4, so a shared penalty cannot suit both blocks; the pipeline does not block-scale, and neither does this study.
+
+**Launch:** `python3 experiments/e190_c2norm_v2.py --fit` then `--score`, `--report`; host deepfour (local, ~3 min per arm). Outputs: `results/reports/crypto/e190_c2norm_v2/`, `/scratch/danielco/e190/`.
