@@ -3792,10 +3792,13 @@ STUDIES["E198"] = {
             "squashed robust z of log vol 20/60; date-level causal-percentile CS median/Bowley skew of Bollinger z, "
             "median/IQR of log vol, std of log volume; two interactions (bollinger_20d x cs_trend, volatility_20d x "
             "cs_vol_level). Chosen by a pre-2024 screen (Bollinger CS median t +5.5, vol within-bin t -5.6). Evaluation "
-            "follows the missing-value protocol (B_all, B_covered, F_covered on cov_cs_all, routed), ridge/mlp_ktz/lgb_ktz.",
+            "follows the missing-value protocol (B_all, B_covered, F_covered on cov_cs_all, routed), ridge/mlp_ktz/lgb_ktz. "
+            "Added 2026-11-20: ONE TABNET PER COIN, F_TN_COIN (v2.0-cs, 37 cols) vs its baseline B_TN_COIN (the 22 v2.0 "
+            "features, no CS columns), identical covered rows, folds, pinned config and seeds; per-coin predictions ranked "
+            "per date and routed into B_all. Per coin, the date-level CS columns become a time series the coin can weight.",
     "runner": "src/data_mani/build_cs_moments.py (dataset); evaluation runner not yet written",
     "prefix": "e198_", "scout_prefix": None,
-    "models": ["ridge", "mlp_ktz", "lgb_ktz"], "expected_arms": 9,
+    "models": ["ridge", "mlp_ktz", "lgb_ktz", "tabnet_percoin"], "expected_arms": 11,
 }
 
 def main(argv=None):

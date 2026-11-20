@@ -2063,3 +2063,19 @@ quote base units). Interactions 0.5+2*(f-0.5)*(m-0.5). Masks `cov_cs_coin`, `cov
 Evaluation (not launched): B_all / B_covered / F_covered on `cov_cs_all`, routed, ridge, mlp_ktz, lgb_ktz.
 Ridge can use only the per-coin columns and the interactions; the date-level columns are for trees/MLP.
 Host hamilton. Findings pending.
+
+**Addition (user, 2026-11-20): one TabNet per coin, with a no-CS baseline.** "add to E193 experiment a baseline which
+is tabnet on individual assets (same way as E193) but instead without any cs features" -- confirmed to mean E198,
+one TabNet fitted per coin. Two arms on exactly the same rows:
+- `F_TN_COIN`: per-coin TabNet on the 22 shipped + 15 `feature_cs_*` columns.
+- `B_TN_COIN` (the requested baseline): per-coin TabNet on the 22 shipped v2.0 features only.
+
+Both train only on `cov_cs_all == 1` rows, so the baseline sees the same coin/date keys as the candidate. Per coin, the
+date-level CS columns are a time series the coin weights with its own parameters (pooled, they only enter via
+interactions; compare E192). Matched across the two arms: walk-forward schedule and purge, one pinned TabNet config
+(no per-coin search: a coin has <= 130 training rows; chosen once on development blocks, never on the test block),
+epoch rule, seeds (3), and the fallback for coins with fewer than 30 training rows (they take the pooled B_covered
+prediction in both arms). Per date, the per-coin predictions are ranked across coins and routed into B_all's
+covered slots. Primary comparison: paired per-date `Route(F_TN_COIN) - Route(B_TN_COIN)`, Newey-West lag 20;
+also each against pooled `B_covered`. Caveat: ~130 rows with ~95% label overlap per coin is far below what TabNet
+normally needs (E18: default TabNet lost everywhere), so a null here says little about the CS columns themselves.
