@@ -1909,3 +1909,22 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 - Known design limitation, stated up front: one ridge alpha penalises both blocks. In E189 B_COV picked alpha 1e6-3e8 while the embedding arms picked 1e2-1e4, so a shared penalty cannot suit both blocks; the pipeline does not block-scale, and neither does this study.
 
 **Launch:** `python3 experiments/e190_c2norm_v2.py --fit` then `--score`, `--report`; host deepfour (local, ~3 min per arm). Outputs: `results/reports/crypto/e190_c2norm_v2/`, `/scratch/danielco/e190/`.
+
+**Findings (2026-11-20): NO IMPROVEMENT -- merging the states into v2.0 never beats v2.0 alone.** Routed R_SLOT; CORR over 1,430 dev dates, MMC/payout over the 468 with the meta model.
+
+| arm | dev CORR | dev MMC | dev payout | p.sharpe | dd(pay) | test CORR | test payout |
+|---|---|---|---|---|---|---|---|
+| B_ALL | 0.1182 | 0.0860 | 0.1021 | 1.065 | 2.073 | 0.1218 | 0.0320 |
+| B_COV | 0.1121 | 0.0846 | 0.1004 | 1.028 | 2.112 | 0.1238 | 0.0330 |
+| V_N_POOL_MM | 0.1068 | 0.0593 | 0.0722 | 0.809 | 2.145 | 0.1203 | 0.0311 |
+| V_N_GRP_MM | 0.0980 | 0.0519 | 0.0635 | 0.736 | 1.876 | 0.1185 | 0.0325 |
+| V_N_TS_MM | 0.0842 | 0.0495 | 0.0594 | 0.773 | 0.732 | 0.1095 | 0.0333 |
+| V_RAW | 0.1033 | 0.0479 | 0.0589 | 0.700 | 1.720 | 0.1124 | 0.0325 |
+
+- Dev vs B_COV: every merged arm loses payout after Holm (-0.028 to -0.042, t -3.1 to -4.2); CORR deficits -0.005 (POOL_MM, n.s.) to -0.028 (TS_MM, t -3.3).
+- Within merged arms: POOL_MM beats V_RAW on payout (+0.0133, t +3.84, Holm p 0.0004) at flat CORR; TS_MM costs CORR vs V_RAW (-0.019, t -3.07, Holm-significant), as in E189.
+- Confirmation: all merged arms tie B_COV on payout (|t| <= 0.4) and sit below it on CORR (n.s.); merging adds +0.02-0.03 CORR over each E189 embedding-only twin.
+- Mechanism: merged fits pick alpha ~1e3 like the embedding arms, while v2.0 alone wants 1e6-1e9 in most blocks, so one shared penalty under-shrinks the 22 shipped features and lets 768 state columns dominate. A per-block penalty (or block scaling) was not tested.
+- Missing values: rows, coverage and routing are E189's; its audit (PASS WITH CONDITIONS) applies unchanged.
+
+**How to apply:** do not add frozen Chronos-2 states to v2.0 in a single-penalty ridge. The only untested door is a two-penalty / block-scaled ridge; given E143-E190, low prior. Report: `results/reports/crypto/e190_c2norm_v2/E190_report.pdf`.
