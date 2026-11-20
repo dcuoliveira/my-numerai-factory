@@ -2142,6 +2142,15 @@ approved), then `python3 -m src.cluster run --jobs experiments/e199_cluster.jobs
 stopped within minutes, before any output: coins with 30-31 training rows are under batch 32, which the new wrapper
 guard rejects; the runner now caps batch at the coin's row count (identical in both arms). ETA ~7 h.
 
+**Incident (2026-11-20 ~11:40).** TN_B seed 0 crashed at about task 3,000 of 4,068 (2.8 h in): one coin's fit went
+NaN inside TabNet's sparsemax mask (`RuntimeError: index -1 is out of bounds for dimension 1 with size 22`), and the
+exception killed the whole arm-seed, with nothing saved. The runner now catches a failed per-coin fit, gives that
+coin-block the ridge B_COV fallback (the same rule as < 30 training rows, identical in both arms), logs it and
+records `failed=True`; non-finite predictions are also sent to the fallback (6f0685d). Lane `e199_tnb_a` (TN_B seeds
+0 and 2) was stopped and is relaunched with the guard as soon as a slot frees (the cluster was at its 30% share).
+The other three lanes started before the guard; if one crashes it is relaunched the same way. Report the share of
+failed fits per arm with the findings.
+
 ### E200: E198 with an equal-budget hyperparameter search (registered 2026-11-20)
 
 User request: "Replace this experiment with the same version but hyperparamenter searched. Formulate it and run now."
