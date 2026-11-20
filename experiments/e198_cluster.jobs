@@ -1,0 +1,5 @@
+cores=6 ram=40 name=e198_tnb -- bash -c 'for s in 0 1 2; do python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_B --seed $s --workers 6; done'
+cores=4 ram=20 name=e198_lgb -- python3 experiments/e198_cs_eval.py --fit-pooled --model lgb_ktz --n-jobs 4
+cores=7 ram=40 name=e198_tnf -- bash -c 'for s in 0 1 2; do python3 experiments/e198_cs_eval.py --fit-tabnet --arm TN_F --seed $s --workers 7; done'
+cores=3 ram=20 name=e198_mlp -- python3 experiments/e198_cs_eval.py --fit-pooled --model mlp_ktz --n-jobs 3
+cores=1 ram=30 name=e198_score -- bash experiments/e198_score.sh

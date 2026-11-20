@@ -2073,9 +2073,21 @@ one TabNet fitted per coin. Two arms on exactly the same rows:
 Both train only on `cov_cs_all == 1` rows, so the baseline sees the same coin/date keys as the candidate. Per coin, the
 date-level CS columns are a time series the coin weights with its own parameters (pooled, they only enter via
 interactions; compare E192). Matched across the two arms: walk-forward schedule and purge, one pinned TabNet config
-(no per-coin search: a coin has <= 130 training rows; chosen once on development blocks, never on the test block),
+(no per-coin search: a coin has <= 130 training rows; fixed in advance, never tuned on these data:
+n_d=n_a=8, n_steps=3, lambda_sparse 1e-3, lr 0.02, batch 256, virtual batch 64, TV epochs),
 epoch rule, seeds (3), and the fallback for coins with fewer than 30 training rows (they take the pooled B_covered
 prediction in both arms). Per date, the per-coin predictions are ranked across coins and routed into B_all's
 covered slots. Primary comparison: paired per-date `Route(F_TN_COIN) - Route(B_TN_COIN)`, Newey-West lag 20;
 also each against pooled `B_covered`. Caveat: ~130 rows with ~95% label overlap per coin is far below what TabNet
 normally needs (E18: default TabNet lost everywhere), so a null here says little about the CS columns themselves.
+
+**Launch (2026-11-20, host hamilton).** Runner `experiments/e198_cs_eval.py`; writes OUTSIDE results/metrics/ to
+`results/reports/crypto/e198_cs/` (preds/, per_date.parquet, table.csv, deltas.csv, E198_cs_report.html/.pdf).
+Pooled configs are E131's fixed ones (`e133_histfe_factorial.FIXED`); seeds ridge 0, lgb_ktz/mlp_ktz/TabNet 0-2.
+Schedule: E131 blocks 0-10 (development) + test block 11. Block 0 has no covered training rows (the identity gate
+needs 40 rows of history), so the covered arms start at block 1 and block 0's dates score as B_ALL. Covered arms
+route R_SLOT into their own model's B_ALL; TabNet routes into ridge's. Launch:
+`python3 -m src.cluster run --jobs experiments/e198_cluster.jobs --exclude tolstoi dostoievski` (lanes: TabNet TN_B
+and TN_F seeds run in sequence, beside lgb_ktz / mlp_ktz; `experiments/e198_score.sh` waits for all 23 prediction
+files, scores, and prints the PDF on lovelace). Ridge fitted directly on hamilton before launch. Smoke check, ridge
+only: F_COV - B_COV dev CORR -0.0075 (t -2.20), payout -0.0029 (t -1.28); test payout -0.0044 (t -2.30).

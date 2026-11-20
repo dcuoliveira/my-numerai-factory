@@ -3796,8 +3796,9 @@ STUDIES["E198"] = {
             "Added 2026-11-20: ONE TABNET PER COIN, F_TN_COIN (v2.0-cs, 37 cols) vs its baseline B_TN_COIN (the 22 v2.0 "
             "features, no CS columns), identical covered rows, folds, pinned config and seeds; per-coin predictions ranked "
             "per date and routed into B_all. Per coin, the date-level CS columns become a time series the coin can weight.",
-    "runner": "src/data_mani/build_cs_moments.py (dataset); evaluation runner not yet written",
+    "runner": "experiments/e198_cs_eval.py (dataset: src/data_mani/build_cs_moments.py)",
     "prefix": "e198_", "scout_prefix": None,
+    "artifact_root": "results/reports/crypto/e198_cs",
     "models": ["ridge", "mlp_ktz", "lgb_ktz", "tabnet_percoin"], "expected_arms": 11,
 }
 
