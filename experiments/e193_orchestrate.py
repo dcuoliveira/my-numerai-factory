@@ -76,7 +76,7 @@ def main():
                     continue
             done_setup.add(m)
             if n_preds(m) < N_ARMS:
-                rc, out = sh("%s -m src.cluster run --jobs experiments/%s_%snorm.jobs --only hamilton hopper lovelace "
+                rc, out = sh("%s -m src.cluster run --jobs experiments/%s_%snorm.jobs --extra-cores 8 --only hamilton hopper lovelace "
                              "dostoievski tolstoi" % (PY, sid, m), timeout=900)
                 started = [l for l in out.splitlines() if l.strip().startswith("ok")]
                 if started:
