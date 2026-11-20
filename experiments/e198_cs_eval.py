@@ -205,8 +205,14 @@ def _coin_block(task):
         return out.assign(prediction=np.nan)
     cfg = dict(TABNET_CFG, batch_size=min(TABNET_CFG["batch_size"], len(tr)))   # 30-31-row coins under batch 32
     est = TabNetTVRegressor(seed=_G["seed"], **cfg)
-    est.fit(tr[cols].to_numpy(np.float32), tr[T20].to_numpy(np.float32))
-    return out.assign(prediction=np.asarray(est.predict(te[cols].to_numpy(np.float32))).ravel())
+    try:    # a diverged fit (NaN into sparsemax, E199 TN_B seed 0) takes the ridge B_COV fallback, like < MIN_ROWS
+        est.fit(tr[cols].to_numpy(np.float32), tr[T20].to_numpy(np.float32))
+        pred = np.asarray(est.predict(te[cols].to_numpy(np.float32)), dtype=float).ravel()
+    except RuntimeError as exc:
+        print("tabnet fit failed ucid %s block %d: %s" % (ucid, i, str(exc)[:80]), flush=True)
+        return out.assign(prediction=np.nan, failed=True)
+    pred[~np.isfinite(pred)] = np.nan
+    return out.assign(prediction=pred, failed=False)
 
 
 def fit_tabnet(arm, seed, workers):
