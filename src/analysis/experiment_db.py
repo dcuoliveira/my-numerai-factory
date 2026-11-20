@@ -3784,6 +3784,20 @@ STUDIES["E197"] = {
     "models": ["ridge"], "expected_arms": 38,
 }
 
+STUDIES["E198"] = {
+    "title": "Cross-sectional statistics of raw (pre-bin) features: crypto/v2.0-cs, B_all / B_covered / F_covered",
+    "idea": "Rebuild raw volatility (simple-return var 19/59 weekdays), Bollinger z 20, Sharpe 20/60, RSI 20/60 and log "
+            "USD volume 20 from spot closes (E157/E164-E166 definitions), attach as of D-1, gate wrong-coin series with "
+            "build_vol_causal's identity gate, then add 15 columns: per-coin 20-quantile ranks (vol/sharpe/rsi 20+60) and "
+            "squashed robust z of log vol 20/60; date-level causal-percentile CS median/Bowley skew of Bollinger z, "
+            "median/IQR of log vol, std of log volume; two interactions (bollinger_20d x cs_trend, volatility_20d x "
+            "cs_vol_level). Chosen by a pre-2024 screen (Bollinger CS median t +5.5, vol within-bin t -5.6). Evaluation "
+            "follows the missing-value protocol (B_all, B_covered, F_covered on cov_cs_all, routed), ridge/mlp_ktz/lgb_ktz.",
+    "runner": "src/data_mani/build_cs_moments.py (dataset); evaluation runner not yet written",
+    "prefix": "e198_", "scout_prefix": None,
+    "models": ["ridge", "mlp_ktz", "lgb_ktz"], "expected_arms": 9,
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

@@ -2038,3 +2038,28 @@ See E193. Output `results/reports/crypto/e196_t0norm/`, states `/scratch/danielc
 ### E197: E189 rerun with Timestral states (registered 2026-11-20)
 
 See E193. Output `results/reports/crypto/e197_timestralnorm/`, states `/scratch/danielco/tsfmstates/timestral/`.
+
+### E198: cross-sectional statistics of raw features, crypto/v2.0-cs (registered 2026-11-20)
+
+User request: build a dataset from v2.0 that adds cross-sectional features computed on the features' raw space
+(before Numerai's bins), after first judging which v2.0 features deserve them.
+
+Screen (dates < 2024-01-01, no fits; 2024+ left closed): raw values rebuilt from spot with the E157/E164-E166
+definitions (rank agreement with the shipped bins 0.85-0.92). Survivors at Bonferroni |t| >= 3.6 over 176 tests:
+the CS median/mean of the 20d Bollinger z moderates that feature's daily IC (t +5.5; Bowley skew t -5.1), and the raw
+volatility carries information inside its bins (within-bin t -5.6 at 20d, -3.7 at 60d; Sharpe/RSI about -3). The
+Bollinger median is 0.80-0.83 correlated with the median 20d return and Sharpe/RSI medians, so it is one
+market-trend regime number (compare E68/E108). Close-price levels carry nothing; the shipped momentum is a dollar
+change C[t]-C[t-w], so its CS moments are skipped; market cap is not in the spot store; kurtosis is never significant.
+
+Dataset `data/crypto/v2.0-cs` (builder `python3 -m src.data_mani.build_cs_moments`): every v2.0 row and the 22
+shipped features unchanged, plus 15 `feature_cs_*` columns. Raw signals attached as of D-1 (max 4 days stale),
+wrong-coin series removed by build_vol_causal's identity gate, NaN kept where uncovered. Per-coin: 20-quantile
+ranks of vol/sharpe/rsi 20+60 and 0.5+0.5*tanh(robust z/2) of log vol 20/60. Date-level (computed on the day's
+gated coins, >= 30 of them, then causal trailing percentile): `cs_trend` (median Bollinger z), `cs_trend_skew`
+(Bowley), `cs_vol_level`, `cs_vol_disp`, `cs_liq_disp` (std of log USD volume, Yahoo rows only since other venues
+quote base units). Interactions 0.5+2*(f-0.5)*(m-0.5). Masks `cov_cs_coin`, `cov_cs_date`, `cov_cs_all`.
+
+Evaluation (not launched): B_all / B_covered / F_covered on `cov_cs_all`, routed, ridge, mlp_ktz, lgb_ktz.
+Ridge can use only the per-coin columns and the interactions; the date-level columns are for trees/MLP.
+Host hamilton. Findings pending.
