@@ -1962,6 +1962,12 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 
 **Relaunch 2026-11-21:** the first run (2026-11-20 04:18, dostoievski) was stopped by systemd at 04:28 with no Python error, 1-3 of 12 blocks into each arm and nothing saved (arms wrote only at the end). `fit_arm` now checkpoints every block to `preds/<arm>.blocks/blockNN.{parquet,json}` (json written last marks completion) and resumes from them, so a killed run is relaunched with the same command.
 
+**Findings (2026-11-21, relaunch ran 78 min on the cluster with no restarts; report `results/reports/crypto/e192_c2percoin/E192_report.pdf`): NO IMPROVEMENT.**
+- Option 2 == option 1 per coin: C_LOO - C_OWN dev CORR -0.0004 (t -0.60), test +0.0000; same for CV_LOO - CV_OWN. With RAW states the leave-one-out mean of ~250 coins varies far less over dates than the own state, so under the shared alpha it barely enters the Gram.
+- Option 3 (flat concatenation): dev CORR +0.0106 over C_OWN (t +2.08, Holm 0.19), test -0.0055 (t -0.99); CV_CAT vs CV_OWN the same pattern; payout null in both windows. Alpha picks swing 1e-9..3e8 across blocks.
+- Per-coin fitting loses CORR against pooled: C_OWN vs RAW dev -0.034 (t -4.1), CV_B vs B_COV dev -0.039 (t -4.6). Per-coin dev payout (0.067-0.077) beats the pooled state arms (RAW 0.051, n.s.) through the per-coin intercept, but stays below B_COV 0.100. ~16% of covered rows fell back to the pooled twin.
+- Untested: a standardised LOO block (the one variant that could change the option-2 null).
+
 ### E193: E189 rerun with Toto 2.0 states (registered 2026-11-20)
 
 **Request (user, 2026-11-20).** "Register a new E189 with updated number and replace chronos-2 with toto,
