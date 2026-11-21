@@ -201,7 +201,15 @@ def fit_arm(arm, P, B):
     assert (twin[["symbol", "date"]].to_numpy() == df[["symbol", "date"]].to_numpy()[np.isin(dates, np.concatenate([b[2] for b in B]))]).all()
     twin = twin.set_index(["symbol", "date"])["prediction"]
     parts, picks = [], []
+    ckdir = os.path.join(M.ROOT, "preds", arm + ".blocks")            # per-block checkpoints: a killed run resumes
+    os.makedirs(ckdir, exist_ok=True)
     for i, tr, te, kind in B:
+        ck = os.path.join(ckdir, "block%02d" % i)
+        if os.path.exists(ck + ".json"):
+            parts.append(pd.read_parquet(ck + ".parquet"))
+            picks.append(json.load(open(ck + ".json")))
+            print("%s block %2d resumed from checkpoint" % (arm, i), flush=True)
+            continue
         t1 = time.time()
         meta = tune(P, arm, tr)
         fit = np.flatnonzero(P.cov & np.isin(dates, tr))
@@ -222,6 +230,11 @@ def fit_arm(arm, P, B):
         meta.update(block=i, kind=kind, n_train=len(fit), n_test=len(tst), coins_modelled=nm,
                     fallback_rows=int(fb.sum()), fallback_share=float(fb.mean()), seconds=time.time() - t1)
         picks.append(meta)
+        o.to_parquet(ck + ".parquet.partial", index=False)
+        os.replace(ck + ".parquet.partial", ck + ".parquet")
+        with open(ck + ".json.partial", "w") as fh:
+            json.dump(meta, fh, default=float)
+        os.replace(ck + ".json.partial", ck + ".json")              # json last: it marks the block complete
         print("%s block %2d alpha %.3g%s  coins %d  fallback %.1f%%  %.0fs" % (
             arm, i, meta["alpha"], " BOUNDARY" if meta["boundary"] else "", nm, 100 * fb.mean(), meta["seconds"]), flush=True)
     out = pd.concat(parts, ignore_index=True)

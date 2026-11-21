@@ -1960,6 +1960,8 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 
 **Launch (hamilton, cluster manager):** `python3 -m src.cluster run --jobs experiments/e192_c2percoin.jobs` -> `python3 experiments/e192_c2percoin.py --fit --workers 7`; then `--score`, `--report`, PDF via `python3 -m src.analysis.html_pdf`. Outputs: `results/reports/crypto/e192_c2percoin/` (preds, picks, dual_check.json, scores, table, tests, report). Log `logs/cluster/e192_c2percoin.out`.
 
+**Relaunch 2026-11-21:** the first run (2026-11-20 04:18, dostoievski) was stopped by systemd at 04:28 with no Python error, 1-3 of 12 blocks into each arm and nothing saved (arms wrote only at the end). `fit_arm` now checkpoints every block to `preds/<arm>.blocks/blockNN.{parquet,json}` (json written last marks completion) and resumes from them, so a killed run is relaunched with the same command.
+
 ### E193: E189 rerun with Toto 2.0 states (registered 2026-11-20)
 
 **Request (user, 2026-11-20).** "Register a new E189 with updated number and replace chronos-2 with toto,
