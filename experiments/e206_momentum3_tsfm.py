@@ -56,6 +56,7 @@ def config_id(model, norm, design):
 
 def prepare():
     if (ROOT/'PREPARED.json').exists():
+        coverage_reports(pd.read_parquet(ROOT/'panel.parquet'))
         return
     ROOT.mkdir(parents=True, exist_ok=True); SCR.mkdir(parents=True, exist_ok=True)
     source = json.loads((DATA/'manifest.json').read_text())
@@ -76,6 +77,7 @@ def prepare():
     for name, mask in zip(['train','validation','final_fit','test'],N.split_masks(frame.date)):
         frame[name] = mask
     parquet(ROOT/'panel.parquet',frame)
+    coverage_reports(frame)
     prices_path = REPO/'results/reports/crypto/e157_volatility_reverse_engineering/inputs/prices.parquet'
     prices = pd.read_parquet(prices_path)
     assert not prices.duplicated(['symbol','date']).any()
@@ -103,6 +105,12 @@ def prepare():
     print('PREPARED',len(frame), 'rows,72 configurations',flush=True)
 
 
+def coverage_reports(frame):
+    frame.groupby('ucid').agg(first_panel_date=('date','min'),last_panel_date=('date','max'),
+          panel_rows=('row','size'),signal_covered_rows=('covered','sum')).to_csv(ROOT/'coverage_by_asset.csv')
+    frame.groupby('date').agg(panel_assets=('ucid','size'),signal_covered_assets=('covered','sum')).to_csv(ROOT/'coverage_by_date.csv')
+
+
 def extraction_complete(model,panel):
     wanted = panel.groupby('ucid').covered.any()
     directory=SCR/'embeddings'/model
@@ -112,6 +120,26 @@ def extraction_complete(model,panel):
 def terminal(model,norm,design):
     dest=ROOT/'fits'/config_id(model,norm,design)
     return any((dest/name).exists() for name in ['COMPLETE.json','FAILED.json','UNSUPPORTED.json'])
+
+
+def recover_locks():
+    """Verify the owning process on its host before reclaiming an interrupted unit."""
+    grouped={}
+    for path in (SCR/'embeddings').glob('*/*.lock'):
+        try:
+            owner=json.loads(path.read_text());grouped.setdefault(owner['host'],[]).append((path,int(owner['pid'])))
+        except (ValueError,KeyError,OSError):continue
+    for host,entries in grouped.items():
+        ids=','.join(str(pid) for _,pid in entries)
+        try:
+            result=subprocess.run(['ssh','-o','BatchMode=yes','-o','ConnectTimeout=4',host,
+                 'ps -p '+ids+' -o pid=,args='],capture_output=True,text=True,timeout=10)
+            if result.returncode not in [0,1]:continue
+            active={int(line.strip().split(None,1)[0]) for line in result.stdout.splitlines()
+                    if 'src.data_mani.e206_tsfm_embeddings' in line}
+            for path,pid in entries:
+                if pid not in active:path.unlink(missing_ok=True)
+        except subprocess.TimeoutExpired:continue
 
 
 def collect():
@@ -148,6 +176,10 @@ def collect():
     counts=pd.Series(common).groupby(p.date).transform('sum').to_numpy()
     common &= counts>=2
     np.save(SCR/'common_rows.npy',common)
+    diagnostics=p[['row','ucid','date','covered']].copy()
+    for model in models:diagnostics[model+'_embedding_valid']=np.load(SCR/'embeddings'/model/'valid_rows.npy')
+    diagnostics['common_training_eligible']=common
+    parquet(ROOT/'embedding_coverage.parquet',diagnostics)
     save(ROOT/'EMBEDDINGS_READY.json',dict(models=models,common_rows=int(common.sum())))
 
 
@@ -331,6 +363,7 @@ def score():
             for side,weights in holds.items():
                 weights=np.array(weights);returns=N.account_portfolio(weights,np.array(ret));returns['date']=test_dates
                 returns['days']=[durations[d] for d in test_dates];returns['eligible_assets']=eligible_counts
+                returns['segment_wealth']=(1+returns.net).groupby(returns.segment).cumprod()
                 parquet(ROOT/'returns'/f'{name}_{universe}_{side}.parquet',returns)
                 np.savez_compressed(SCR/'holdings'/f'{name}_{universe}_{side}.npz',weights=weights,assets=assets,dates=test_dates)
                 accountable=returns.accountable.to_numpy() & (returns.eligible_assets.to_numpy()>=10)
@@ -453,7 +486,8 @@ def supervise():
     """Scheduling loop, bounded retries, physical capacity checks and scoped lease."""
     from src.cluster import hosts,manager,budget
     prepare()
-    stop=[False];owned={};attempts={};failures={}
+    prior=json.loads((ROOT/'supervisor.json').read_text()) if (ROOT/'supervisor.json').exists() else {}
+    stop=[False];owned=prior.get('owned',{});attempts=prior.get('attempts',{});failures=prior.get('failures',{})
     def halt(*_):stop[0]=True
     signal.signal(signal.SIGTERM,halt);signal.signal(signal.SIGINT,halt)
     save(ROOT/'resource_lease.json',dict(default_share=budget.SHARE,active_share=min(1.,budget.SHARE*2),
@@ -465,6 +499,7 @@ def supervise():
             snapshots=manager.status(names=[h.name for h in probes],timeout=3)
             live={r['unit'] for v in snapshots.values() for r in v if r['state'].startswith('active')}
             failed={r['unit'] for v in snapshots.values() for r in v if r['state'].startswith('failed')}
+            recover_locks()
             # Recover locks only after their owning study worker is no longer alive.
             for name,record in list(owned.items()):
                 if name in live:continue
@@ -490,6 +525,10 @@ def supervise():
                 # independent CPU claim workers while waiting for a free GPU.
                 for model in N.MODELS:
                     if model in complete or model in excluded:continue
+                    if model=='tabpfnts' and any(
+                        m not in complete+excluded and not any(r.get('model')==m and r['kind']=='extract' and r.get('gpu') for r in owned.values())
+                        for m in ['timestral','t0','chronos2']):
+                        continue
                     directory=SCR/'embeddings'/model
                     wanted=p.groupby('ucid').covered.any()
                     if not any(not (directory/f'asset_{a}.npz').exists() and not (directory/f'asset_{a}.lock').exists() for a in wanted.index[wanted]):continue
@@ -529,7 +568,7 @@ def supervise():
                         owned[placement.unit]=dict(descriptions[placement.job.name],host=placement.host,
                             cpus=list(placement.cpus),gpus=list(placement.gpus),command=placement.job.command)
                     print('LAUNCH',ok,message,flush=True)
-            save(ROOT/'supervisor.json',dict(updated=time.time(),completed_embeddings=complete,owned=owned,attempts=attempts,
+            save(ROOT/'supervisor.json',dict(updated=time.time(),completed_embeddings=complete,owned=owned,attempts=attempts,failures=failures,
                  completed_configurations=len(list((ROOT/'fits').glob('*/COMPLETE.json')))))
             save(ROOT/'resources'/f'{int(time.time())}.json',dict(hosts=[h.__dict__ for h in probes],units=snapshots,active_share=.60,default_share=budget.SHARE))
             # Fail explicitly after bounded recovery instead of waiting forever.
@@ -561,6 +600,7 @@ def supervise():
     finally:
         for unit,record in owned.items():
             manager.stop(record['host'],[unit],timeout=20)
+        recover_locks()
         save(ROOT/'resource_lease.json',dict(default_share=budget.SHARE,active_share=budget.SHARE,
              scope='E206 only; global default was never modified',status='restored',time=time.time()))
 

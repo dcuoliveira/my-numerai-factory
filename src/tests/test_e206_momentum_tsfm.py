@@ -146,3 +146,19 @@ def test_portfolio_scoring_report_and_configuration_accounting(tmp_path,monkeypa
     assert (E.ROOT/'paired_portfolio_returns.csv').exists()
     assert (E.ROOT/'validation_selected_configuration.json').exists()
     assert len(list((E.SCR/'holdings').glob('*.npz')))==16
+
+
+def test_interrupted_claims_recovered_only_after_owner_verification(tmp_path,monkeypatch):
+    from experiments import e206_momentum3_tsfm as E
+    from types import SimpleNamespace
+    monkeypatch.setattr(E,'SCR',tmp_path)
+    d=tmp_path/'embeddings'/'fake';d.mkdir(parents=True)
+    E.save(d/'dead.lock',dict(host='known-host',pid=11))
+    E.save(d/'alive.lock',dict(host='known-host',pid=12))
+    monkeypatch.setattr(E.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0,
+                stdout='12 python -m src.data_mani.e206_tsfm_embeddings --model fake\n'))
+    E.recover_locks()
+    assert not (d/'dead.lock').exists() and (d/'alive.lock').exists()
+    monkeypatch.setattr(E.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=255,stdout=''))
+    E.recover_locks()
+    assert (d/'alive.lock').exists()
