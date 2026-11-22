@@ -2252,6 +2252,12 @@ TSFM states alone are far below the 22 shipped features. Marginal value IN ADDIT
 
 **Launch (cluster manager):** `python3 -m src.cluster run --jobs experiments/e201_c2percoin_alpha.jobs` -> `python3 experiments/e201_c2percoin_alpha.py --fit --workers 6` (per-block checkpoints in `preds/<arm>.blocks/`, resumes on relaunch); then `--score`, `--report`, PDF via `python3 -m src.analysis.html_pdf`. Outputs `results/reports/crypto/e201_c2percoin_alpha/`; log `logs/cluster/e201_c2percoin_alpha.out`.
 
+**Findings (2026-11-22, report `results/reports/crypto/e201_c2percoin_alpha/E201_report.pdf`)**: NO IMPROVEMENT.
+- Per-coin alpha vs E192's shared alpha: OWN/LOO dev CORR +0.008 (t +2.2..+2.5, not Holm), test CORR -0.024..-0.027 (t <= -4.5) and test payout -0.016..-0.019 (t <= -3.6). It overfits, because each coin's ~40-date validation fold is too noisy. CAT: test unchanged.
+- 44% (OWN/LOO) and 59% (CAT) of tuned coins pick the 1e15 edge, which means intercept only (the coin's training mean).
+- LOO = OWN again. Adding v2.0 changes about nothing. CAT beats OWN on test (CORR +0.019, t +3.2, Holm 0.011), but mostly because per-coin alpha hurts OWN: A_CAT test payout 0.0324 < E192 C_OWN 0.0340.
+- Every arm's CORR stays below B_COV (test -0.039..-0.062). AV_CAT test payout ties B_COV (0.0337 vs 0.0330). This closes the per-coin ridge line on frozen Chronos-2 states.
+
 ### E202: top-four TSFM states on the 60-day label, residualised, blended with live slots (registered 2026-11-22)
 
 **Request (user):** "take those four models, regenerate the hidden states embedding features but using targe60d, then tune the downstream pridction model using target60d and then evaluate the same table but on targe20d. then redidualize the eight models, four trained on tareg20 and four trained on target60, then build test ensembles of those models and those models and the current models we have in place such as cu_sa_ia_bo_ma_r_01, cu_sa_ia_bo_ma_01, and cu_sa_ia_bo_02". "Those four" = the payout top four of E193-E197: N_TS_MM of Timestral (E197), TabPFN-TS (E194), Toto 2.0 (E193), t0 (E196).
