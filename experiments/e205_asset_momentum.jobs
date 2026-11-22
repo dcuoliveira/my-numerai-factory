@@ -1,0 +1,1 @@
+cores=8 ram=40 name=e205_asset_momentum -- python3 -u experiments/e205_asset_momentum.py run --workers 8

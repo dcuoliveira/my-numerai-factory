@@ -3894,20 +3894,21 @@ STUDIES["E204"] = {
 
 
 STUDIES["E205"] = {
-    "title": "Per-asset momentum definition/window/processing sweep: ridge and sklearn-initialised Torch MLP",
-    "idea": "User-requested E163 analogue with an independent model per permanent asset ID and signal. "
-            "All12 formulas x11 weekday lookbacks x3 distinct processings (CS, TS->CS, TS). "
-            "Fresh per-asset inner-MSE tuning: ridge100 alphas; Torch identityMLP80 frozen E163 KTZ candidates, "
-            "exact NumPy/sklearn weight AND bias initialisation only, five refit seeds. "
-            "Independent parameter blocks batched for compute; no pooled learning. Outer130/purge22/predict130; "
-            "inner68/purge22/validate40; dev labels before2026-02-20 only. Common causal signal coverage; "
-            "historical-asset-mean control, covered portfolios, native-ridge fallback rank-slot routing, fixed equal rank ensembles. "
-            "CORR/historical-meta proxyMMC/payout/drawdown, HAC20/block20, coverage and seed/fold diagnostics. "
-            "Standalone signal research, no marginal-feature/deployment claim or notifications. "
+    "title": "Per-asset TS momentum formula datasets: ridge and sklearn-initialised Torch MLP",
+    "idea": "User-requested12 formula datasets, each containing all11 TS-binned weekday-lookback variants as joint inputs. "
+            "24 portfolios =12 formulas x{ridge,mlp_torch}; separate scaler/model/tuning per permanent asset ID, "
+            "no pooled model, no one-hot encodings or cross-sectional signal processing. "
+            "Fresh inner asset-time MSE selection: ridge100 alphas; Torch identityMLP80 frozen E163 candidates, "
+            "exact NumPy/sklearn weights AND biases only, five refit seeds. Independent parameter blocks batched "
+            "for compute. Outer130/purge22/predict130; inner68/purge22/validate40; labels before2026-02-20 only. "
+            "Common causal coverage; per-asset historical-mean controls/fallback, covered portfolios and full-universe "
+            "rank-slot routing; fixed equal-rank12-formula/model and24-model ensembles. "
+            "CORR/historical-meta proxyMMC/payout/drawdown, HAC20/block20, coverage/asset/seed/fold diagnostics. "
+            "Standalone research, no marginal-feature/deployment claim or notifications. "
             "Writes OUTSIDE results/metrics/: results/reports/crypto/e205_asset_momentum/.",
     "runner": "experiments/e205_asset_momentum.py",
     "prefix": "e205_", "scout_prefix": None,
-    "models": ["ridge", "mlp_torch"], "expected_arms": 792,
+    "models": ["ridge", "mlp_torch"], "expected_arms": 24,
     "artifact_root": "results/reports/crypto/e205_asset_momentum",
 }
 
