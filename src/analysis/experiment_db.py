@@ -3913,6 +3913,21 @@ STUDIES["E205"] = {
 }
 
 
+STUDIES["E206"] = {
+    "title": "Momentum3 frozen TSFM embeddings: 72 per-asset ridge forecasting and portfolio configurations",
+    "idea": "crypto/v2.0-e205-ts-momentum3; frozen Timestral/t0/Chronos-2/TabPFN-TS, contextual pre-head states from each asset's own resolved label and33 momentum covariates. "
+            "Six standardizations x own/leave-one-out distribution/full training-universe concatenation =72 separately named configurations, fresh independent per-asset ridges. "
+            "Train before2024, validation2024 with35-calendar-day label resolution wall, final test2025-01-01..2026-02-19; no test tuning. "
+            "Original dataset and signal choices already explored in E205: reserved-grid test, not virgin signal confirmation. "
+            "Actual source-price top/bottom-decile portfolios, lag1 calendar day,10bps per traded notional, missing-price accountability; Numerai/proxyMMC separately. "
+            "Study-scoped scheduler share0.60 doubles default0.30 without mutating defaults; restore/expire scoped lease on completion/stop. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e206_momentum3_tsfm/; reusable frozen caches /scratch/danielco/e206_momentum3_tsfm/.",
+    "runner": "experiments/e206_momentum3_tsfm.py", "prefix": "e206_", "scout_prefix": None,
+    "models": ["timestral", "t0", "chronos2", "tabpfnts"], "expected_arms": 72,
+    "artifact_root": "results/reports/crypto/e206_momentum3_tsfm",
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
