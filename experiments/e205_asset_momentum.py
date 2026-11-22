@@ -213,7 +213,7 @@ def dense(frame, values, dates, assets):
 
 
 def fit_fold(model, family, block, tr, te, frame, params):
-    directory = ROOT/'tasks'/f'{model}__{family}'
+    directory = ROOT/'fits'/f'{model}__{family}'
     final = directory/f'block{block}.parquet'
     pickpath = directory/f'block{block}_picks.parquet'
     if final.exists() and pickpath.exists():
@@ -286,7 +286,7 @@ def run_task(task):
     model, family = task
     plan = verify()
     key = f'{model}__{family}'
-    done = ROOT/'tasks'/key/'COMPLETE.json'
+    done = ROOT/'fits'/key/'COMPLETE.json'
     if done.exists():
         return key
     prepared = json.loads((ROOT/'PREPARED.json').read_text())
@@ -298,14 +298,15 @@ def run_task(task):
     paths = [fit_fold(model, family, b, tr, te, frame, plan['candidates'][model])
              for b, tr, te in folds(dates)]
     sizes = [len(pd.read_parquet(p, columns=['row'])) for p in paths]
-    save(done, dict(task=key, host=socket.gethostname(), finished=time.time(), rows=sum(sizes), folds=len(paths)))
+    save(done, dict(task=dict(tag=key, model=model, family=family), host=socket.gethostname(),
+                    finished=time.time(), rows=sum(sizes), folds=len(paths)))
     return key
 
 
 def score_one(task, keys, fallback):
     model, family = task
     taskid = f'{model}__{family}'
-    frames = [pd.read_parquet(p) for p in sorted((ROOT/'tasks'/taskid).glob('block[0-9]*.parquet'))
+    frames = [pd.read_parquet(p) for p in sorted((ROOT/'fits'/taskid).glob('block[0-9]*.parquet'))
               if '_picks' not in p.name]
     raw = pd.concat(frames, ignore_index=True)
     assert not raw.duplicated(['row', 'seed']).any()
@@ -438,6 +439,9 @@ def finish(tasks):
                                    delta=mean, hac20_t=t, ci_low=ci[0], ci_high=ci[1], n=len(diff)))
     table = pd.DataFrame(table).sort_values(['sample', 'seed', 'mmc'], ascending=[True, True, False])
     table.to_csv(ROOT/'table.csv', index=False)
+    indexed = table[(table['sample'] == 'routed') & (table.seed == 'ensemble')
+                    & ~table.task.str.contains('fixed_equal_rank')].rename(columns={'task': 'tag'})
+    indexed.to_csv(ROOT/'all_model_window_rows.csv', index=False)
     pd.DataFrame(deltas).to_csv(ROOT/'paired_deltas.csv', index=False)
     daily.groupby(['task', 'sample', 'seed', 'arm', 'block'])[['corr', 'mmc', 'payout']].mean().to_csv(ROOT/'by_block.csv')
     make_report(table, pd.DataFrame(deltas), daily)

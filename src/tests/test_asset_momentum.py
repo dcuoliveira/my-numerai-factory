@@ -214,11 +214,17 @@ def test_complete_portfolio_scoring_and_fixed_24_model_ensemble(tmp_path, monkey
             p['prediction'] = rng.normal(size=len(p))
             p['asset_mean'] = (p.row.to_numpy() % 12)/12
             parts.append(p)
-        E.parquet(tmp_path/'tasks'/f'{model}__{family}'/'block0.parquet', pd.concat(parts, ignore_index=True))
+        E.parquet(tmp_path/'fits'/f'{model}__{family}'/'block0.parquet', pd.concat(parts, ignore_index=True))
+        E.save(tmp_path/'fits'/f'{model}__{family}'/'COMPLETE.json',
+               dict(task=dict(tag=f'{model}__{family}', model=model)))
     E.finish(tasks)
     table = pd.read_csv(tmp_path/'table.csv')
     assert table[table.seed == 'ensemble'].task.nunique() == 27
     assert len(reported) == 1
+    from src.analysis.experiment_db import scan_checkpoint_arms
+    indexed = scan_checkpoint_arms('E205', dict(artifact_root=str(tmp_path),
+              models=['ridge', 'mlp_torch'], prefix='e205_'))
+    assert len(indexed) == 24 and all(row[7] is not None for row in indexed)
     for model in ['ridge', 'mlp_torch', 'ALL24']:
         p = pd.read_parquet(tmp_path/'ensembles'/f'{model}__ALL12__fixed_equal_rank.parquet')
         p = p.merge(baseline[['row', 'baseline_rank']], on='row').merge(keys[['row', 'ucid']], on='row')
