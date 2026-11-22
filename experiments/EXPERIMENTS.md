@@ -2229,3 +2229,16 @@ The ranking between models is not tested (no paired Newey-West tests in this pas
 spread may be noise. Reading: swapping the foundation model does not change E189's answer -- frozen
 TSFM states alone are far below the 22 shipped features. Marginal value IN ADDITION to v2.0
 (E190-style merge) was not run.
+
+### E201: E192 with an independent ridge per coin, own alpha per coin (registered 2026-11-22)
+
+**Request (user):** "create a new experiment from E192 but instead of sharing alpha_b across coins estimate an independent ridge model per coin on the following dataset: own hidden state; own hidden state + v2.0; own hidden state + average of other assets hidden states; own hidden state + average of other assets hidden states + v2.0; concatenation of all hidden states for a given time step across all the assets in a flat way; concatenation ... + v2.0."
+
+**Design:** E192 unchanged (frozen Chronos-2-Synth RAW cov-mode states, cache `/scratch/danielco/c2syn`, panel `data/crypto/v2.0-asof-e189`, E131 11 dev blocks + test block 2026-02-20..2026-08-20, per-coin dual-form ridge with intercept, R_SLOT routing vs B_ALL, E189 scorer) except the penalty:
+- Each coin picks its own alpha per block: fit on the coin's rows in train[:-62], validate on its rows in the last 40 train dates (E189's purged split). One coin has one row per date, so there is no per-date ranking to score; the pick minimises the coin's validation MSE over a 49-point half-decade grid 1e-9..1e15 (the range E192's shared pick could reach with boundary expansion). Refit on all the coin's block training rows at that alpha.
+- Arms: `A_OWN` own state; `AV_OWN` own + 22 v2.0; `A_LOO` own | leave-one-out mean of the other covered coins; `AV_LOO` + v2.0; `A_CAT` every coin's state in fixed slots (date Gram, as E192); `AV_CAT` + v2.0.
+- Coins with >= 30 training rows but < 20 inner-fit or < 10 validation rows use the block's median coin alpha; coins with < 30 rows take the pooled twin's prediction, as in E192. Per-block alpha quantiles and edge-hit share are logged.
+- `--check`: for 3 coins x 4 non-CAT arms the per-coin pick equals a brute-force sklearn `Ridge` sweep on explicit features (passed). Many coins choose the top of the grid, i.e. the coin's own training mean; the share is reported.
+- Comparisons: each arm vs its E192 shared-alpha twin (`C_*`/`CV_*`), LOO and CAT vs OWN, +v2.0 vs state only, AV_* vs B_COV, vs pooled RAW/V_RAW; paired Newey-West lag 20, Holm over all pairs per window and metric.
+
+**Launch (cluster manager):** `python3 -m src.cluster run --jobs experiments/e201_c2percoin_alpha.jobs` -> `python3 experiments/e201_c2percoin_alpha.py --fit --workers 6` (per-block checkpoints in `preds/<arm>.blocks/`, resumes on relaunch); then `--score`, `--report`, PDF via `python3 -m src.analysis.html_pdf`. Outputs `results/reports/crypto/e201_c2percoin_alpha/`; log `logs/cluster/e201_c2percoin_alpha.out`.

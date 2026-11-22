@@ -3829,6 +3829,23 @@ STUDIES["E200"] = {
     "artifact_root": "results/reports/crypto/e200_cs_tuned",
 }
 
+STUDIES["E201"] = {
+    "title": "E192 with an independent ridge per coin (own alpha per coin): own / own+v2.0 / LOO / LOO+v2.0 / CAT / CAT+v2.0",
+    "idea": "E192's per-coin ridge on frozen Chronos-2-Synth RAW states (cache /scratch/danielco/c2syn, panel "
+            "data/crypto/v2.0-asof-e189, E131 blocks + test block 2026-02-20..2026-08-20, R_SLOT routing, E189 scorer) but "
+            "each coin picks its OWN alpha instead of one alpha per arm and block shared by all coins: validation MSE on the "
+            "coin's rows in E189's purged inner split (fit train[:-62], validate last 40), 49-pt half-decade grid 1e-9..1e15, "
+            "then refit on all the coin's block training rows. Arms A_OWN, AV_OWN (+22 v2.0), A_LOO, AV_LOO (own | "
+            "leave-one-out mean of other covered coins), A_CAT, AV_CAT (every coin's state in fixed slots via the date Gram). "
+            "Coins with >= 30 training rows but < 20 inner / < 10 validation rows take the block's median coin alpha; coins "
+            "< 30 rows take the pooled twin (as E192). Twins reused: E192 C_*/CV_* (shared alpha), RAW/V_RAW/B_COV/B_ALL. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e201_c2percoin_alpha/.",
+    "runner": "experiments/e201_c2percoin_alpha.py",
+    "prefix": "e201_", "scout_prefix": None,
+    "models": ["ridge"], "expected_arms": 6,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

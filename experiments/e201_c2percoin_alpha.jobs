@@ -1,0 +1,2 @@
+# E201: independent per-coin ridge on Chronos-2-Synth states (6 arms in parallel).
+cores=8 ram=60 name=e201_c2percoin_alpha -- python3 -u experiments/e201_c2percoin_alpha.py --fit --workers 6
