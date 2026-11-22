@@ -2287,3 +2287,18 @@ Design (`experiments/e203_volrep_slots.py`):
 - Caveat: the 9 measures were nominated on these same development folds, so this is development evidence only.
 
 Launch on `westeros` (the lab cluster is not reachable): `systemd-run --user --unit nmr-e203-wN python3 experiments/e203_volrep_slots.py worker --units 0-32 --search-jobs 8`, file-claim queue in `results/e203_volrep_slots/claims/`, then `assemble`. Output `results/e203_volrep_slots/`.
+
+### E204: rank blends of E191's LightGBM arms with three live slots (registered 2026-11-22)
+
+**Request (user, 2026-11-22):** "test a blend of L_REL_N_TS_MM, L_REL_RAW, L_OWN_RAW, cu_sa_ia_bo_ma_r_01, cu_sa_ia_bo_02, cu_r_ia_ma_60_01".
+
+**Design.** Members are the three E191 lgb arms (L_REL_N_TS_MM, L_REL_RAW, L_OWN_RAW), routed into B_ALL ranks exactly as E191 scored them, plus the backtest forecasts of CU_SA_IA_BO_MA_R_01, CU_SA_IA_BO_02 and CU_R_IA_MA_60_01 from `results/forecast/crypto/`. Every member and blend is scored on one row set: the slots' 300-coin universe x the 470 dates 2024-07-25..2026-05-13. Blends are per-date means of percentile ranks, with weights fixed before scoring:
+- BOOK3: the 3 slots, equal weight.
+- ALL6: all 6 members, equal weight.
+- BOOK3 + each lgb arm (1/4 each).
+- BOOK3 + L3: 50/50 book against lgb.
+- BOOK3 + L_REL_N_TS_MM at 10/20/30%, reported in full.
+
+corr is measured on target_binned_return_20 and mmc against the frozen E189 meta model; payout = 0.1 corr + mmc per date. Tests: paired Newey-West lag 20 vs BOOK3 and vs CU_SA_IA_BO_MA_R_01, Holm within (reference, metric). Caveat: the slot forecasts are backtests of slots chosen on this history, while the E191 arms are walk-forward. CU_R_IA_MA_60_01 holds a 60-day-fit member but is scored on the 20-day label, as in the registry.
+
+**Launch:** `python3 experiments/e204_blend_e191_slots.py` on deepfour, then `python3 -m src.analysis.html_pdf results/reports/crypto/e204_blend_e191_slots/E204_report.html` on lovelace. Outputs: `results/reports/crypto/e204_blend_e191_slots/`.

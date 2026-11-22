@@ -3880,6 +3880,19 @@ STUDIES["E203"] = {
 }
 
 
+STUDIES["E204"] = {
+    "title": "Fixed-weight rank blends of E191's three LightGBM arms with CU_SA_IA_BO_MA_R_01, CU_SA_IA_BO_02, CU_R_IA_MA_60_01",
+    "idea": "Per-date percentile-rank averages with weights fixed in advance (BOOK3 = the 3 slots equal; ALL6; BOOK3 + each "
+            "E191 lgb arm; BOOK3 + L3 50/50; BOOK3 + L_REL_N_TS_MM at 10/20/30%), every member and blend scored on one "
+            "row set (the slots' 300-coin backtest universe x 470 dates 2024-07-25..2026-05-13), corr on target 20, mmc vs "
+            "the frozen E189 meta model; NW lag 20 vs BOOK3 and vs CU_SA_IA_BO_MA_R_01, Holm. No fitting. Writes OUTSIDE "
+            "results/metrics/: results/reports/crypto/e204_blend_e191_slots/.",
+    "runner": "experiments/e204_blend_e191_slots.py",
+    "prefix": "e204_", "scout_prefix": None,
+    "models": ["blend"], "expected_arms": 15,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
