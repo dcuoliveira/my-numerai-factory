@@ -1659,6 +1659,8 @@ Design: `src.analysis.volatility_replacement --mlp-device cuda --mlp-widths 984 
 
 Status 2026-11-17 16:54: the 1x run (PID 52391) was on fold 0 of 11, at epoch 4,200 of 12,626 on the third input set. The 10x run had not started. The queue wrapper had died (`python: command not found`), so the 10x run and the add-on report will need a manual launch once the 1x run finishes.
 
+Stopped 2026-11-22 at the user's request, not finished. `westeros` rebooted on 2026-11-21 at 10:11, which killed the 1x run after folds 0-2 of 11. A resume then failed because `data/crypto/v2.0/train.parquet` had been refreshed to 2026-10-21 (526,696 rows against the frozen 525,196), and the CUDA checkpoint signature pins the old file's sha256. The 10x run never started and no add-on report was rendered. Checkpoints for folds 0-3 remain in `results/volatility_replacement_mlp_1m_1x/checkpoints/`. Resuming would need a frozen panel (rows dated on or before 2026-10-14) passed with `--panel`, plus a content-based input check in place of the byte hash.
+
 ### E183: TabNet with epochs tied to model size, TV schedule, raw + fenccausal (registered 2026-11-17)
 
 User request: add 10 CPU cores per machine as a one-off over the cluster limit, and create and run a version of E158 under a new registry entry, with TabNet on a new hyperparameter space whose epoch counts come from the Timmermann-Vulicevic (TV) computation rule for each sampled model size and dataset, without disturbing the TabNet experiments already running.
