@@ -122,6 +122,22 @@ def terminal(model,norm,design):
     return any((dest/name).exists() for name in ['COMPLETE.json','FAILED.json','UNSUPPORTED.json'])
 
 
+def unit_states(snapshots):
+    """systemctl adds .service; Placement.unit deliberately does not."""
+    active={r['unit'].removesuffix('.service') for rows in snapshots.values() for r in rows if r['state'].startswith('active')}
+    failed={r['unit'].removesuffix('.service') for rows in snapshots.values() for r in rows if r['state'].startswith('failed')}
+    return active,failed
+
+
+def placement_hosts(probes,owned,active):
+    """Enforce the scoped GPU share across already-running study placements too."""
+    from dataclasses import replace
+    occupied={}
+    for unit,r in owned.items():
+        if unit in active:occupied[r['host']]=occupied.get(r['host'],0)+len(r.get('gpus',[]))
+    return [replace(h,busy_gpus=tuple(range(h.gpus))) if occupied.get(h.name,0)>=int(.60*h.gpus) and h.gpus else h for h in probes]
+
+
 def recover_locks():
     """Verify the owning process on its host before reclaiming an interrupted unit."""
     grouped={}
@@ -488,6 +504,7 @@ def supervise():
     prepare()
     prior=json.loads((ROOT/'supervisor.json').read_text()) if (ROOT/'supervisor.json').exists() else {}
     stop=[False];owned=prior.get('owned',{});attempts=prior.get('attempts',{});failures=prior.get('failures',{})
+    launched=prior.get('all_launches',[dict(unit=u,**r) for u,r in owned.items()])
     def halt(*_):stop[0]=True
     signal.signal(signal.SIGTERM,halt);signal.signal(signal.SIGINT,halt)
     save(ROOT/'resource_lease.json',dict(default_share=budget.SHARE,active_share=min(1.,budget.SHARE*2),
@@ -497,8 +514,7 @@ def supervise():
         while not stop[0] and not (ROOT/'COMPLETE.json').exists():
             probes=hosts.reachable(hosts.probe_all(timeout=3))
             snapshots=manager.status(names=[h.name for h in probes],timeout=3)
-            live={r['unit'] for v in snapshots.values() for r in v if r['state'].startswith('active')}
-            failed={r['unit'] for v in snapshots.values() for r in v if r['state'].startswith('failed')}
+            live,failed=unit_states(snapshots)
             recover_locks()
             # Recover locks only after their owning study worker is no longer alive.
             for name,record in list(owned.items()):
@@ -555,7 +571,7 @@ def supervise():
                 if all(terminal(m,n,d) for m in N.MODELS for n in N.NORMS for d in N.DESIGNS):
                     score();break
             if jobs:
-                placements,unplaced=budget.distribute([j for j,_ in jobs],probes,share=.60,gpu_slots=None)
+                placements,unplaced=budget.distribute([j for j,_ in jobs],placement_hosts(probes,owned,live),share=.60,gpu_slots=None)
                 descriptions={j.name:r for j,r in jobs}
                 for placement in placements:
                     if placement.unit in live:continue
@@ -567,8 +583,10 @@ def supervise():
                         attempts[placement.job.name]=attempts.get(placement.job.name,0)+1
                         owned[placement.unit]=dict(descriptions[placement.job.name],host=placement.host,
                             cpus=list(placement.cpus),gpus=list(placement.gpus),command=placement.job.command)
+                        if not any(r['host']==placement.host and r['unit']==placement.unit for r in launched):
+                            launched.append(dict(unit=placement.unit,**owned[placement.unit]))
                     print('LAUNCH',ok,message,flush=True)
-            save(ROOT/'supervisor.json',dict(updated=time.time(),completed_embeddings=complete,owned=owned,attempts=attempts,failures=failures,
+            save(ROOT/'supervisor.json',dict(updated=time.time(),completed_embeddings=complete,owned=owned,attempts=attempts,failures=failures,all_launches=launched,
                  completed_configurations=len(list((ROOT/'fits').glob('*/COMPLETE.json')))))
             save(ROOT/'resources'/f'{int(time.time())}.json',dict(hosts=[h.__dict__ for h in probes],units=snapshots,active_share=.60,default_share=budget.SHARE))
             # Fail explicitly after bounded recovery instead of waiting forever.
@@ -598,8 +616,8 @@ def supervise():
         save(ROOT/'FAILED.json',dict(error=str(e),traceback=traceback.format_exc(),time=time.time()))
         raise
     finally:
-        for unit,record in owned.items():
-            manager.stop(record['host'],[unit],timeout=20)
+        for host in {r['host'] for r in launched}:
+            manager.stop(host,[r['unit'] for r in launched if r['host']==host],timeout=20)
         recover_locks()
         save(ROOT/'resource_lease.json',dict(default_share=budget.SHARE,active_share=budget.SHARE,
              scope='E206 only; global default was never modified',status='restored',time=time.time()))

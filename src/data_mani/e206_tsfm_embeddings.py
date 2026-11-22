@@ -34,7 +34,7 @@ CHECKPOINTS = {
 
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix('.tmp.json'); tmp.write_text(json.dumps(data, indent=2, default=str)); tmp.replace(path)
+    tmp = path.with_suffix(f'.{socket.gethostname()}_{os.getpid()}.tmp.json'); tmp.write_text(json.dumps(data, indent=2, default=str)); tmp.replace(path)
 
 
 def inputs(y, x, grid, step):
@@ -179,7 +179,8 @@ def run(model, device, smoke=False):
     features = [c for c in p if c.startswith('feature_')]
     grid = np.sort(p.date.to_numpy().astype('datetime64[D]').take(np.arange(len(p))))
     grid = np.unique(grid)
-    done_audit = (directory/'audit.json').exists() and json.loads((directory/'audit.json').read_text()).get('batch_verified',False)
+    device_audit=directory/('audit_'+device.replace(':','_')+'.json')
+    done_audit = device_audit.exists() and json.loads(device_audit.read_text()).get('batch_verified',False)
     for asset, frame in p.groupby('ucid', sort=True):
         if not frame.covered.any():
             continue
@@ -208,7 +209,9 @@ def run(model, device, smoke=False):
                 continue
             if not done_audit:
                 checks = audit(ext, y, x, grid, [s for s, _ in keep])
-                save(directory/'audit.json', dict(checks=checks, asset=int(asset), passed=True,batch_verified=True))
+                record=dict(checks=checks, asset=int(asset), passed=True,batch_verified=True,device=device,
+                            extractor_sha256=manifest['extractor_sha256'])
+                save(device_audit,record);save(directory/'audit.json',record)
                 done_audit = True
             if smoke:
                 print(json.dumps(dict(model=model, manifest=manifest, audit='PASS', seconds=time.time()-started)), flush=True)

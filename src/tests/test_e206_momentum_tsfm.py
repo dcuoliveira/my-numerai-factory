@@ -162,3 +162,16 @@ def test_interrupted_claims_recovered_only_after_owner_verification(tmp_path,mon
     monkeypatch.setattr(E.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=255,stdout=''))
     E.recover_locks()
     assert (d/'alive.lock').exists()
+
+
+def test_service_names_and_running_gpu_capacity_are_accounted_for():
+    from experiments import e206_momentum3_tsfm as E
+    from src.cluster.budget import Host,Job,distribute
+    host=Host(name='gpu-host',cores=32,ram_gb=256,gpus=2,busy_gpus=(0,))
+    snapshots={'gpu-host':[dict(unit='nmr-example.service',state='active/running')]}
+    active,failed=E.unit_states(snapshots)
+    assert active=={'nmr-example'} and not failed
+    owners={'nmr-example':dict(host='gpu-host',gpus=[0])}
+    adjusted=E.placement_hosts([host],owners,active)
+    placed,waiting=distribute([Job('second','true',gpus=1)],adjusted,share=.6)
+    assert not placed and len(waiting)==1
