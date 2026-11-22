@@ -232,3 +232,17 @@ def test_complete_portfolio_scoring_and_fixed_24_model_ensemble(tmp_path, monkey
         np.testing.assert_array_equal(p.loc[uncovered, 'routed'], p.loc[uncovered, 'baseline_rank'])
         for _, g in p.groupby('date'):
             np.testing.assert_array_equal(np.sort(g.routed), np.sort(g.baseline_rank))
+
+
+@pytest.mark.parametrize('model', ['ridge', 'mlp_torch'])
+def test_early_fold_with_no_eligible_training_assets(tmp_path, monkeypatch, model):
+    from experiments import e205_asset_momentum as E
+    monkeypatch.setattr(E, 'ROOT', tmp_path)
+    dates = pd.bdate_range('2020-01-01', periods=282).to_numpy()
+    frame = pd.DataFrame(dict(row=np.arange(len(dates)), date=dates, ucid=1,
+                              covered=False, **{E.TARGET: .5}))
+    for w in M.WINDOWS:
+        frame[f'feature_ts_{w}'] = np.nan
+    path = E.fit_fold(model, 'empty', 0, dates[:130], dates[152:], frame, [])
+    out = pd.read_parquet(path)
+    assert out.empty and {'row', 'prediction', 'seed', 'block'}.issubset(out)

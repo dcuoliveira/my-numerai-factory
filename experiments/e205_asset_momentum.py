@@ -220,10 +220,11 @@ def fit_fold(model, family, block, tr, te, frame, params):
         return final
     features = [f'feature_ts_{w}' for w in M.WINDOWS]
     covered = frame[frame.covered & np.isfinite(frame[features]).all(axis=1)]
-    train = covered[covered.date.isin(tr) & np.isfinite(covered[TARGET])]
+    train = covered[covered.date.isin(tr) & np.isfinite(covered[TARGET])].copy()
+    train['inner_row'] = train.date.isin(tr[:68]).astype('int64')
+    train['validation_row'] = train.date.isin(tr[-40:]).astype('int64')
     counts = train.groupby(train.ucid.astype(str)).agg(
-        n=('date', 'size'), ni=('date', lambda s: int(s.isin(tr[:68]).sum())),
-        nv=('date', lambda s: int(s.isin(tr[-40:]).sum())))
+        n=('row', 'size'), ni=('inner_row', 'sum'), nv=('validation_row', 'sum'))
     assets = counts.index[(counts.n >= 80) & (counts.ni >= 40) & (counts.nv >= 20)].to_numpy()
     test = covered[covered.date.isin(te) & covered.ucid.astype(str).isin(assets)].copy()
     if not len(assets) or not len(test):
