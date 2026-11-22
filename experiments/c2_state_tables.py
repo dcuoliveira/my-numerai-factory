@@ -97,6 +97,48 @@ CSS = ("body{font-family:Helvetica,Arial,sans-serif;font-size:9px;margin:18px;co
        "@page{size:A4 landscape;margin:10mm}")
 
 
+DELTA = [("payout", "payout"), ("sharpe.p", "sharpe.p"), ("maxdd.p", "maxdd.p")]
+
+
+def deltas(T):
+    """(state + v2.0) - (state only) for every row that has both, per window and metric."""
+    out = []
+    for lab, _ in DELTA:
+        d = (T[("hidden state + v2.0", lab)] - T[("hidden state", lab)]).dropna()
+        out.append(d.rename(lab))
+    return pd.concat(out, axis=1)
+
+
+def plot_deltas(D, path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    titles = [g for g, _ in groups()]
+    short = ["own state", "own + others' average", "all coins"]
+    fig, ax = plt.subplots(len(DELTA), len(titles), figsize=(11, 8.2), sharey="row")
+    rng = np.random.default_rng(0)
+    for i, (lab, _) in enumerate(DELTA):
+        for j, g in enumerate(titles):
+            a = ax[i, j]
+            sub = D[D.group == g]
+            data = [sub[sub.window == w][lab].values for w in ("dev", "test")]
+            a.boxplot(data, widths=.45, showfliers=False, medianprops=dict(color="#333"))
+            for k, (v, c) in enumerate(zip(data, ("#3b6ea8", "#c8702a"))):
+                a.scatter(k + 1 + rng.uniform(-.12, .12, len(v)), v, s=22, color=c, zorder=3, alpha=.85)
+            a.axhline(0, color="#888", lw=.8, ls="--")
+            a.set_xticks([1, 2], ["dev (n=%d)" % len(data[0]), "test (n=%d)" % len(data[1])])
+            if i == 0:
+                a.set_title(short[j], fontsize=10)
+            if j == 0:
+                a.set_ylabel("delta " + lab + ("  (+ = worse)" if lab == "maxdd.p" else ""))
+            a.grid(axis="y", alpha=.3)
+    fig.suptitle("(hidden state + v2.0) - (hidden state only), one point per model row", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
 def main():
     S = load()
     os.makedirs(OUT, exist_ok=True)
@@ -113,6 +155,23 @@ def main():
         T = build(S, rows)
         allt.append(T.assign(group=title).set_index("group", append=True))
         body += ["<h2>%s</h2>" % title, T.to_html(float_format=lambda x: "%.4f" % x, na_rep="", border=0)]
+    D = pd.concat([deltas(build(S, rows)).assign(group=t).reset_index() for t, rows in groups()])
+    D.to_csv(os.path.join(OUT, "c2_state_deltas.csv"), index=False)
+    png = os.path.join(OUT, "c2_state_deltas.png")
+    plot_deltas(D, png)
+    import base64
+    summ = D.groupby(["group", "window"])[[l for l, _ in DELTA]].agg(["count", "mean", "median", "min", "max"])
+    summ = summ.reindex([g for g, _ in groups()], level=0)
+    body += ["<h2 style='page-break-before:always'>What v2.0 adds: deltas (hidden state + v2.0) - (hidden state only)</h2>",
+             "<p>One delta per model row that was run both ways (pooled ridge on untransformed/TS_MM/GRP_MM/POOL_MM, "
+             "per-coin ridge with shared and per-coin alpha). Positive payout and sharpe.p deltas mean v2.0 helps; "
+             "a positive maxdd.p delta means a deeper drawdown (worse). Rows run only with v2.0 (E191, LightGBM) have "
+             "no delta. The own + average and all-coins groups have only the two per-coin rows each, so their "
+             "distributions are two points.</p>",
+             "<img style='width:100%%' src='data:image/png;base64,%s'>" % base64.b64encode(open(png, "rb").read()).decode(),
+             "<h3>Summary</h3>", summ.to_html(float_format=lambda x: "%.4f" % x, border=0),
+             "<h3>Every delta</h3>",
+             D.set_index(["group", "window", "model"]).to_html(float_format=lambda x: "%.4f" % x, border=0)]
     body.append("<p>Notes. Pooled ridge rows of the own-state table are E189 (state only, 36 transforms) and "
                 "E190 (+ v2.0, 4 transforms). The pooled + average row uses the leave-one-out mean of the coin's "
                 "size group (E191 2'), not of all coins; the per-coin rows use all covered coins. The pooled "
@@ -126,6 +185,7 @@ def main():
         for title, rows in groups():
             print("==", title)
             print(build(S, rows).round(4).to_string())
+        print(summ.round(4).to_string())
 
 
 if __name__ == "__main__":
