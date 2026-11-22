@@ -1,0 +1,4 @@
+cores=2 ram=16 gpu=1 name=e206_r01_tsm3_timestral_smoke -- /scratch/danielco/tsfm2/venv_tt/bin/python -u -m src.data_mani.e206_tsfm_embeddings --model timestral --device cuda:0 --smoke
+cores=2 ram=16 gpu=1 name=e206_r01_tsm3_t0_smoke -- /scratch/danielco/tsfm2/venv_tt/bin/python -u -m src.data_mani.e206_tsfm_embeddings --model t0 --device cuda:0 --smoke
+cores=2 ram=16 gpu=1 name=e206_r01_tsm3_chronos2_smoke -- /scratch/danielco/chronos2/venv/bin/python -u -m src.data_mani.e206_tsfm_embeddings --model chronos2 --device cuda:0 --smoke
+cores=2 ram=16 gpu=0 name=e206_r01_tsm3_tabpfnts_smoke -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.e206_tsfm_embeddings --model tabpfnts --device cpu --smoke
