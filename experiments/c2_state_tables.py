@@ -72,11 +72,11 @@ def groups():
             ("All coins' hidden states", cat)]
 
 
-def build(S, rows):
+def build(S, rows, windows=("dev", "test")):
     cols = pd.MultiIndex.from_tuples([(side, lab) for side in ("hidden state", "hidden state + v2.0")
                                       for _, lab in METRICS])
     idx, data = [], []
-    for kind in ("dev", "test"):
+    for kind in windows:
         for name, a, b in rows:
             vals, studies = [], []
             for arm in (a, b):
@@ -109,7 +109,7 @@ def deltas(T):
     return pd.concat(out, axis=1)
 
 
-def plot_deltas(D, path):
+def plot_deltas(D, path, windows=("dev", "test"), suffix=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -122,21 +122,56 @@ def plot_deltas(D, path):
         for j, g in enumerate(titles):
             a = ax[i, j]
             sub = D[D.group == g]
-            data = [sub[sub.window == w][lab].values for w in ("dev", "test")]
+            data = [sub[sub.window == w][lab].values for w in windows]
             a.boxplot(data, widths=.45, showfliers=False, medianprops=dict(color="#333"))
             for k, (v, c) in enumerate(zip(data, ("#3b6ea8", "#c8702a"))):
                 a.scatter(k + 1 + rng.uniform(-.12, .12, len(v)), v, s=22, color=c, zorder=3, alpha=.85)
             a.axhline(0, color="#888", lw=.8, ls="--")
-            a.set_xticks([1, 2], ["dev (n=%d)" % len(data[0]), "test (n=%d)" % len(data[1])])
+            a.set_xticks(range(1, len(windows) + 1), ["%s (n=%d)" % (w, len(v)) for w, v in zip(windows, data)])
             if i == 0:
                 a.set_title(short[j], fontsize=10)
             if j == 0:
                 a.set_ylabel("delta " + lab + ("  (+ = worse)" if lab == "maxdd.p" else ""))
             a.grid(axis="y", alpha=.3)
-    fig.suptitle("(hidden state + v2.0) - (hidden state only), one point per model row", fontsize=11)
+    fig.suptitle("(hidden state + v2.0) - (hidden state only), one point per model row" + suffix, fontsize=11)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
+
+
+STUDY_DIRS = [("E189", "e189_c2norm"), ("E190", "e190_c2norm_v2"), ("E191", "e191_c2cross"),
+              ("E192", "e192_c2percoin"), ("E201", "e201_c2percoin_alpha")]
+
+
+def full_sample(S):
+    """Add (arm, "full") rows: every metric recomputed from the per-period series over dev + test together.
+
+    Payout, Sharpe and drawdown come from one payout series per arm, never from the window summaries.
+    The dev rows are recomputed the same way first and checked against the stored tables."""
+    from types import SimpleNamespace
+    owner = {}
+    for study, d in STUDY_DIRS:
+        sc = pd.read_parquet(os.path.join(R, d, "scores.parquet"))
+        for arm, g in sc.groupby("arm"):
+            owner.setdefault(arm, (study, g))
+    worst = 0.0
+    for arm, (study, g) in owner.items():
+        for kind, h in (("dev", g[g.kind == "dev"]), ("test", g[g.kind == "test"]), ("full", g)):
+            h = h.sort_values("date")
+            pay = h["payout"].dropna()
+            cum = pay.cumsum()
+            m = dict(corr=h["corr"].mean(), mmc=h.loc[pay.index, "mmc"].mean(), payout=pay.mean(),
+                     pay_sharpe=pay.mean() / pay.std(ddof=0), pay_dd=float((cum.cummax() - cum).max()),
+                     n_corr=int(h["corr"].notna().sum()), n_pay=len(pay))
+            if kind == "full":
+                S[(arm, "full")] = (study, SimpleNamespace(**m))
+            elif (arm, kind) in S:
+                ref = S[(arm, kind)][1]
+                worst = max(worst, max(abs(m[k] - getattr(ref, k)) for k, _ in METRICS))
+    print("recomputed dev/test vs stored tables, max abs diff %.2e" % worst)
+    assert worst < 1e-9, worst
+    n = S[("RAW", "full")][1]
+    return n.n_corr, n.n_pay
 
 
 def main():
@@ -172,6 +207,30 @@ def main():
              "<h3>Summary</h3>", summ.to_html(float_format=lambda x: "%.4f" % x, border=0),
              "<h3>Every delta</h3>",
              D.set_index(["group", "window", "model"]).to_html(float_format=lambda x: "%.4f" % x, border=0)]
+    nc, npay = full_sample(S)
+    bf = S[("B_COV", "full")][1]
+    body += ["<h1 style='page-break-before:always'>Full sample: dev and test together</h1>",
+             "<p>The same tables and deltas over the whole evaluated period, %d CORR dates and %d payout dates. Every metric "
+             "is recomputed from each arm's per-period series over both windows, not averaged from the dev and test "
+             "rows; the script recomputes the dev and test rows the same way and checks they match the stored tables "
+             "to 1e-9. For reference, B_COV over the full sample: CORR %.4f, payout %.4f, sharpe.p %.4f, maxdd.p %.4f.</p>"
+             % (nc, npay, bf.corr, bf.payout, bf.pay_sharpe, bf.pay_dd)]
+    for title, rows in groups():
+        T = build(S, rows, windows=("full",))
+        allt.append(T.assign(group=title).set_index("group", append=True))
+        body += ["<h2>%s (full sample)</h2>" % title,
+                 T.droplevel("window").to_html(float_format=lambda x: "%.4f" % x, na_rep="", border=0)]
+    DF = pd.concat([deltas(build(S, rows, windows=("full",))).assign(group=t).reset_index() for t, rows in groups()])
+    DF.to_csv(os.path.join(OUT, "c2_state_deltas_full.csv"), index=False)
+    pngf = os.path.join(OUT, "c2_state_deltas_full.png")
+    plot_deltas(DF, pngf, windows=("full",), suffix=", full sample")
+    summf = DF.groupby("group")[[l for l, _ in DELTA]].agg(["count", "mean", "median", "min", "max"])
+    summf = summf.reindex([g for g, _ in groups()])
+    body += ["<h2 style='page-break-before:always'>What v2.0 adds over the full sample</h2>",
+             "<img style='width:100%%' src='data:image/png;base64,%s'>" % base64.b64encode(open(pngf, "rb").read()).decode(),
+             "<h3>Summary (full sample)</h3>", summf.to_html(float_format=lambda x: "%.4f" % x, border=0),
+             "<h3>Every delta (full sample)</h3>",
+             DF.drop(columns="window").set_index(["group", "model"]).to_html(float_format=lambda x: "%.4f" % x, border=0)]
     body.append("<p>Notes. Pooled ridge rows of the own-state table are E189 (state only, 36 transforms) and "
                 "E190 (+ v2.0, 4 transforms). The pooled + average row uses the leave-one-out mean of the coin's "
                 "size group (E191 2'), not of all coins; the per-coin rows use all covered coins. The pooled "
@@ -186,6 +245,10 @@ def main():
             print("==", title)
             print(build(S, rows).round(4).to_string())
         print(summ.round(4).to_string())
+        for title, rows in groups():
+            print("== full:", title)
+            print(build(S, rows, windows=("full",)).round(4).to_string())
+        print(summf.round(4).to_string())
 
 
 if __name__ == "__main__":
