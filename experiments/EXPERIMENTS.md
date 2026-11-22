@@ -1945,6 +1945,13 @@ Verdict: **no reliable winner; no normalisation makes frozen Chronos-2-Synth sta
 
 **Launch:** `python3 experiments/e191_c2cross.py --fit --arms ...` (ridge arms on deepfour; lgb arms via `python3 -m src.cluster run --jobs experiments/e191_c2cross.jobs`), then `--score`, `--report`. Outputs: `results/reports/crypto/e191_c2cross/`.
 
+**Findings (2026-11-22): NO IMPROVEMENT.** Dev payout, sorted (B_ALL 0.1021, B_COV 0.1004): L_REL_N_TS_MM 0.0863, L_REL_RAW 0.0782, L_OWN_RAW 0.0775, L_B_COV 0.0744, G_N_POOL_MM 0.0729, V_N_POOL_MM 0.0722, ... M_RAW 0.0461 (full table `results/reports/crypto/e191_c2cross/table_by_payout.csv`, report `E191_report.pdf`).
+- 2' (G_*) ties its own-state control on every transform (payout delta -0.003..+0.001, none Holm-significant), and all four lose to B_COV on payout after Holm. Peer-group context adds nothing.
+- 3' (M_*) is strictly worse: CORR 0.015-0.038 below the own-state control (Holm p <= 0.003, all four), and payout lower (M_RAW -0.013, Holm 0.002). The 512 interaction columns add variance under one shared ridge alpha. Test shows M_N_POOL_MM/M_RAW +0.011 payout over control (t ~2.5, Holm 0.16), the opposite sign to dev, so it is not a lead.
+- 2'' (L_*): trees are the best E191 family, but the gain comes from the model class. The own state adds nothing to LightGBM on v2.0 (L_OWN_RAW vs L_B_COV +0.003, t +0.51), and neither does the relative state (L_REL_RAW vs L_OWN_RAW +0.0007, t +0.79). L_REL_N_TS_MM is +0.012 over L_B_COV (t +1.68, Holm 0.75). Every L arm trails ridge B_COV on payout by 0.014-0.026. One seed only.
+- Confirmation (test): null throughout.
+- With E143/E146/E189/E190, this closes frozen Chronos-2-Synth states as features: own or cross-asset, linear or tree.
+
 ### E192: options 1-3 for the Chronos-2-Synth state, one ridge per coin (registered 2026-11-20)
 
 **Request (user):** "What if instead of estimating ridge in the panel of assets I estimate it one asset at a time and then put them together? Does my original 2 and 3 work in that case?" then "Run my original 2 and 3 per coin then." The original options: (1) own hidden state, (2) own hidden state + average of the other assets' hidden states, (3) flat concatenation of all assets' hidden states for the time step.
