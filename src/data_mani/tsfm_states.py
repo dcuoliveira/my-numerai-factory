@@ -19,6 +19,12 @@ last hidden state of the TARGET series at the forecast position holding D's step
 forecasting head reads for D. No pooling, PCA or quantiles. Output: /scratch/danielco/tsfmstates/<model>/
 part_XXX.npz with cov_rows (row ids into the panel sorted by date, ucid) and cov_reps (float16), the same
 layout as /scratch/danielco/c2syn so experiments/e189_c2norm.py reads it with --tsfm <model>.
+
+--target 60 (E202): the label series fed to the model is target_binned_return_60 instead, and the wall
+moves to D - 91 days. In the frozen panel the last resolved 60-day label is 56 days older than the last
+20-day one (2026-08-24 vs 2026-10-19), so the 60-day wall is the 20-day wall plus 56 days. The row set
+is then the same rule on the 60-day label (>= 32 resolved labels in the 256-step context), computed
+independently by expected_covered() and asserted part by part; output /scratch/danielco/tsfmstates60/.
 """
 import argparse
 import glob
@@ -35,6 +41,8 @@ from src.data_mani import chronos2_syn_repr as C
 PANEL = "data/crypto/v2.0-asof-e189/train.parquet"
 C2CACHE = "/scratch/danielco/c2syn"
 OUT = "/scratch/danielco/tsfmstates"
+OUT60 = "/scratch/danielco/tsfmstates60"
+T60, WALL60 = "target_binned_return_60", 91
 LAST = np.datetime64("2026-08-20")
 PART = 50                           # grid steps per part file (same blocks as c2syn)
 MODELS = ("toto", "tabpfnts", "tempopfn", "t0", "timestral")
@@ -44,6 +52,25 @@ def covered_ids():
     """E189's covered row ids (the Chronos-2 cov cache), as a set of panel row ids."""
     ids = [np.load(f)["cov_rows"] for f in sorted(glob.glob(os.path.join(C2CACHE, "part_*.npz")))]
     return np.unique(np.concatenate(ids))
+
+
+def expected_covered(df, grid, walls):
+    """
+    Row ids the context rule covers, computed without row_inputs: per coin, a cumulative count of
+    resolved labels on the grid; row (ucid, step s) is covered iff wall(s) >= 0 and the count over
+    steps (wall - CTX, wall] is >= MIN_OBS. Same rule, independent code -- the cross-check.
+    """
+    out = []
+    y = df[C.TARGET].to_numpy()
+    st = df["step"].to_numpy()
+    for _, idx in df.groupby("ucid").indices.items():
+        have = np.zeros(len(grid) + 1, "int64")
+        have[st[idx] + 1] = np.isfinite(y[idx])
+        c = np.cumsum(have)                                   # c[k] = resolved labels on steps < k
+        w = walls[st[idx]]
+        n = c[w + 1] - c[np.maximum(w + 1 - C.CTX, 0)]
+        out.append(idx[(w >= 0) & (n >= C.MIN_OBS)])
+    return np.sort(np.concatenate(out))
 
 
 def row_inputs(coins, rows, step, wall, last_date):
@@ -102,8 +129,21 @@ def main():
                     help="ignore --shard: take parts from the LAST one down, claiming each with an O_EXCL lock file "
                          "(extra workers next to running shards; a part both start is computed twice, written once)")
     ap.add_argument("--audit-cut", nargs="+", default=None)
+    ap.add_argument("--target", type=int, choices=(20, 60), default=20)
+    ap.add_argument("--check-rule", action="store_true",
+                    help="assert expected_covered() reproduces the Chronos-2 cache's row set on the 20-day label, exit")
     a = ap.parse_args()
-    out = os.path.join(OUT, a.model)
+    if a.check_rule:
+        df, feats, grid = C.load_panel(PANEL)
+        e = expected_covered(df, grid, C.wall_steps(grid))
+        e = e[df.loc[e, "date"].to_numpy() <= LAST]
+        c2 = covered_ids()
+        c2 = c2[df.loc[c2, "date"].to_numpy() <= LAST]
+        print("expected_covered %d rows, c2 cache %d, equal %s" % (len(e), len(c2), np.array_equal(e, c2)))
+        return
+    if a.target == 60:
+        C.TARGET, C.WALL_DAYS = T60, WALL60                   # coin_arrays / wall_steps / load_panel(cut) read these
+    out = os.path.join(OUT60 if a.target == 60 else OUT, a.model)
     ext = load_adapter(a.model, a.device)
 
     if a.audit_cut:
@@ -126,8 +166,9 @@ def main():
     by_step = df.groupby("step").indices
     steps = [s for s in range(len(grid)) if walls[s] >= 0 and grid[s] <= LAST]
 
+    rule = expected_covered(df, grid, walls) if a.target == 60 else None
     if a.smoke:
-        cov = set(covered_ids().tolist())
+        cov = set((covered_ids() if rule is None else rule).tolist())
         for s in (steps[200], steps[-40]):
             t0 = time()
             ids, reps = run_step(ext, coins, df, by_step, grid, walls, s)
@@ -143,7 +184,7 @@ def main():
         return
 
     os.makedirs(out, exist_ok=True)
-    cov = covered_ids()
+    cov = covered_ids() if rule is None else rule[df.loc[rule, "date"].to_numpy() <= LAST]
     parts = [steps[i:i + PART] for i in range(0, len(steps), PART)]
     order = list(enumerate(parts))[::-1] if a.claim else list(enumerate(parts))
     for k, block in order:
@@ -166,10 +207,11 @@ def main():
         I, R = np.concatenate(I), np.concatenate(R)
         lo, hi = by_step[block[0]].min(), by_step[block[-1]].max()
         want = cov[(cov >= lo) & (cov <= hi)]
-        assert np.array_equal(np.sort(I), want), "row set differs from E189's covered set in part %d" % k
+        assert np.array_equal(np.sort(I), want), "row set differs from the covered set in part %d" % k
         np.savez(path + ".tmp.npz", cov_rows=I, cov_reps=R)
         os.replace(path + ".tmp.npz", path)
         json.dump({"model": a.model, "checkpoint": ext.checkpoint, "dim": ext.dim, "panel": PANEL,
+                   "target": C.TARGET, "wall_days": C.WALL_DAYS,
                    "notes": getattr(ext, "notes", ""), "amp": os.environ.get("TSFM_AMP", "fp16")},
                   open(os.path.join(out, "manifest.json"), "w"), indent=1)
         print("part %d/%d: %s..%s, %d rows, %.1f min" % (k + 1, len(parts), str(grid[block[0]])[:10],

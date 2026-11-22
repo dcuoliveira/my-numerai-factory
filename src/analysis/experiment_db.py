@@ -3846,6 +3846,23 @@ STUDIES["E201"] = {
 }
 
 
+STUDIES["E202"] = {
+    "title": "Top-four TSFM states on the 60-day label: 60d states + 60d ridge scored on 20d, meta-residualised, blended with three live slots",
+    "idea": "The four best E193-E197 arms (N_TS_MM of Timestral, TabPFN-TS, Toto 2.0, t0) re-extracted with target_binned_return_60 as the "
+            "label series (wall D-91d = E189's D-35d + the 56 days the 60-day label lags the 20-day one in the frozen panel; same 256-step "
+            "context and >=32-label rule on the 60-day label, 417,199 covered rows), ridge tuned and fitted on the 60-day label (outer "
+            "train window 130 dates ending 78 dates before each E131 block so every 60-day label is resolved at block start; inner split "
+            "E189's), scored routed on the payable 20-day label as in E193. Reference B_ALL60 = v2.0 ridge on the 60-day label. Then the "
+            "eight models (4 x 20d from E193-E197, 4 x 60d) meta-residualised (E107 transform, src.prediction.meta_resid, strength 0.5, "
+            "meta lag 5d) and screened as prediction-level rank-average blends with CU_SA_IA_BO_MA_R_01, CU_SA_IA_BO_MA_01, CU_SA_IA_BO_02 "
+            "on their common window, picked on dates < 2026-02-20, read on the rest. Writes OUTSIDE results/metrics/ for the fits: states "
+            "/scratch/danielco/tsfmstates60/<model>/, preds/scores/tables results/reports/crypto/e202_tsfm_t60/; the 16 exported runs go "
+            "to results/{forecast,per_period,metrics}/crypto/tsfm_states/e202_*.",
+    "runner": "experiments/e202_tsfm_t60.py",
+    "prefix": "e202_", "scout_prefix": None,
+    "models": ["tsfm_states"], "expected_arms": 16,
+}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
