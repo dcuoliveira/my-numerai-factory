@@ -480,7 +480,7 @@ def make_report(table, deltas, daily):
     body += 'The final return holdout remains closed. Outer rankings are exploratory.</p>'
     body += '<h2>Fixed portfolios, defined before scoring</h2>'+routed[routed.task.str.contains('fixed_equal_rank')].to_html(index=False)
     body += '<img style="width:100%" src="fixed_ensemble_payout.png">'
-    body += '<h2>All per-signal portfolios — seed ensemble, sorted by proxy MMC</h2>'+primary.to_html(index=False)
+    body += '<h2>All per-signal portfolios — seed ensemble, sorted by payout (descending)</h2>'+primary.sort_values('payout', ascending=False, kind='stable').to_html(index=False)
     body += '<h2>Paired portfolio deltas</h2>'+deltas[deltas.seed == 'ensemble'].to_html(index=False)
     body += '<h2>Audit and limitations</h2><pre>'+html.escape(json.dumps(audit, indent=2))+'</pre>'
     body += '<h2>Frozen study design</h2><pre>'+html.escape((ROOT/'registration.json').read_text())+'</pre>'
