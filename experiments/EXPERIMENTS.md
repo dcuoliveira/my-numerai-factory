@@ -2288,6 +2288,17 @@ Design (`experiments/e203_volrep_slots.py`):
 
 Launch on `westeros` (the lab cluster is not reachable): `systemd-run --user --unit nmr-e203-wN python3 experiments/e203_volrep_slots.py worker --units 0-32 --search-jobs 8`, file-claim queue in `results/e203_volrep_slots/claims/`, then `assemble`. Output `results/e203_volrep_slots/`.
 
+
+**Findings (2026-11-22) -- NO IMPROVEMENT.** All 33 units (11 folds x B_all/B_cov/F_cov) finished on westeros and were assembled with routing asserts passing on every date. Scored on target_binned_return_20, 468 dates with meta (2024-05-07 to 2026-02-19). old vol = Route(B_cov, B_all), new vol = Route(F_cov, B_all):
+
+| slot | old corr | old mmc | old payout | old sharpe.p | old maxdd.p | new corr | new mmc | new payout | new sharpe.p | new maxdd.p |
+|---|---|---|---|---|---|---|---|---|---|---|
+| cu_sa_ia_bo_02 | 0.16366 | 0.09291 | 0.10928 | 1.39990 | 0.71915 | 0.15811 | 0.09189 | 0.10770 | 1.39644 | 0.59625 |
+| cu_sa_ia_bo_ma_01 | 0.16042 | 0.08867 | 0.10471 | 1.34334 | 0.83801 | 0.15776 | 0.08902 | 0.10480 | 1.33494 | 0.64203 |
+| cu_sa_ia_bo_ma_r_01 | 0.14048 | 0.09200 | 0.10604 | 1.24337 | 0.96910 | 0.13192 | 0.08995 | 0.10314 | 1.19296 | 0.99979 |
+
+Paired new - old payout (NW lag 20): -0.00158 (t -0.46), +0.00008 (t +0.03), -0.00290 (t -0.65). CORR falls for all three; only cu_sa_ia_bo_ma_r_01's -0.00855 (t -2.02) clears |t|>=2, in the wrong direction. The untouched B_all beats both routed arms on corr/mmc/payout/sharpe.p (payout 0.1155 / 0.1111 / 0.1187). Missing-value audit: PASS WITH CONDITIONS -- matched keys and finite predictions verified per fold; conditions are that the 9 measures were selected on these same folds (biased toward new vol) and coverage is reconstructed from today's price download with no live replay. Report: `results/reports/crypto/e203_volrep_slots.pdf`; outputs `results/e203_volrep_slots/`.
+
 ### E204: rank blends of E191's LightGBM arms with three live slots (registered 2026-11-22)
 
 **Request (user, 2026-11-22):** "test a blend of L_REL_N_TS_MM, L_REL_RAW, L_OWN_RAW, cu_sa_ia_bo_ma_r_01, cu_sa_ia_bo_02, cu_r_ia_ma_60_01".
