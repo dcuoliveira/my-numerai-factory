@@ -290,7 +290,7 @@ def nw_t(series, lag=20):
     return x.mean() / np.sqrt(var / n)
 
 
-def assemble():
+def assemble(fold_numbers=range(11), tag=""):
     from src.prediction.metrics import summarize
     meta = pd.read_parquet(META, columns=["id", "date", "prediction"]).rename(
         columns={"id": "ucid", "prediction": "meta"})
@@ -298,7 +298,7 @@ def assemble():
     keys = pd.read_parquet(OUT / "scored_keys_full.parquet").merge(
         meta, on=["date", "ucid"], how="left", validate="one_to_one")
     rows = []
-    for fold_no in range(11):
+    for fold_no in fold_numbers:
         frames = {arm: pd.read_parquet(OUT / "leaves" / f"fold{fold_no:02d}_{arm}.parquet") for arm in ARMS}
         full = frames["B_all"]
         full = full.merge(keys, on=["date", "ucid"], how="left", validate="one_to_one")
@@ -337,7 +337,7 @@ def assemble():
         print(f"fold {fold_no} assembled", flush=True)
     scores = pd.DataFrame(rows)
     scores["payout"] = .1 * scores["corr"] + scores.mmc
-    scores.to_parquet(OUT / "scores.parquet", index=False)
+    scores.to_parquet(OUT / f"scores{tag}.parquet", index=False)
     window = scores.dropna(subset=["mmc"])
     table, deltas = {}, []
     for slot in SLOTS:
@@ -355,14 +355,14 @@ def assemble():
             deltas.append(dict(slot=slot, metric=metric, delta=d.mean(), t_nw20=nw_t(d), n=len(d)))
     out = pd.DataFrame(table).T
     out.index.names = ["slot", "arm"]
-    out.to_csv(OUT / "summary_long.csv")
-    pd.DataFrame(deltas).to_csv(OUT / "paired_deltas.csv", index=False)
+    out.to_csv(OUT / f"summary_long{tag}.csv")
+    pd.DataFrame(deltas).to_csv(OUT / f"paired_deltas{tag}.csv", index=False)
     wide = out.loc[(slice(None), ["old vol", "new vol"]), ["corr", "mmc", "payout", "sharpe.p", "maxdd.p"]]
     wide = wide.unstack("arm").swaplevel(0, 1, axis=1)
     wide = wide.reindex(columns=pd.MultiIndex.from_product(
         [["old vol", "new vol"], ["corr", "mmc", "payout", "sharpe.p", "maxdd.p"]]))
     wide.index = [s.lower() for s in wide.index]
-    wide.to_csv(OUT / "table.csv")
+    wide.to_csv(OUT / f"table{tag}.csv")
     print(wide.round(5).to_string())
     print(pd.DataFrame(deltas).round(5).to_string(index=False))
 
@@ -412,12 +412,14 @@ def main():
     w = sub.add_parser("worker")
     w.add_argument("--units", required=True, help="e.g. 0-10 or 3,7")
     w.add_argument("--search-jobs", type=int, default=8)
-    sub.add_parser("assemble")
+    a = sub.add_parser("assemble")
+    a.add_argument("--folds", type=int, nargs="+", default=list(range(11)))
+    a.add_argument("--tag", default="")
     args = parser.parse_args()
     if args.cmd == "validate":
         return validate()
     if args.cmd == "assemble":
-        return assemble()
+        return assemble(args.folds, args.tag)
     spec = args.units
     units = (list(range(int(spec.split("-")[0]), int(spec.split("-")[1]) + 1)) if "-" in spec
              else [int(u) for u in spec.split(",")])
