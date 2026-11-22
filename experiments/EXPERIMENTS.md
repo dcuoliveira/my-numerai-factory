@@ -2265,3 +2265,19 @@ TSFM states alone are far below the 22 shipped features. Marginal value IN ADDIT
 - Repo-standard report: `python3 -m src.analysis.report_pdf --model tsfm_states --runs 'e202_*'` (deployed slots included by default), plus the study PDF from the runner.
 
 **Launch:** extraction as systemd user units on one GPU per box (deepfive card 1, deepsix card 0; the other three cards are held by another user's jobs), TabPFN-TS also on CPU claim workers through `src.cluster`; then `python3 experiments/e202_tsfm_t60.py --setup / --fit / --score / --export / --ensembles / --report`, chained by `experiments/e202_orchestrate.py` (unit `nmr-e202-orchestrate`). Logs `logs/tsfm/e202_*.log`.
+
+
+### E203: CU_SA_IA_BO_02, CU_SA_IA_BO_MA_01 and CU_SA_IA_BO_MA_R_01 with the 9 replacement volatility measures (registered 2026-11-22)
+
+User request: retrain `cu_sa_ia_bo_02`, `cu_sa_ia_bo_ma_01` and `cu_sa_ia_bo_ma_r_01` from scratch, replacing the volatility features of their base datasets with the 9 proposed volatility measures (E182's parent study, `experiments/volatility_proxies.md`) and the needed one-hot encodings; recompute any dataset that computes statistics of v2.0; report a table with the three slots as rows and columns old vol / new vol x corr, mmc, payout, sharpe.p, maxdd.p.
+
+Design (`experiments/e203_volrep_slots.py`):
+- Panel: `data/crypto/v2.0/train.parquet` frozen to the keys of `results/volatility_replacement/v2.0_volatility_replacement.parquet` (through 2026-10-14), with the frozen 60-day targets; 525,196 rows, 449,697 with all 9 measures.
+- Leaves: SACI_04 (lgb, raw, pinned), CURUPIRA_04 (ridge_glmnet, allfeat_pp), CURUPIRA_05 and CURUPIRA_05_60 (five-member ridge blends, allfeat_pp; the latter on the 60-day label, window ending 40 dates earlier), IA_01 (mlp, fenccausal, searched), IA_02 (mlp, fenccausal, pinned), MA_FENC (rf_ktz, fenccausal), MA_ALLFEAT (rf_ktz, allfeat). Each refitted with `src.live.refit.fit_one` (the live 50-draw purged-CV search or pinned params) on the 130-date training window of each of the 11 development folds in `results/volatility_proxies/ewma/folds.csv`, predicting the 130-date test block.
+- Arms (missing-value standard): `B_all` deployed builders on the full universe; `B_cov` ("old vol") deployed builders on rows where all 9 measures exist; `F_cov` ("new vol") with feature_volatility_20d/60d replaced by the 9 measures on the same rows.
+- Recomputed statistics in `F_cov`: causal per-symbol means of every raw column (NaN-aware count for the 9 new ones), rolling means 5/20/60 of the 9 new measures in place of the two volatility columns, the volatility spread replaced by the 40d-120d spreads of idiosyncratic and Rogers-Satchell volatility, and the three volatility products computed on the row mean of the 9 measures. One-hot vocabulary (>= 130 dates) taken from each arm's own historical rows.
+- Gate: the old-arm builder reproduces the deployed `build_features` for raw / fenccausal / allfeat / allfeat_pp exactly (fold 0, passed).
+- Slots: rank-averaged inside each arm with the registry weights; `resid` legs residualised on the meta model lagged 5 days (E107, strength 0.5). Covered slot ranks are routed into the `B_all` slot's rank positions, so uncovered coins are identical across old and new. Scored on `target_binned_return_20` over the dates with meta predictions; payout = 0.1 corr + mmc per date; paired Newey-West (lag 20) on new - old.
+- Caveat: the 9 measures were nominated on these same development folds, so this is development evidence only.
+
+Launch on `westeros` (the lab cluster is not reachable): `systemd-run --user --unit nmr-e203-wN python3 experiments/e203_volrep_slots.py worker --units 0-32 --search-jobs 8`, file-claim queue in `results/e203_volrep_slots/claims/`, then `assemble`. Output `results/e203_volrep_slots/`.

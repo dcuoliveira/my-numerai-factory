@@ -3863,6 +3863,23 @@ STUDIES["E202"] = {
     "models": ["tsfm_states"], "expected_arms": 16,
 }
 
+STUDIES["E203"] = {
+    "title": "CU_SA_IA_BO_02 / _MA_01 / _MA_R_01 retrained from scratch with the 9 replacement volatility measures",
+    "idea": "Every leaf under the three slots (SACI_04, CURUPIRA_04, CURUPIRA_05 + 5 members, CURUPIRA_05_60 + 5 members, "
+            "IA_01, IA_02, MA_FENC, MA_ALLFEAT) refitted with the live protocol (src.live.refit.fit_one) on the 11 "
+            "volatility-replacement development folds, 3 arms per the missing-value standard: B_all (deployed features, full "
+            "universe), B_cov (deployed features on rows with all 9 new measures, 'old vol'), F_cov (feature_volatility_20d/60d "
+            "replaced by the 9 measures, same rows, 'new vol'). Derived v2.0 statistics recomputed on the new block: causal "
+            "symmeans (NaN-aware), rolling means, 40d-120d vol spreads, vol products on the 9-measure mean; one-hot vocabulary "
+            "from each arm's rows. Slots rank-averaged in-arm (E107 resid on resid legs) and routed into B_all ranks. "
+            "Writes OUTSIDE results/metrics/: results/e203_volrep_slots/ (leaves/, scores.parquet, table.csv, paired_deltas.csv). "
+            "Features were selected on these same folds, so the comparison is development-only.",
+    "runner": "experiments/e203_volrep_slots.py",
+    "prefix": "e203_", "scout_prefix": None,
+    "models": ["lgb", "ridge_glmnet", "ridge", "mlp", "rf_ktz"], "expected_arms": 0,
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
