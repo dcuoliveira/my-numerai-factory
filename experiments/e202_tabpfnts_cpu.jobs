@@ -1,0 +1,13 @@
+# E202 TabPFN-TS 60-day state extraction, CPU claim workers. python3 -m src.cluster run --jobs experiments/e202_tabpfnts_cpu.jobs
+cores=4 ram=10 name=e202_cpu_00 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_01 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_02 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_03 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_04 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_05 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_06 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_07 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_08 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_09 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_10 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
+cores=4 ram=10 name=e202_cpu_11 -- /scratch/danielco/tsfm/envs/tabpfnts/bin/python -u -m src.data_mani.tsfm_states --model tabpfnts --target 60 --device cpu --claim
