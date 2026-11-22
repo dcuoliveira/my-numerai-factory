@@ -32,8 +32,8 @@ def train_standardization(h, assets, fit, kind):
         scale = (np.percentile(x, 75, axis=0)-np.percentile(x, 25, axis=0))/1.349
     else:
         center, scale = x.mean(axis=0), x.std(axis=0)
-    references = dict(center=center, scale=np.where(scale < FLOOR, 1., scale),
-                      constant=scale < FLOOR)
+    constant=x.std(axis=0)<FLOOR
+    references = dict(center=center, scale=np.maximum(scale,FLOOR),constant=constant)
     if kind == 'asset':
         ids = np.unique(assets[fit])
         refs = []
@@ -152,6 +152,8 @@ def dual_ridge(ktt, kqt, y, alphas=ALPHAS):
     weights = vectors @ ((vectors.T @ (y-y.mean()))[:, None]/
                          (np.maximum(eig, 0)[:, None]+np.asarray(alphas)[None, :]))
     predictions = query @ weights+y.mean()
+    if not np.isfinite(predictions).all():
+        raise FloatingPointError('Nonfinite per-asset ridge predictions')
     return predictions, dict(dual_weights=weights, kernel_train_mean=mean,
                              kernel_grand_mean=np.array(grand), intercept=np.array(y.mean()))
 

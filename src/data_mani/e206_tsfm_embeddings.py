@@ -7,7 +7,7 @@ import os
 for key in ['HF_HUB_OFFLINE', 'TRANSFORMERS_OFFLINE', 'TABPFN_DISABLE_TELEMETRY']:
     os.environ[key] = '1'
 os.environ['HF_HOME'] = '/scratch/danielco/hf'
-os.environ.setdefault('TSFM_CHUNK', '1')
+os.environ.setdefault('TSFM_CHUNK', '4')
 os.environ['TSFM_AMP'] = 'fp32'
 import argparse
 import hashlib
@@ -65,19 +65,37 @@ class ChronosExtractor:
 
     def states(self, y, x, f, horizon, last_dates):
         t = self.torch
+        batch,variates=len(y),1+x.shape[1]
         context = np.concatenate([y[:, None, :], x], axis=1).reshape(-1, CTX)
         future = np.full((context.shape[0], horizon), np.nan, np.float32)
-        future[1:] = f[0]
+        for b in range(batch):future[b*variates+1:(b+1)*variates] = f[b]
         patches = (horizon+15)//16
         with t.inference_mode():
             kwargs = dict(context=t.from_numpy(context).to(self.device),
-                          group_ids=t.zeros(context.shape[0], dtype=t.int64, device=self.device),
+                          group_ids=t.arange(batch,device=self.device).repeat_interleave(variates),
                           future_covariates=t.from_numpy(np.nan_to_num(future, nan=0)).to(self.device),
                           future_covariates_mask=t.from_numpy(np.isfinite(future).astype(np.float32)).to(self.device),
                           num_output_patches=patches)
             enc = self.model.encode(**kwargs)[0]
             hidden = enc[0] if isinstance(enc, tuple) else enc.last_hidden_state
-            return hidden[0:1, -patches+(horizon-1)//16].float().cpu().numpy()
+            return hidden[t.arange(batch,device=self.device)*variates, -patches+(horizon-1)//16].float().cpu().numpy()
+
+
+def pack(arguments):
+    assert len({a[3] for a in arguments})==1
+    return tuple(np.concatenate([a[j] for a in arguments],axis=0) if j!=3 else arguments[0][3] for j in range(5))
+
+
+def safe_states(ext,arguments):
+    """Reduce only compute batch size after OOM; representation definition unchanged."""
+    try:
+        return ext.states(*pack(arguments))
+    except RuntimeError as e:
+        if 'out of memory' not in str(e).lower() or len(arguments)==1:raise
+        import torch
+        if torch.cuda.is_available():torch.cuda.empty_cache()
+        mid=len(arguments)//2
+        return np.concatenate([safe_states(ext,arguments[:mid]),safe_states(ext,arguments[mid:])])
 
 
 def adapter(model, device):
@@ -143,6 +161,12 @@ def audit(ext, y, x, grid, steps):
         assert first.shape == (1, ext.dim) and np.isfinite(first).all()
         checks.append(dict(origin=str(grid[s]), max_future_change=float(np.max(np.abs(first-changed))),
                            max_prefix_change=float(np.max(np.abs(first-truncated))), width=int(ext.dim)))
+    args=inputs(y,x,grid,steps[-1]);single=ext.states(*args)
+    other=tuple(a.copy() if isinstance(a,np.ndarray) else a for a in args)
+    other[0][:]+=1
+    batch=safe_states(ext,[args,other])
+    np.testing.assert_allclose(single,batch[:1],rtol=1e-4,atol=1e-4)
+    checks.append(dict(batch_independence_max_change=float(np.max(np.abs(single-batch[:1]))),batch=2))
     return checks
 
 
@@ -155,7 +179,7 @@ def run(model, device, smoke=False):
     features = [c for c in p if c.startswith('feature_')]
     grid = np.sort(p.date.to_numpy().astype('datetime64[D]').take(np.arange(len(p))))
     grid = np.unique(grid)
-    done_audit = (directory/'audit.json').exists()
+    done_audit = (directory/'audit.json').exists() and json.loads((directory/'audit.json').read_text()).get('batch_verified',False)
     for asset, frame in p.groupby('ucid', sort=True):
         if not frame.covered.any():
             continue
@@ -184,20 +208,27 @@ def run(model, device, smoke=False):
                 continue
             if not done_audit:
                 checks = audit(ext, y, x, grid, [s for s, _ in keep])
-                save(directory/'audit.json', dict(checks=checks, asset=int(asset), passed=True))
+                save(directory/'audit.json', dict(checks=checks, asset=int(asset), passed=True,batch_verified=True))
                 done_audit = True
             if smoke:
                 print(json.dumps(dict(model=model, manifest=manifest, audit='PASS', seconds=time.time()-started)), flush=True)
                 return
             ids, states = [], []
-            for j,(step, row) in enumerate(keep):
-                state = ext.states(*inputs(y, x, grid, step))
-                if state.shape != (1, ext.dim) or not np.isfinite(state).all():
-                    raise ValueError('Invalid pre-head representation')
-                ids.append(row); states.append(state[0].astype(np.float16))
-                if j%32==0:
-                    save(directory/f'asset_{asset}.progress.json',dict(completed=j+1,total=len(keep),
-                         origin=str(grid[step]),updated=time.time(),host=socket.gethostname(),device=device))
+            groups={}
+            for step,row in keep:
+                arg=inputs(y,x,grid,step);groups.setdefault(arg[3],[]).append((step,row,arg))
+            batch_size=int(os.getenv('E206_BATCH','4'))
+            for group in groups.values():
+                for start in range(0,len(group),batch_size):
+                    items=group[start:start+batch_size]
+                    state=safe_states(ext,[item[2] for item in items])
+                    if state.shape!=(len(items),ext.dim) or not np.isfinite(state).all():raise ValueError('Invalid pre-head representation')
+                    stored=state.astype(np.float16)
+                    if not np.isfinite(stored).all():raise FloatingPointError('Embedding overflows declared float16 cache precision')
+                    ids.extend(item[1] for item in items);states.extend(stored)
+                    if start%32==0:
+                        save(directory/f'asset_{asset}.progress.json',dict(completed=len(ids),total=len(keep),
+                             origin=str(grid[items[-1][0]]),updated=time.time(),host=socket.gethostname(),device=device))
             with open(dest.with_suffix('.tmp.npz'), 'wb') as f:
                 np.savez_compressed(f, rows=np.array(ids, np.int64), states=np.stack(states))
             dest.with_suffix('.tmp.npz').replace(dest)

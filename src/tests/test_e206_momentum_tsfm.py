@@ -102,7 +102,7 @@ def test_per_asset_selection_and_final_predictions_ignore_test_labels(tmp_path,m
     rng=np.random.default_rng(1)
     dates=np.r_[pd.date_range('2022-01-01',periods=80).to_numpy(),pd.date_range('2024-01-01',periods=30).to_numpy(),pd.date_range('2025-01-01',periods=20).to_numpy()]
     p=pd.DataFrame([(a,d) for a in [1,2] for d in dates],columns=['ucid','date'])
-    p[TARGET if False else 'target_binned_return_20']=rng.normal(size=len(p))
+    p['target_binned_return_20']=rng.normal(size=len(p))
     for name,mask in zip(['train','validation','final_fit','test'],N.split_masks(p.date)):p[name]=mask
     p['step']=np.tile(np.arange(len(dates)),2)
     x=rng.normal(size=(len(p),5));np.save(tmp_path/'common_rows.npy',np.ones(len(p),bool))
@@ -114,3 +114,35 @@ def test_per_asset_selection_and_final_predictions_ignore_test_labels(tmp_path,m
     last,*_=E.solve_assets('fake','pooled',126,'A','final',p,again)
     np.testing.assert_array_equal(pred,other);np.testing.assert_array_equal(final,last)
     assert selected==again
+
+
+def test_portfolio_scoring_report_and_configuration_accounting(tmp_path,monkeypatch):
+    from experiments import e206_momentum3_tsfm as E
+    from src.analysis import html_pdf
+    monkeypatch.setattr(E,'ROOT',tmp_path/'report');monkeypatch.setattr(E,'SCR',tmp_path/'scratch')
+    monkeypatch.setattr(html_pdf,'to_pdf',lambda *args:None)
+    E.ROOT.mkdir();(E.SCR/'holdings').mkdir(parents=True)
+    rng=np.random.default_rng(71)
+    dates=pd.bdate_range('2025-01-01',periods=5)
+    p=pd.DataFrame([(d,a) for d in dates for a in range(12)],columns=['date','ucid'])
+    p['symbol']=p.ucid.astype(str);p['row']=np.arange(len(p))
+    p[E.TARGET]=rng.uniform(0,1,len(p)).astype(np.float32);p['meta_model']=rng.uniform(0,1,len(p))
+    p['prediction']=rng.uniform(0,1,len(p));p['baseline']=p.prediction
+    p['baseline_rank']=p.groupby('date').prediction.transform(lambda s:E.rank_normalise(s.to_numpy()))
+    E.parquet(E.ROOT/'momentum_baseline.parquet',p)
+    configs=[dict(id=E.config_id('fake','pooled',d),model='fake',standardization='pooled',design=d) for d in N.DESIGNS]
+    E.save(E.ROOT/'grid.json',configs);E.save(E.ROOT/'PREPARED.json',{})
+    for c in configs:
+        frame=p[['row','symbol','ucid','date',E.TARGET,'meta_model','prediction']].copy()
+        frame['prediction']+=rng.normal(0,.01,len(frame))
+        E.parquet(E.ROOT/'fits'/c['id']/'predictions.parquet',frame)
+        E.save(E.ROOT/'fits'/c['id']/'COMPLETE.json',dict(status='success'))
+        E.save(E.ROOT/'fits'/c['id']/'validation_selection.json',dict(mean_asset_mse=.1,window=126))
+    E.parquet(E.ROOT/'execution_returns.parquet',pd.DataFrame(dict(row=p.row,origin=p.date,
+          execution=p.date+pd.Timedelta(days=1),exit=p.date+pd.Timedelta(days=2),return_value=rng.normal(0,.02,len(p)))))
+    E.score()
+    table=pd.read_csv(E.ROOT/'ranked_results.csv')
+    assert len(table)==16 and set(table.status)=={'success'}
+    assert (E.ROOT/'paired_portfolio_returns.csv').exists()
+    assert (E.ROOT/'validation_selected_configuration.json').exists()
+    assert len(list((E.SCR/'holdings').glob('*.npz')))==16
