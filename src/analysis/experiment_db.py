@@ -3893,6 +3893,25 @@ STUDIES["E204"] = {
 }
 
 
+STUDIES["E205"] = {
+    "title": "Per-asset momentum definition/window/processing sweep: ridge and sklearn-initialised Torch MLP",
+    "idea": "User-requested E163 analogue with an independent model per permanent asset ID and signal. "
+            "All12 formulas x11 weekday lookbacks x3 distinct processings (CS, TS->CS, TS). "
+            "Fresh per-asset inner-MSE tuning: ridge100 alphas; Torch identityMLP80 frozen E163 KTZ candidates, "
+            "exact NumPy/sklearn weight AND bias initialisation only, five refit seeds. "
+            "Independent parameter blocks batched for compute; no pooled learning. Outer130/purge22/predict130; "
+            "inner68/purge22/validate40; dev labels before2026-02-20 only. Common causal signal coverage; "
+            "historical-asset-mean control, covered portfolios, native-ridge fallback rank-slot routing, fixed equal rank ensembles. "
+            "CORR/historical-meta proxyMMC/payout/drawdown, HAC20/block20, coverage and seed/fold diagnostics. "
+            "Standalone signal research, no marginal-feature/deployment claim or notifications. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e205_asset_momentum/.",
+    "runner": "experiments/e205_asset_momentum.py",
+    "prefix": "e205_", "scout_prefix": None,
+    "models": ["ridge", "mlp_torch"], "expected_arms": 792,
+    "artifact_root": "results/reports/crypto/e205_asset_momentum",
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")
