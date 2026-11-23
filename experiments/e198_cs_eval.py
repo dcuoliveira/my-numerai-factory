@@ -66,6 +66,9 @@ VARIANT = os.environ.get("E198_VARIANT", "")
 if VARIANT == "e199":
     STUDY, OUT = "E199", "results/reports/crypto/e199_tabnet_percoin"
     TABNET_CFG = dict(TABNET_CFG, batch_size=32, virtual_batch_size=16)
+elif VARIANT == "e208":
+    STUDY, OUT = "E208", "results/reports/crypto/e208_tabnet_t60"
+    TABNET_CFG = dict(TABNET_CFG, batch_size=32, virtual_batch_size=16)
 elif VARIANT == "e200":
     STUDY, OUT = "E200", "results/reports/crypto/e200_cs_tuned"
     PRED = os.path.join(OUT, "preds")
@@ -78,6 +81,12 @@ else:
 # the target, on that arm's own rows and columns), then refitted on the whole 130-date window. Selection
 # reads only train dates, so the test block is never seen by the search.
 TUNE = VARIANT == "e200"
+# E208 (E198_VARIANT=e208): E199's per-coin TabNet arms FITTED on the 60-day label (scored on the 20-day one,
+# like every slot). A 60-day label is unresolved for 60 dates, so the train window ends PURGE_FIT = 60 dates
+# before each block (E126's embargo rule) instead of 22; the 130-date length and the predicted blocks are
+# E199's. Block 0 starts at date 172 < 60 + 130, so its window is the 112 dates available.
+TFIT = H.T20.replace("_20", "_60") if VARIANT == "e208" else T20
+PURGE_FIT = 60 if VARIANT == "e208" else H.PURGE
 GRID = {
     "ridge": {"alpha": [0.1, 1, 10, 65.79332246575683, 316, 1000, 3162, 10000, 31623, 100000]},
     "lgb_ktz": {"num_leaves": [4, 8, 16], "colsample_bytree": [0.1, 0.17, 0.3], "min_child_samples": [100, 500]},
@@ -129,7 +138,13 @@ def schedule(df):
     dates = np.array(sorted(df["date"].unique()))
     past = dates[dates < H.TEST_START]
     test = dates[dates >= H.TEST_START]
-    return H.blocks(past) + [(11, past[-(H.PURGE + H.TRAIN):-H.PURGE], test)]
+    if PURGE_FIT == H.PURGE:
+        return H.blocks(past) + [(11, past[-(H.PURGE + H.TRAIN):-H.PURGE], test)]
+    out = []
+    for i, _, te in H.blocks(past):
+        b = int(np.searchsorted(dates, te[0]))
+        out.append((i, dates[max(0, b - PURGE_FIT - H.TRAIN):b - PURGE_FIT], te))
+    return out + [(11, past[-(PURGE_FIT + H.TRAIN):-PURGE_FIT], test)]
 
 
 def cols_of(arm, base, cs):
@@ -197,6 +212,7 @@ def _coin_block(task):
     d, cols = _G["df"], _G["cols"]
     g = d[d["ucid"] == ucid]
     tr = g[(g["date"] >= tr0) & (g["date"] <= tr1)]
+    tr = tr[tr[TFIT].notna()]
     te = g[(g["date"] >= te0) & (g["date"] <= te1)]
     if te.empty:
         return None
@@ -206,7 +222,7 @@ def _coin_block(task):
     cfg = dict(TABNET_CFG, batch_size=min(TABNET_CFG["batch_size"], len(tr)))   # 30-31-row coins under batch 32
     est = TabNetTVRegressor(seed=_G["seed"], **cfg)
     try:    # a diverged fit (NaN into sparsemax, E199 TN_B seed 0) takes the ridge B_COV fallback, like < MIN_ROWS
-        est.fit(tr[cols].to_numpy(np.float32), tr[T20].to_numpy(np.float32))
+        est.fit(tr[cols].to_numpy(np.float32), tr[TFIT].to_numpy(np.float32))
         pred = np.asarray(est.predict(te[cols].to_numpy(np.float32)), dtype=float).ravel()
     except RuntimeError as exc:
         print("tabnet fit failed ucid %s block %d: %s" % (ucid, i, str(exc)[:80]), flush=True)
@@ -396,7 +412,7 @@ def main():
     os.makedirs(PRED, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, "config.json"), "w") as h:
-        json.dump(dict(study=STUDY, seeds=SEEDS, tune=TUNE, grid=GRID if TUNE else None, tabnet=TABNET_CFG, min_rows=MIN_ROWS, fixed=H.FIXED), h, indent=1, default=str)
+        json.dump(dict(study=STUDY, seeds=SEEDS, tune=TUNE, grid=GRID if TUNE else None, tabnet=TABNET_CFG, fit_target=TFIT, purge_fit=PURGE_FIT, min_rows=MIN_ROWS, fixed=H.FIXED), h, indent=1, default=str)
     if a.fit_pooled:
         fit_pooled(a.model, a.n_jobs, a.arms, a.seeds)
     elif a.fit_tabnet:

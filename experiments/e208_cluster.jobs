@@ -1,0 +1,6 @@
+cores=4 ram=30 name=e208_tn_b_s0 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_B --seed 0'
+cores=4 ram=30 name=e208_tn_b_s1 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_B --seed 1'
+cores=4 ram=30 name=e208_tn_b_s2 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_B --seed 2'
+cores=4 ram=30 name=e208_tn_f_s0 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_F --seed 0'
+cores=4 ram=30 name=e208_tn_f_s1 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_F --seed 1'
+cores=4 ram=30 name=e208_tn_f_s2 -- bash -c 'E198_VARIANT=e208 python3 experiments/e198_cs_eval.py --fit-tabnet --workers 4 --arm TN_F --seed 2'

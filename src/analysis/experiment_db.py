@@ -3973,6 +3973,20 @@ def main(argv=None):
     return 0
 
 
+STUDIES["E208"] = {
+    "title": "Per-coin TabNet (E199) fitted on the 60-day label, residualised, and rank-blended with the CU_SA_IA_BO book",
+    "idea": "E199's TN_B / TN_F refitted on target_binned_return_60 (purge 60, same blocks, batch 32, seeds 0-2), scored on "
+            "the 20-day label. The four TabNets (TN_B/TN_F x fit 20/60) are residualised on the meta model lagged 5 days "
+            "(E107, strength 0.5). Equal-weight rank blends of 2-5 members: pool A = the 4 residualised TabNets + IA_02, "
+            "CURUPIRA_05_60, CU_SA_IA_BO_01, MAPINGUARI_01; pool B = the 4 raw TabNets + CU_SA_IA_BO_02, CU_SA_IA_BO_MA_01, "
+            "CU_SA_IA_BO_MA_R_01; on the slots' 300-coin x 470-date row set. Writes OUTSIDE results/metrics/: "
+            "results/reports/crypto/e208_tabnet_t60/.",
+    "runner": "E198_VARIANT=e208 experiments/e198_cs_eval.py + experiments/e208_tabnet_ensembles.py",
+    "prefix": "e208_", "scout_prefix": None,
+    "models": ["tabnet_percoin"], "expected_arms": 2,
+    "artifact_root": "results/reports/crypto/e208_tabnet_t60",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
