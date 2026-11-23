@@ -88,3 +88,15 @@ Chronos-2, t0 and Timestral." The skill covers both20d/60d training and scoring,
 raw/residual standalone and ensemble forecasts, common-asset payout reports and
 top-three ensemble plots. It generalizes the E206–E211 workflow; do not substitute
 momentum-specific paths, features or dates for the supplied dataset.
+
+## Adding a model to the stake book
+
+When the user passes a newly added model and asks to add it to the allocation /
+stake pipeline, or asks whether it changes the top 3, use
+[`$stake-book-update`](.agents/skills/stake-book-update/SKILL.md). It runs
+`python3 -m src.analysis.book_update <SLOT>`. That compares the previous top 3
+(the last momentum watch, and the book without the slot) with the recent top 3
+(the book with it) on E55's roll-250 resolved-payout ranking, and writes a PDF.
+`--write` appends the slot to `factor_momentum_stake.BOOK`. It refuses when the
+slot's backtest ends before the book's, because `BOOK` is joined on common dates
+and the live watch would lose its tail.

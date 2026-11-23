@@ -1,0 +1,4 @@
+interface:
+  display_name: "Stake Book Update"
+  short_description: "Add a model to the stake book and compare top 3"
+  default_prompt: "Use $stake-book-update to add my new slot to the momentum stake book and tell me whether the recent top 3 differs from the previous top 3."
