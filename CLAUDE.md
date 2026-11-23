@@ -567,3 +567,14 @@ Apply these defaults to downstream H processing; preserve the pretrained model's
 native input normalization. Use [`/tsfm-embedding-standardization`](.claude/skills/tsfm-embedding-standardization/SKILL.md)
 for the causal fitting and reporting details. This is a user preference, not a
 claim that these methods universally outperform the alternatives.
+
+## Reusable TSFM signal experiment
+
+When asked to run the **TSFM signal experiment**, or the hidden-state / per-asset
+ridge / cross-target residualization and ensemble workflow on a supplied dataset,
+use [`/tsfm-signal-experiment`](.claude/skills/tsfm-signal-experiment/SKILL.md).
+For example: "Run the TSFM signal experiment on crypto/my-selected-signals with
+Chronos-2, t0 and Timestral." The skill covers both20d/60d training and scoring,
+raw/residual standalone and ensemble forecasts, common-asset payout reports and
+top-three ensemble plots. It generalizes the E206–E211 workflow; do not substitute
+momentum-specific paths, features or dates for the supplied dataset.

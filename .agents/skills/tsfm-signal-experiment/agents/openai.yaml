@@ -1,0 +1,4 @@
+interface:
+  display_name: "TSFM Signal Experiment"
+  short_description: "Run per-asset TSFM, ridge and ensemble studies"
+  default_prompt: "Use $tsfm-signal-experiment to run the full cross-target hidden-state, ridge, residualization and ensemble workflow on my selected dataset."

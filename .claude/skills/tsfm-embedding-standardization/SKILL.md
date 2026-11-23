@@ -43,3 +43,7 @@ model's native input normalization. Explicit user instructions and requested
 standardization sweeps take precedence. Treat these defaults as user preferences,
 not a universal performance finding. Do not alter an already registered or
 running experiment's configuration without a request to do so.
+
+For a user-requested complete dataset-to-report study, use
+[`/tsfm-signal-experiment`](../tsfm-signal-experiment/SKILL.md). A request to choose
+standardization alone does not imply launching that full experiment.
