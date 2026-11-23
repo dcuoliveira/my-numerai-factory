@@ -4061,6 +4061,15 @@ STUDIES["E214"] = {
 }
 
 
+STUDIES["E215"] = {
+ "title": "Three CU_SA book slots plus FIXED_s0.75 exhaustive rank ensembles",
+ "idea": "User requests CU_SA_IA_BO_02, CU_SA_IA_BO_MA_R_01, CU_SA_IA_BO_MA_01 and E214 FIXED_s0.75 blends, performance table and cumulative payout. Reuse canonical historical slot forecasts and frozen FIXED predictions, strict common symbol/date rows; re-rank within shared dates, fresh target20 CORR/proxyMMC, payout/sharpe.p/maxdd.p. All11 equal-rank2..4 subsets plus4 controls. No refits/re-residualization or live leaderboard claims; same-history selection exploratory. Writes results/reports/crypto/e215_book_fixed_ensembles/.",
+ "runner": "experiments/e215_book_fixed_ensembles.py", "prefix": "e215_", "scout_prefix": None,
+ "models": ["rank_ensemble"], "expected_arms": 11,
+ "artifact_root": "results/reports/crypto/e215_book_fixed_ensembles",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
