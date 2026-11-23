@@ -4052,6 +4052,15 @@ STUDIES["E213"] = {
 }
 
 
+STUDIES["E214"] = {
+ "title": "E213 fixed best ensemble and component meta-residualization strengths and blends",
+ "idea": "User confirms both fixed best ensemble and its4 component models: strengths0/.25/.5/.75/1 against native lag>=5-day meta,25 variants, all68380 equal-rank2..5 blends plus25 controls on same E213 common asset/date sample. Fresh scoring of predictions; payout/corr/proxyMMC/sharpe.p/maxdd.p, comparison tables and cumulative payout plots. Same-history search exploratory, no refits. Writes results/reports/crypto/e214_meta_variants/; full all-trial CSV, concise PDF with all25 standalone variants and top50 blends.",
+ "runner": "experiments/e214_meta_variants.py", "prefix": "e214_", "scout_prefix": None,
+ "models": ["meta_resid"], "expected_arms": 25,
+ "artifact_root": "results/reports/crypto/e214_meta_variants",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

@@ -94,7 +94,7 @@ def main():
     ensembles.rename(columns={'dates': 'n_dates'}).to_csv(ROOT/'all_model_window_rows.csv', index=False)
     np.savez_compressed(ROOT/'daily_scores.npz', dates=dates.to_numpy(), corr=corr, mmc=mmc, payout=pay,
                         n=np.array([x[3] for x in daily]))
-    np.savez_compressed(ROOT/'common_predictions.npz', rows=np.concatenate([x[0] for x in forecast_parts]),
+    np.savez_compressed(ROOT/'common_predictions.npz', rows=base.row.to_numpy()[np.concatenate([x[0] for x in forecast_parts])],
                         predictions=np.vstack([x[1] for x in forecast_parts]))
     pd.DataFrame(dict(row=base.row, covered=covered)).to_parquet(ROOT/'coverage.parquet', index=False)
     standalone = pd.DataFrame(pay[:, :8], index=dates, columns=labels)
