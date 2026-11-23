@@ -20,7 +20,10 @@ def render(root, table):
                    table.standardization.eq(table.model.map(RECOMMENDED)))
     selected = table.loc[table.universe.eq('common') & table.side.eq('neutral') &
                          (recommended | table.model.eq('momentum'))].copy()
-    assert set(selected.model) == set(RECOMMENDED) | {'momentum'}
+    missing = (set(RECOMMENDED) | {'momentum'}) - set(selected.model)
+    if missing:
+        return ('<h2>Recommended comparison unavailable</h2><p>Missing model results: '+
+                ', '.join(sorted(missing))+'</p>'+table.to_html(index=False))
     assert not selected.model.duplicated().any()
     frames = {}
     labels = {}

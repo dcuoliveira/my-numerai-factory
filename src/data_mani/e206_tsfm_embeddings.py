@@ -22,9 +22,10 @@ import numpy as np
 import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
-ROOT = REPO/'results/reports/crypto/e206_momentum3_tsfm'
-SCR = Path('/scratch/danielco/e206_momentum3_tsfm')
-CTX, MINIMUM, WALL = 256, 32, 35
+ROOT = Path(os.environ.get('TSFM_EMBED_ROOT', str(REPO/'results/reports/crypto/e206_momentum3_tsfm')))
+SCR = Path(os.environ.get('TSFM_EMBED_SCR', '/scratch/danielco/e206_momentum3_tsfm'))
+TARGET = os.environ.get('TSFM_EMBED_TARGET', 'target_binned_return_20')
+CTX, MINIMUM, WALL = 256, 32, int(os.environ.get('TSFM_EMBED_WALL', '35'))
 CHECKPOINTS = {
     'timestral': ('mistralai/Timestral-209M', '9874d252ab0aae16f7f7c999f98f98d6ad7d8365'),
     't0': ('theforecastingcompany/t0-gamma', 'fef67abad3eed4f227c7b536a6e8ee4e9ab1080d'),
@@ -132,8 +133,8 @@ def adapter(model, device):
     }
     manifest = dict(model=model, checkpoint=checkpoint, width=int(ext.dim), extraction=descriptions[model],
                     context=CTX, label_wall_calendar_days=WALL, min_resolved=MINIMUM,
-                    channels='one asset: binned20 target plus33 momentum covariates; past missing values native/masked',
-                    origin='D; covariates only through D, labels only through D-35; no reassignment of tokens to earlier dates',
+                    channels=f'one asset: {TARGET} plus33 momentum covariates; past missing values native/masked',
+                    origin=f'D; covariates only through D, labels only through D-{WALL}; no reassignment of tokens to earlier dates',
                     dtype='float32 inference requested, float16 stored; hardware execution recorded per asset', device=device,
                     checkpoint_pretraining_limit='Frozen weights may have been pretrained after historical test dates; no pretraining-overlap guarantee')
     manifest['extractor_sha256']=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -198,7 +199,7 @@ def run(model, device, smoke=False):
             positions = np.searchsorted(grid, frame.date.to_numpy().astype('datetime64[D]'))
             y = np.full(len(grid), np.nan, np.float32)
             x = np.full((len(grid), len(features)), np.nan, np.float32)
-            y[positions] = frame.target_binned_return_20.to_numpy(np.float32)
+            y[positions] = frame[TARGET].to_numpy(np.float32)
             x[positions] = frame[features].to_numpy(np.float32)
             rows = frame.row.to_numpy()
             keep = [(int(pos), int(row)) for pos, row, covered in zip(positions, rows, frame.covered) if covered and inputs(y, x, grid, int(pos)) is not None]
