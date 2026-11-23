@@ -323,6 +323,27 @@ def audit_outputs():
     save(ROOT/'audit.json',audit);return audit
 
 
+def volatility_information_set(task):
+    """Readable input-set labels for the full-universe portfolio table."""
+    group = task.split('__')[1]
+    if group == 'VOL9_FORMULAS':
+        return 'All nine volatility formula groups (11 windows each)'
+    if group == 'selected_volatility9':
+        return 'Selected nine volatility measures (selected windows/views)'
+    if group == 'momentum132':
+        return 'None (132 momentum inputs only)'
+    if group == 'momentum132_volatility9':
+        return 'Selected nine volatility measures + 132 momentum inputs'
+    _, family, calendar, method, _, side, _ = FORMULAS[group]
+    names = {'idiosyncratic': 'Idiosyncratic', 'semivariance': 'Semivariance',
+             'rogers_satchell': 'Rogers–Satchell', 'parkinson': 'Parkinson',
+             'yang_zhang': 'Yang–Zhang'}
+    methods = {'btc_eth': 'BTC + ETH', 'btc': 'BTC', 'side_count_log': 'side-count log',
+               'gap_added': 'gap added', 'standard': 'standard', 'ewma': 'EWMA'}
+    direction = f', {side}side' if side in ('down', 'up') else ''
+    return f'{names[family]}{direction} ({calendar}; {methods[method]}; 11 windows)'
+
+
 def report(table,deltas,daily,audit):
     import matplotlib
     matplotlib.use('Agg')
@@ -336,7 +357,8 @@ def report(table,deltas,daily,audit):
         ax.plot(p.date,p.payout.cumsum(),label='nine formula equal-rank ensemble')
         ax.set_title(model);ax.set_ylabel('Cumulative payout score');ax.legend(fontsize=8);ax.grid(alpha=.2)
     fig.tight_layout();fig.savefig(ROOT/'cumulative_payout.png',dpi=150);plt.close(fig)
-    primary=table[(table.seed=='ensemble')&(table['sample']=='routed')]
+    primary=table[(table.seed=='ensemble')&(table['sample']=='routed')].copy()
+    primary.insert(1, 'Volatility information set', primary.task.map(volatility_information_set))
     comparison=deltas[(deltas.seed=='ensemble')&(deltas['sample']=='routed')&(deltas.metric=='payout')]
     body='<h1>E209 — Per-asset volatility models and matched momentum comparison</h1>'
     body+='<p>Separate ridge and sklearn-initialised Torch identity MLP for every asset, dataset and fold. '
