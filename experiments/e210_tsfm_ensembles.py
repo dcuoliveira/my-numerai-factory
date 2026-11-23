@@ -118,10 +118,16 @@ def main():
         assert np.isfinite(routed).all()
         np.testing.assert_array_equal(routed[~mask], baseline.baseline_rank.to_numpy()[~mask])
         forecasts.to_parquet(ROOT/'forecasts'/f'{tag}.parquet', index=False)
+        if len(members) > 1:
+            directory = ROOT/'fits'/tag
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory/'COMPLETE.json').write_text(json.dumps(dict(task=dict(tag=tag, model='rank_ensemble'),
+                                                                  members=names, score_dates=len(daily)), indent=2)+'\n')
         all_daily.append(daily.assign(tag=tag, members=label))
     table = pd.DataFrame(stats).sort_values(['payout', 'members'], ascending=[False, True]).reset_index(drop=True)
     table.insert(0, 'rank', np.arange(1, len(table)+1))
     table.to_csv(ROOT/'consolidated_results.csv', index=False)
+    table[table.kind.eq('ensemble')].rename(columns={'dates': 'n_dates'}).to_csv(ROOT/'all_model_window_rows.csv', index=False)
     pd.concat(all_daily, ignore_index=True).to_parquet(ROOT/'daily_scores.parquet', index=False)
     top = table[table.kind.eq('ensemble')].head(2)
     plotted = pd.concat([top, table[table.kind.eq('standalone')]])
