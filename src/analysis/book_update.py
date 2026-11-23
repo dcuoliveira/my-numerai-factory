@@ -231,7 +231,9 @@ def compare(candidates, lookback=250, top=3, live=True, state_path=STATE_PATH):
                      ". Extend the candidate's backtest through %s first." % cov["book_last"])
 
     pairs = {c: paired_vs(panel, c, top_prev, lookback) for c in candidates}
+    paths = allocation_paths(panel, previous_names, recent_names, lookback)
     return {
+        "paths": paths,
         "candidates": candidates, "lookback": lookback, "top": top,
         "asof_now": str(native.index.max().date()), "asof_window": str(panel.index.max().date()),
         "n_now": int(len(native)), "n_window": int(len(panel)),
@@ -242,6 +244,107 @@ def compare(candidates, lookback=250, top=3, live=True, state_path=STATE_PATH):
         "previous_now": prev_now, "previous": prev_same, "recent": recent,
         "watch": watch_rank, "pairs": pairs,
     }
+
+
+# --------------------------------------------------------------------------- #
+# allocation paths: what the watch would have earned without / with the candidate
+# --------------------------------------------------------------------------- #
+
+#: (label, rule, topk). top1 is the deployed watch rule; top3 equal is the
+#: concentrated alternative E55 also tested.
+SCHEMES = [("top1 roll250 (deployed)", "topk", 1), ("top3 equal", "topk", 3)]
+
+
+def allocation_paths(panel, previous_names, recent_names, lookback=250):
+    """
+    Walk-forward realised payout of the watch's allocation, without and with the
+    candidate, through fm.simulate (lag-20 signal, 20-round ladder glide). Both
+    run on the same rows; paths start on the first date where every model in the
+    larger book has a signal plus one 20-round ladder, so neither curve carries
+    the equal-weight warm-up.
+    Returns {scheme: {"previous": Series, "recent": Series, "stats": {...}}}.
+    """
+    sig = fm.signal(panel[recent_names], lookback=lookback)
+    # one full ladder after the first complete signal, so the realised weights no
+    # longer average in the equal-weight warm-up (which would hand every model,
+    # the candidate included, a 1/N stake it never earned)
+    ready = sig.dropna(how="any").index
+    start = ready[min(fm.LADDER, len(ready) - 1)]
+    out = {}
+    for label, rule, k in SCHEMES:
+        paths = {}
+        for side, names in (("previous", previous_names), ("recent", recent_names)):
+            path, realised, _ = fm.simulate(panel[names], rule=rule, lookback=lookback, topk=k)
+            paths[side] = path.loc[start:]
+        # realised stake on the candidates (ladder-smoothed) in the larger book
+        paths["cand_weight"] = realised.loc[start:, [c for c in recent_names
+                                                      if c not in previous_names]].sum(axis=1)
+        mean, t = fm.paired_t(paths["recent"], paths["previous"])
+        out[label] = {**paths,
+                      "stats": {"previous": fm.summarize_path(paths["previous"]),
+                                "recent": fm.summarize_path(paths["recent"]),
+                                "delta": mean, "t": t}}
+    return out
+
+
+#: dataviz reference palette, slots 1-2 (validated light: CVD dE 27, normal dE 34;
+#: orange is under 3:1 on the surface, so both lines are direct-labelled).
+COLORS = {"previous": "#2a78d6", "recent": "#eb6834"}
+INK, MUTED, GRID = "#0b0b0b", "#898781", "#e1e0d9"
+
+
+def plot_paths(paths, candidates, out_png):
+    """
+    Small multiples, one column per scheme. Top: cumulative payout of both books.
+    Bottom: cumulative after-minus-before, shaded where the candidate held stake --
+    when the two books mostly agree the top curves overlap, and the difference is
+    the only place the candidate's effect is visible.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    n = len(paths)
+    fig, axes = plt.subplots(2, n, figsize=(12, 6.4), sharex=True,
+                             gridspec_kw={"height_ratios": [2.2, 1]}, squeeze=False)
+    fig.patch.set_facecolor("#fcfcfb")
+    who = ", ".join(candidates)
+
+    def style(ax):
+        ax.set_facecolor("#fcfcfb")
+        ax.grid(axis="y", color=GRID, lw=0.6)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        for side in ("left", "bottom"):
+            ax.spines[side].set_color(MUTED)
+        ax.tick_params(colors=MUTED, labelsize=8)
+
+    for j, (label, d) in enumerate(paths.items()):
+        top, bot = axes[0, j], axes[1, j]
+        style(top); style(bot)
+        for side, name in (("previous", "before: without " + who), ("recent", "after: with " + who)):
+            c = d[side].cumsum()
+            top.plot(c.index, c.values, lw=2, color=COLORS[side],
+                     label="%s  (%.2f)" % (name, c.iloc[-1]))
+        st = d["stats"]
+        top.set_title("%s\nafter - before %+.5f/round  (NW t %+.2f)" % (label, st["delta"], st["t"]),
+                      fontsize=10, color=INK, loc="left")
+        top.legend(frameon=False, fontsize=8, loc="upper left")
+        diff = (d["recent"] - d["previous"]).cumsum()
+        held = d["cand_weight"] > 1e-9
+        bot.fill_between(diff.index, 0, 1, where=held.values, transform=bot.get_xaxis_transform(),
+                         color=COLORS["recent"], alpha=0.12, lw=0,
+                         label="candidate holds stake (%d of %d rounds)" % (held.sum(), len(held)))
+        bot.axhline(0, color=MUTED, lw=0.8)
+        bot.plot(diff.index, diff.values, lw=2, color=INK, label="cumulative after - before")
+        bot.legend(frameon=False, fontsize=8, loc="lower left", bbox_to_anchor=(0, 1.0),
+                   ncol=2, borderaxespad=0.2)
+    axes[0, 0].set_ylabel("cumulative payout\n(raw score units)", color=INK, fontsize=9)
+    axes[1, 0].set_ylabel("after - before", color=INK, fontsize=9)
+    fig.autofmt_xdate()
+    plt.tight_layout()
+    fig.savefig(out_png, dpi=150, facecolor=fig.get_facecolor())
+    plt.close(fig)
+    return out_png
 
 
 # --------------------------------------------------------------------------- #
@@ -328,12 +431,30 @@ def text_report(res):
         for o, (mean, t, n) in pairs.items():
             out.append("   vs %-24s %+.5f  t %+.2f  (n %d)" % (o, mean, t, n))
     out.append("")
+    out.append("allocation backtest on the same rows (lag 20, ladder 20), %s..%s:"
+               % tuple(str(x.date()) for x in
+                       next(iter(res["paths"].values()))["recent"].index[[0, -1]]))
+    out.append("   %-24s %-9s %9s %8s %7s %6s" % ("scheme", "book", "payout", "sharpe", "dd", "cum"))
+    for label, d in res["paths"].items():
+        for side in ("previous", "recent"):
+            st = d["stats"][side]
+            out.append("   %-24s %-9s %9.5f %8.3f %7.3f %6.2f"
+                       % (label, "before" if side == "previous" else "after",
+                          st["payout"], st["sharpe"], st["max_dd"], d[side].sum()))
+        out.append("   %-24s after-before %+.5f/round, NW t %+.2f"
+                   % ("", d["stats"]["delta"], d["stats"]["t"]))
+    out.append("")
     out.extend(res["verdict"])
     return "\n".join(out)
 
 
-def html_report(res, text):
+def html_report(res, text, png=None):
     e = html.escape
+    chart_html = ""
+    if png and os.path.exists(png):
+        import base64
+        chart_html = '<img style="max-width:100%%" alt="cumulative payout before and after" src="data:image/png;base64,%s">' % (
+            base64.b64encode(open(png, "rb").read()).decode())
     head, top_rows = _top_columns(res)
     top_html = "<tr>%s</tr>" % "".join("<th>%s</th>" % e(h) for h in head) + "".join(
         "<tr>%s</tr>" % "".join("<td>%s</td>" % e(c) for c in r) for r in top_rows)
@@ -375,6 +496,10 @@ pre{font-size:11px;background:#f7f7f7;padding:8px;white-space:pre-wrap}
 <p class="meta"><b>previous (now)</b> is the book without the candidate on its own full panel today.
 <b>previous (window)</b> and <b>recent</b> are without and with the candidate on the rows where the candidate has data,
 so the difference between those two columns is the candidate's doing and nothing else.</p>
+<h2>Cumulative payout of the allocation, before and after</h2>
+%s
+<p class="meta">Walk-forward realised payout of the watch's own rule on the candidate's rows: lag-20 resolved signal,
+20-round ladder glide of stake changes, equal capital. Both books on identical dates; start = one 20-round ladder after every model has a signal.</p>
 <h2>Coverage</h2>
 <table><tr><th>series</th><th>first</th><th>last</th><th>dates</th><th>shared with book</th><th>missing at tail</th></tr>%s</table>
 <p class="meta">BOOK is joined on common dates, so a candidate that stops early would move every model's window back in time.
@@ -388,14 +513,15 @@ Adding it to the book is %s.</p>
 <h2>Console output</h2><pre>%s</pre>
 </body></html>""" % (
         e(", ".join(res["candidates"])), res["lookback"], fm.LAG,
-        "<br>".join(e(v) for v in res["verdict"]), res["top"], top_html, cov_rows,
+        "<br>".join(e(v) for v in res["verdict"]), res["top"], top_html, chart_html, cov_rows,
         "allowed" if res["writable"] else "<b>blocked</b>: " + e("; ".join(res["write_blockers"])),
         "".join(rows), res["top"], pair_rows, e(text))
 
 
 def record(res):
     keep = {k: v for k, v in res.items()
-            if k not in ("previous", "previous_now", "recent", "pairs")}
+            if k not in ("previous", "previous_now", "recent", "pairs", "paths")}
+    keep["allocation"] = {k: v["stats"] for k, v in res["paths"].items()}
     keep["recent_ranking"] = {m: round(float(v), 6) for m, v in res["recent"]["signal"].items()}
     keep["pairs"] = {c: {o: {"mean": v[0], "t": v[1], "n": v[2]} for o, v in p.items()}
                      for c, p in res["pairs"].items()}
@@ -427,8 +553,9 @@ def main(argv=None):
                                             "_".join(n.lower() for n in args.names)))
     with open(stem + ".json", "w") as fh:
         json.dump(record(res), fh, indent=2, default=str)
+    png = plot_paths(res["paths"], args.names, stem + "_cumpayout.png")
     with open(stem + ".html", "w") as fh:
-        fh.write(html_report(res, text))
+        fh.write(html_report(res, text, png))
     print("\nwrote %s.html and .json" % stem)
     if not args.no_pdf:
         from src.analysis.html_pdf import to_pdf

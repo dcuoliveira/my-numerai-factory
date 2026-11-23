@@ -73,5 +73,21 @@ class RankFrame(unittest.TestCase):
                                df.loc["a", "signal"], places=12)
 
 
+class AllocationPaths(unittest.TestCase):
+    def test_a_never_ranked_candidate_leaves_the_book_unchanged(self):
+        idx = pd.bdate_range("2024-01-01", periods=420)
+        rng = np.random.default_rng(1)
+        panel = pd.DataFrame(rng.normal(0, 0.01, (420, 4)), index=idx, columns=list("abcz"))
+        panel[["a", "b", "c"]] += [0.03, 0.02, 0.01]
+        panel["z"] -= 0.05                       # the candidate is always last
+        out = bu.allocation_paths(panel, list("abc"), list("abcz"))
+        for d in out.values():
+            pd.testing.assert_series_equal(d["previous"], d["recent"])
+            self.assertEqual(float(d["cand_weight"].max()), 0.0)
+        # paths begin one ladder after the first complete signal
+        ready = fm.signal(panel, lookback=250).dropna(how="any").index
+        self.assertEqual(next(iter(out.values()))["recent"].index[0], ready[fm.LADDER])
+
+
 if __name__ == "__main__":
     unittest.main()

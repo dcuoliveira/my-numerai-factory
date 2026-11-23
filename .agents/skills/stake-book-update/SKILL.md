@@ -64,6 +64,10 @@ changes (`python3 -m src.analysis.factor_momentum_stake --watch`, wrapped by
    - the paired Newey-West t against each previous top-3 member. Rankings use
      point estimates, so a gap at |t| < 2 is not an established difference.
      Say so even when the watch would act on it.
+   - the cumulative-payout chart: the watch's own rule (top1, and top3 equal) run
+     walk-forward without and with the candidate on the same rows, with the
+     cumulative after - before beneath it. If the candidate rarely held stake,
+     the curves overlap; say how many rounds it held stake.
    Attach the PDF.
 
 ## Caveats to keep
