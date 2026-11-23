@@ -66,6 +66,20 @@ def build():
         fig.savefig(ROOT/name, dpi=180)
         plt.close(fig)
         plots.append(name)
+    design_c = table.loc[table.design.eq('C')]
+    assert len(design_c) == 8 and design_c.payout.is_monotonic_decreasing
+    design_c[columns].to_csv(ROOT/'E206_standardization_design_C.csv', index=False)
+    fig, ax = plt.subplots(figsize=(15, 9), layout='constrained')
+    palette = plt.get_cmap('turbo')(np.linspace(.03, .97, len(design_c)))
+    for color, row in zip(palette, design_c.itertuples()):
+        ax.plot(payout.index, payout[row.tag].cumsum(), label=labels[row.tag], color=color, linewidth=2)
+    ax.set(title='E206 cumulative payout — design C, individual colors',
+           xlabel='Date', ylabel='Cumulative payout score (0.1 CORR + proxy MMC)')
+    ax.grid(alpha=.2)
+    ax.legend(loc='upper center', bbox_to_anchor=(.5, -.12), ncol=2, fontsize=9)
+    design_c_plot = 'E206_standardization_design_C.png'
+    fig.savefig(ROOT/design_c_plot, dpi=180)
+    plt.close(fig)
     document = '<html><head><meta charset="utf-8"></head><body><h1>E206 — Rolling vs cross-sectional standardization</h1>'
     document += (f'<p>All 24 configurations: four foundation models × two standardizations × three designs. '
                  f'Identical common assets across {len(dates)} shared dates; rows sorted by mean payout descending. '
@@ -77,14 +91,18 @@ def build():
     document += ('<h2>All time series — colors grouped by standardization</h2>'
                  '<p>Blue = rolling; orange = cross_section. Line styles identify models; '
                  'line thickness increases from design A to B to C.</p>'
-                 f'<img style="width:100%" src="{plots[1]}"></body></html>')
+                 f'<img style="width:100%" src="{plots[1]}">')
+    document += '<h2>Design C only — rolling vs cross_section</h2>'
+    document += design_c[columns].to_html(index=False, float_format=lambda x: f'{x:.6f}')
+    document += (f'<h2>All time series — individual colors — design C</h2>'
+                 f'<img style="width:100%" src="{design_c_plot}"></body></html>')
     page = ROOT/'E206_standardization_comparison.html'
     page.write_text(document)
-    assert 'Frozen protocol' not in document and document.count('<table') == 1
+    assert 'Frozen protocol' not in document and document.count('<table') == 2
     assert table.payout.is_monotonic_decreasing
     subprocess.run(['ssh', '-o', 'BatchMode=yes', 'lovelace', 'python3',
                     str(Path(__file__).with_name('html_pdf.py')), str(page)], check=True, timeout=300)
-    print(f'Verified {len(table)} rows, {len(dates)} dates, two 24-series plots: {page.with_suffix(".pdf")}')
+    print(f'Verified {len(table)} full rows, {len(design_c)} design-C rows, {len(dates)} dates, three plots: {page.with_suffix(".pdf")}')
 
 
 if __name__ == '__main__':
