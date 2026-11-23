@@ -4005,6 +4005,15 @@ STUDIES["E209"] = {
 }
 
 
+STUDIES["E210"] = {
+    "title": "Recommended E206 TSFM and momentum prediction ensemble search",
+    "idea": "User requests all 2/3/4/5-member ensembles of the five E206 recommended common-asset PDF rows: Chronos rolling C, t0 rolling C, TabPFN-TS asset C, Timestral robust C and momentum ridge. Equal within-date prediction-rank average, rescore CORR/historical-meta proxyMMC on identical common assets and297 score dates; 26 ensembles plus5 reproduced standalone controls. Consolidated payout-descending table, unannualized sharpe.p and cumulative payout plot for the top2 ensembles plus5 standalone models appended to E206 PDF. Exploratory same-history membership selection; no refitting or independent confirmation, no investment-return or marginal-native-feature claim. Writes OUTSIDE results/metrics/: results/reports/crypto/e210_tsfm_ensembles/; source E206 forecasts and common-mask artifacts frozen/hashed.",
+    "runner": "experiments/e210_tsfm_ensembles.py", "prefix": "e210_", "scout_prefix": None,
+    "models": ["rank_ensemble"], "expected_arms": 26,
+    "artifact_root": "results/reports/crypto/e210_tsfm_ensembles",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
