@@ -3928,6 +3928,15 @@ STUDIES["E206"] = {
 }
 
 
+STUDIES["E207"] = {
+    "title": "E206 full-sample walk-forward portfolio scoring on momentum3",
+    "idea": "User requests full-sample portfolio scoring instead of reserved train/test summaries. Reuse all four frozen E206 embedding caches; refit72 per-asset ridge configurations chronologically across history with35-calendar-day label purges, trailing504 panel dates,63-date inner validation,130-date forecast blocks. Score one concatenated full-history OOS portfolio per configuration; explicit warm-up/cash, no in-sample substitution. Writes results/reports/crypto/e207_fullsample/ and /scratch/danielco/e207_fullsample/. Scoped doubled scheduler allowance inherited per fold and restored after each stop/completion.",
+    "runner": "experiments/e207_fullsample.py", "prefix": "e207_", "scout_prefix": None,
+    "models": ["timestral", "t0", "chronos2", "tabpfnts"], "expected_arms":72,
+    "artifact_root":"results/reports/crypto/e207_fullsample",
+}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Refresh and query the experiment index.")

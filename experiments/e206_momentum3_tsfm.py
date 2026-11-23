@@ -20,11 +20,11 @@ from src.live.submit import rank_normalise
 from src.analysis.asset_momentum import route_slots
 from e150_finish_scoring import matrix_scores
 
-ROOT = REPO/'results/reports/crypto/e206_momentum3_tsfm'
-SCR = Path('/scratch/danielco/e206_momentum3_tsfm')
+ROOT = Path(os.environ.get('E206_SCOPE_ROOT',str(REPO/'results/reports/crypto/e206_momentum3_tsfm')))
+SCR = Path(os.environ.get('E206_SCOPE_SCR','/scratch/danielco/e206_momentum3_tsfm'))
 DATA = REPO/'data/crypto/v2.0-e205-ts-momentum3'
 TARGET = 'target_binned_return_20'
-RUN = 'r01'
+RUN = os.environ.get('E206_SCOPE_RUN','r01')
 PYTHON = '/home/danielco/miniconda3/bin/python3'
 VENVS = {'timestral':'/scratch/danielco/tsfm2/venv_tt/bin/python',
          't0':'/scratch/danielco/tsfm2/venv_tt/bin/python',
@@ -51,7 +51,8 @@ def sha(path):
 
 
 def config_id(model, norm, design):
-    return f'e206_crypto-v2_0-e205-ts-momentum3_{model}_{norm}_{design}_{RUN}'
+    study=os.environ.get('E206_SCOPE_ID','e206')
+    return f'{study}_crypto-v2_0-e205-ts-momentum3_{model}_{norm}_{design}_{RUN}'
 
 
 def prepare():
@@ -336,6 +337,9 @@ def momentum_baseline():
 
 
 def score():
+    if os.environ.get('E206_SCOPE_FOLD') and not os.environ.get('E206_SCOPE_AGG'):
+        save(ROOT/'COMPLETE.json',dict(status='fold_predictions_complete',time=time.time()))
+        return
     from src.analysis.cross_target import newey_west
     momentum_baseline()
     baseline=pd.read_parquet(ROOT/'momentum_baseline.parquet')
@@ -499,6 +503,10 @@ def score():
 
 
 def supervise():
+    global PYTHON
+    if os.environ.get('E206_SCOPE_ROOT'):
+        import shlex
+        PYTHON='env '+' '.join(shlex.quote(k+'='+v) for k,v in os.environ.items() if k.startswith('E206_SCOPE_'))+' '+PYTHON
     """Scheduling loop, bounded retries, physical capacity checks and scoped lease."""
     from src.cluster import hosts,manager,budget
     prepare()

@@ -1,0 +1,1 @@
+cores=1 ram=16 name=e207_fullsample_supervisor -- python3 -u experiments/e207_fullsample.py
