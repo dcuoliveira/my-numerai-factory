@@ -4070,6 +4070,22 @@ STUDIES["E215"] = {
 }
 
 
+STUDIES["E216"] = {
+ "title": "JACI_01 live path: historical parity and production round trip for CU_SA_IA_BO_MA_JA_01",
+ "idea": "User asks to start submissions to the new account slot cu_sa_ia_bo_ma_ja_01 the proper way. Build src/live/jaci.py: "
+         "incremental spot refresh (same per-symbol source), live momentum3 (E205 formulas, prior TS bins, E157 cohort), "
+         "pinned Chronos-2/t0/Timestral state extraction, causal rolling/cross_section normalization, design-C kernel "
+         "with the FROZEN E206 per-asset dual-ridge heads (final fit <=2024-11-27, no refit), equal-rank 4-blend, "
+         "0.75 lagged-meta residualization; slot routes the 50/50 CU_SA_IA_BO_MA_R_01+JACI blend into CU ranks. "
+         "Parity gates: re-extracted states vs stored float16, recomputed heads vs stored E206 predictions, recomputed "
+         "FIXED_s0.75 vs E214 on test dates; then a dry-run on the live date before ORDER promotion. "
+         "Writes results/reports/crypto/e216_jaci_live/ and models/live/jaci/; states /scratch/danielco/jaci_live/.",
+ "runner": "src/live/jaci.py", "prefix": "e216_", "scout_prefix": None,
+ "models": ["jaci_live"], "expected_arms": 0,
+ "artifact_root": "results/reports/crypto/e216_jaci_live",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
