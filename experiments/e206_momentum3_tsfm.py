@@ -341,6 +341,7 @@ def score():
         save(ROOT/'COMPLETE.json',dict(status='fold_predictions_complete',time=time.time()))
         return
     from src.analysis.cross_target import newey_west
+    (SCR/'holdings').mkdir(parents=True,exist_ok=True)
     momentum_baseline()
     baseline=pd.read_parquet(ROOT/'momentum_baseline.parquet')
     execution=pd.read_parquet(ROOT/'execution_returns.parquet')

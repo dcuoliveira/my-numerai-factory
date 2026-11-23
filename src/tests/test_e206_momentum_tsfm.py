@@ -121,7 +121,7 @@ def test_portfolio_scoring_report_and_configuration_accounting(tmp_path,monkeypa
     from src.analysis import html_pdf
     monkeypatch.setattr(E,'ROOT',tmp_path/'report');monkeypatch.setattr(E,'SCR',tmp_path/'scratch')
     monkeypatch.setattr(html_pdf,'to_pdf',lambda *args:None)
-    E.ROOT.mkdir();(E.SCR/'holdings').mkdir(parents=True)
+    E.ROOT.mkdir()
     rng=np.random.default_rng(71)
     dates=pd.bdate_range('2025-01-01',periods=5)
     p=pd.DataFrame([(d,a) for d in dates for a in range(12)],columns=['date','ucid'])
