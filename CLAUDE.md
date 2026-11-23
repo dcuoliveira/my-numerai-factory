@@ -557,6 +557,12 @@ a standardization comparison:
 | TabPFN-TS / `tabpfnts` | `asset` |
 | Timestral | `robust` |
 
+The recommended way to use H is **design C**: concatenate standardized H
+across a fixed training asset universe, with consistent asset slots and each
+asset included once, as input to each per-asset prediction model. Use C by
+default alongside the model-specific standardization above, unless the user
+specifies another design or requests a design comparison.
+
 Apply these defaults to downstream H processing; preserve the pretrained model's
 native input normalization. Use [`/tsfm-embedding-standardization`](.claude/skills/tsfm-embedding-standardization/SKILL.md)
 for the causal fitting and reporting details. This is a user preference, not a

@@ -1,6 +1,6 @@
 ---
 name: tsfm-embedding-standardization
-description: Apply the user's default downstream embedding H standardization when designing or configuring Chronos, t0, TabPFN-TS or Timestral forecasting experiments.
+description: Apply the user's default downstream embedding H standardization and design C when designing or configuring Chronos, t0, TabPFN-TS or Timestral forecasting experiments.
 ---
 
 # Forecasting model embedding standardization
@@ -26,6 +26,12 @@ Use the following user-recommended defaults for downstream embeddings H:
   interquartile range divided by 1.349, matching the existing implementation;
   freeze those statistics for its forecast block.
 
+Use **design C** by default for H: concatenate the standardized embeddings
+across a fixed training asset universe, using consistent asset slots and each
+asset exactly once, as input to each per-asset prediction model. This design
+preference applies alongside the model-specific standardization above. Explicit
+user choices and requested design comparisons take precedence.
+
 Fit statistics on eligible, covered observations only. Preserve missing
 embeddings and warm-up eligibility, and follow the existing zero-scale handling.
 The reference implementation is `src/analysis/tsfm_momentum_study.py::normalize`.
@@ -34,6 +40,6 @@ cutoff in the experiment configuration and report.
 
 Apply this recommendation to downstream H processing, preserving the pretrained
 model's native input normalization. Explicit user instructions and requested
-standardization sweeps take precedence. Treat this mapping as a user preference,
+standardization sweeps take precedence. Treat these defaults as user preferences,
 not a universal performance finding. Do not alter an already registered or
 running experiment's configuration without a request to do so.
