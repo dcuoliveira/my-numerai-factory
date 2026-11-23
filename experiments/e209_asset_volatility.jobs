@@ -1,0 +1,1 @@
+cores=4 ram=40 name=e209_asset_volatility -- python3 -u experiments/e209_asset_volatility.py run --workers 4

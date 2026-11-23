@@ -3987,6 +3987,24 @@ STUDIES["E208"] = {
     "artifact_root": "results/reports/crypto/e208_tabnet_t60",
 }
 
+STUDIES["E209"] = {
+    "title": "E205-style independent per-asset selected volatility models with matched momentum controls",
+    "idea": "Nine selected volatility estimator/calendar/side configurations, each jointly using11 own-history-binned windows; "
+            "also selected9 pre-CS views, joint momentum132 TS-bin control, and combined141 inputs. "
+            "12 datasets x ridge/Torch identityMLP =24 portfolios, separate scaler/inner-MSE tuning/weights per asset. "
+            "E205 unchanged100-alpha/80-candidate searches, sklearn weights AND biases, five MLP refit seeds, "
+            "outer130/purge22/test130 and inner68/purge22/validation40. Common causal source and fit coverage, "
+            "per-asset matched-mean controls and full-universe fallback, exact baseline rank-slot routing. "
+            "Three fixed nine-formula ensembles, paired matched momentum/combined comparisons, HAC20/block20 bootstrap. "
+            "Frozen E157 prices and E205 momentum inputs, source-prefix audits; current-vendor and prior-selection caveats. "
+            "Development-only dates<2026-02-20; no native22 marginal/live or investment-return claim. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e209_asset_volatility/; completion emails PDF.",
+    "runner": "experiments/e209_asset_volatility.py", "prefix": "e209_", "scout_prefix": None,
+    "models": ["ridge", "mlp_torch"], "expected_arms": 24,
+    "artifact_root": "results/reports/crypto/e209_asset_volatility",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
