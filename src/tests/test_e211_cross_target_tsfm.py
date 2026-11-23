@@ -1,5 +1,6 @@
 """Causal horizon switches, native residualization and cross-target scoring."""
 import itertools
+from src.cluster.budget import Host
 
 import numpy as np
 import pandas as pd
@@ -7,6 +8,14 @@ import pandas as pd
 from experiments import e211_cross_target_tsfm as S
 from src.data_mani import e206_tsfm_embeddings as X
 from src.prediction import meta_resid as MR
+
+
+def test_gpu_worker_reservations_enforce_one_card_per_host():
+    host = Host(name='gpu-box', cores=32, ram_gb=251, gpus=2, reachable=True)
+    owned = {'nmr-e211_worker': dict(host='gpu-box', gpus=[1])}
+    restricted = S.extraction_hosts([host], owned, {'nmr-e211_worker'})[0]
+    assert restricted.busy_gpus == (0, 1)
+    assert S.extraction_hosts([host], owned, set())[0] == host
 
 
 def test_both_horizons_resolve_before_validation_and_forecasts():

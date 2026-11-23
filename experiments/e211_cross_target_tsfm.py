@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import traceback
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -59,6 +60,14 @@ def fold_panel(panel, start, horizon):
 
 def definitions():
     return [members for size in range(1, 6) for members in itertools.combinations(range(16), size)]
+
+
+def extraction_hosts(probes, owned, active):
+    """One E211 GPU per host, including cards reserved by existing workers."""
+    occupied = {record['host'] for unit, record in owned.items()
+                if unit in active and record.get('gpus')}
+    return [replace(host, busy_gpus=tuple(range(host.gpus)))
+            if host.name in occupied else host for host in probes]
 
 
 def prepare():
@@ -371,13 +380,14 @@ def supervise():
                         continue
                     if not any(not (directory/f'asset_{a}.lock').exists() for a in remaining):
                         continue
-                    for worker in range(2):
-                        name = f'e211_{model}_extract_cpu{worker}'
-                        command = ('env '+shlex.join([f'TSFM_EMBED_ROOT={ROOT}', f'TSFM_EMBED_SCR={SCR}',
-                                   'TSFM_EMBED_TARGET=target_binned_return_60', 'TSFM_EMBED_WALL=91'])+
-                                   f' {E.VENVS[model]} -u -m src.data_mani.e206_tsfm_embeddings --model {model} --device cpu')
-                        jobs.append(budget.Job(name, command, cores=2, ram_gb=12))
-                save(ROOT/'status.json', dict(stage='extracting_target60', completed_models=complete, time=time.time()))
+                    # Start the slowest model first if fewer than three slots fit.
+                    priority = {'timestral': 0, 't0': 1, 'chronos2': 2}[model]
+                    name = f'e211_gpu{priority}_{model}_extract'
+                    command = ('env '+shlex.join([f'TSFM_EMBED_ROOT={ROOT}', f'TSFM_EMBED_SCR={SCR}',
+                               'TSFM_EMBED_TARGET=target_binned_return_60', 'TSFM_EMBED_WALL=91'])+
+                               f' {E.VENVS[model]} -u -m src.data_mani.e206_tsfm_embeddings --model {model} --device cuda:0')
+                    jobs.append(budget.Job(name, command, cores=2, ram_gb=16, gpus=1))
+                save(ROOT/'status.json', dict(stage='extracting_target60', device='GPU', completed_models=complete, time=time.time()))
                 if len(complete) == 3:
                     collect()
                     ready = True
@@ -400,14 +410,16 @@ def supervise():
                 if state['attempts'].get(job.name, 0) >= 3:
                     raise RuntimeError('Three attempts exhausted: '+job.name+'; inspect logs/cluster/'+job.name+'.out')
                 pending.append(job)
-            placements, _ = budget.distribute(pending, probes, share=budget.SHARE)
+            placements, unplaced = budget.distribute(pending, extraction_hosts(probes, state['owned'], active),
+                                                      share=budget.SHARE, gpu_slots=1)
+            state['waiting'] = [dict(job=job.name, reason=reason) for job, reason in unplaced]
             for placement in placements:
                 subprocess.run(['ssh', '-o', 'BatchMode=yes', placement.host,
                                 'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user reset-failed '+placement.unit],
                                capture_output=True, timeout=15)
                 ok, message = manager.launch(placement)
                 if ok:
-                    record = dict(host=placement.host, unit=placement.unit, cpus=list(placement.cpus))
+                    record = dict(host=placement.host, unit=placement.unit, cpus=list(placement.cpus), gpus=list(placement.gpus))
                     state['owned'][placement.unit] = record
                     state['launches'].append(record)
                     state['attempts'][placement.job.name] = state['attempts'].get(placement.job.name, 0)+1
