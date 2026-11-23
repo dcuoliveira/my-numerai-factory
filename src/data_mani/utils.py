@@ -307,6 +307,18 @@ def load_tournament_data(tournament, version=None, feature_set=None,
     version = version or spec["version"]
 
     if tournament == "crypto":
+        # Candidate-only datasets must not enter the generic neutral-fill path:
+        # it would let unavailable all-neutral blocks contribute to fitting.
+        manifest_path = local_path(tournament, version, "manifest.json")
+        if os.path.exists(manifest_path):
+            with open(manifest_path, encoding="utf-8") as handle:
+                manifest = json.load(handle)
+            if manifest.get("missing_value_policy") == "coverage_required":
+                raise ValueError(
+                    "Dataset %s requires coverage-aware training using coverage.parquet; "
+                    "load its train.parquet with NaNs preserved, fit candidates only on "
+                    "eligible rows, and use matched controls and full-universe rank-slot routing. "
+                    "The generic neutral-fill loader is disabled for this dataset." % version)
         df, features = _load_crypto(tournament, version, verbose)
         if embargo is None:
             embargo = default_embargo(tournament, spec["target"])
