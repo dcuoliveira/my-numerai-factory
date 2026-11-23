@@ -1,0 +1,1 @@
+cores=1 ram=16 name=e212_volatility99_supervisor -- python3 -u experiments/e212_volatility99_tsfm.py supervise --dataset crypto/v2.0-e209-ts-volatility99

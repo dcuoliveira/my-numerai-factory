@@ -4023,6 +4023,26 @@ STUDIES["E211"] = {
 }
 
 
+STUDIES["E212"] = {
+    "title": "Volatility99 TSFM signal experiment: GPU-queued horizon-specific H, per-asset C ridge and exhaustive ensembles",
+    "idea": "User invoked tsfm-signal-experiment on crypto/v2.0-e209-ts-volatility99 with available GPUs and waiting queue. "
+            "Chronos-2/t0/TabPFN-TS/Timestral, each fresh target20/60-context frozen H plus feature-only per-asset ridge control. "
+            "Recommended rolling/rolling/asset/robust H, C-only fixed training vocabulary,33 alpha grid and causal rolling-window selection. "
+            "35/91 calendar-day walls, context256/min32, trailing504/validation63/forecast130, first origin after200 dates. "
+            "10 head streams,20 raw/residual standalones,21679 exhaustive2..5-member subsets; raw and once-post-residualized blend views "
+            "on BOTH evaluation targets =86756 rows. Lagged meta strength0.5, snapshot<=D-5; native helper parity. "
+            "Common causal rank/transform universe before evaluation-only label/meta masking, same assets/dates, full-panel baseline rank-slot routing. "
+            "Both-target standalone tables, DAILY payout correlation heatmaps, all standalone cumulative curves and top THREE ensemble curves, "
+            "full machine tables/daily metrics/reconstructable forecasts, hashes, audits and PDF emailed at completion. "
+            "No momentum data/cache reuse, no new holdout opening, no native22 marginal/live/investment-return claim. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e212_volatility99_tsfm/; shared scratch /scratch/danielco/e212_volatility99_tsfm/. "
+            "Default30% CPU/RAM, one study GPU per host when free, no CPU extraction fallback; registered GPU smokes precede extraction.",
+    "runner": "experiments/e212_volatility99_tsfm.py", "prefix": "e212_", "scout_prefix": None,
+    "models": ["chronos2", "t0", "tabpfnts", "timestral", "feature_ridge"], "expected_arms": 10,
+    "artifact_root": "results/reports/crypto/e212_volatility99_tsfm",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
