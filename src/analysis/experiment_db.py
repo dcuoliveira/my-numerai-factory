@@ -4043,6 +4043,15 @@ STUDIES["E212"] = {
 }
 
 
+STUDIES["E213"] = {
+    "title": "E206 rolling/cross-section design-C exhaustive 2..8 ensembles",
+    "idea": "User requests daily-payout correlation heatmap for8 E206 design-C configurations (4 TSFMs x rolling/cross_section), all247 equal-rank2..8-member ensembles, payout-ranked table, top3 ensemble cumulative payout plus8 standalone curves on original common assets/297 dates. Fresh prediction-blend scoring, standalone replay, no retraining; same-history selection exploratory. Writes results/reports/crypto/e213_design_c_ensembles/; append to E206_standardization_comparison.pdf. No price-return claims.",
+    "runner": "experiments/e213_design_c_ensembles.py", "prefix": "e213_", "scout_prefix": None,
+    "models": ["rank_ensemble"], "expected_arms": 247,
+    "artifact_root": "results/reports/crypto/e213_design_c_ensembles",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

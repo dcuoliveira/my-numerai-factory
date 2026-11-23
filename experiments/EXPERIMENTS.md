@@ -2433,3 +2433,8 @@ Launch after registration commit: `python3 experiments/e210_tsfm_ensembles.py`, 
 
 
 **E211 quota recovery (2026-11-23).** User requests recovery/continuation. Failure was EDQUOT on scratch, not an extraction error. Removed only regenerable normalization H.npy arrays for completed E207 blocks; retained original H, scalers, coefficients, forecasts and metrics. Recovery artifact records every removed path and size. E211 now releases normalized full-panel H after each completed block, preserving scaler/parameter provenance. Archive failed controller state and reset attempts after quota correction; resume same registered study and GPU worker definitions.
+
+
+### E213: E206 rolling/cross-section design-C ensembles (registered 2026-11-23)
+
+User requests daily (not cumulative) payout correlation of8 design-C rows, all2..8-member ensembles, ranked ensemble table, cumulative payout of top3 ensembles plus8 standalone models appended to E206 standardization report without Frozen protocol. Enumerate247 subsets (28/56/70/56/28/8/1 by size); equal-weight within-date prediction ranks then fresh CORR/proxyMMC scoring. Reproduce8 standalone daily scores and identical common assets/297 dates. No refitting or new labels; payout/sharpe.p/maxdd.p only. Top3 by mean payout on same history: exploratory, not independent/marginal-native/live/investment-return claim. Register/commit before launch. CPU launch `python3 experiments/e213_design_c_ensembles.py`, local host; outputs `results/reports/crypto/e213_design_c_ensembles/`, updated parent `results/reports/crypto/e206_momentum3_tsfm/E206_standardization_comparison.pdf`. Save definitions, source/mask hashes, predictions, daily scores, full tables, plots and verification.
