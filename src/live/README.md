@@ -267,25 +267,23 @@ otherwise the cached fit is used and the report says so.
 Tests: `python3 -m pytest src/tests/test_live.py -q` (38 tests, ~35 s).
 
 
-## CU_SA_IA_BO_MA_JA_01 (E215)
+## CU_SA_IA_BO_MA_JA_01 (E215, live since E216)
 
-The20-character account name identifies an equal-weight rank blend of
-CU_SA_IA_BO_MA_R_01 and JACI_01. The CU leg retains its internal0.5 residualization.
-JACI_01 is the equal-rank blend of Chronos rolling C, t0 cross_section C,
-t0 rolling C and Timestral cross_section C, followed by0.75 residualization
-against the meta-model lagged at least5 calendar days. No further residualization
-is applied to the outer blend.
+An equal-weight rank blend of CU_SA_IA_BO_MA_R_01 and JACI_01. The CU leg keeps its
+internal 0.5 residualization. JACI_01 is the equal-rank blend of Chronos rolling C,
+t0 cross_section C, t0 rolling C and Timestral cross_section C, residualized at 0.75
+on the meta model lagged at least 5 calendar days. The outer blend is not residualized
+again.
 
-Definitions and exact E215 metrics live in src/live/registry.py. Both new names
-are BACKTEST_ONLY/NOT_SUBMITTED and excluded from ORDER: JACI currently has only
-the E205 development dataset ending2026-02-19, not a validated live data builder
-and per-asset TSFM/ridge path. They must not be submitted under fallback
-predictions as if that were JACI. Before promotion, implement live signal identity
-and coverage parity, pinned-model extraction, per-asset refits, full-universe
-routing, strict lagged-meta parity and a persisted-model/current-round prediction
-round trip. Then update dependency order, feature-set union, fit-cost estimates
-and tests together. The registry's production_blockers lists these open tasks.
+JACI_01 is `registry.PRECOMPUTED`: `src/live/jaci.py` builds it before the round
+(`src/live/cron_jaci.sh`, deepsix 08:10, with GPU states from deepfive via
+`src/live/jaci_extract.py`) and writes `models/live/jaci/forecasts.parquet`.
+`refit.load_slot_blend` turns the slot into a `blend.RoutedBlend`. On coins JACI
+covers, the 50/50 within-subset rank average is routed into the CU leg's rank slots
+(`asset_momentum.route_slots`); other coins keep the CU rank. With no forecast for the
+live date, the CU leg goes out alone and the report shows `PASS-THROUGH`.
 
-`python3 -m src.analysis.e215_register_backtests` exports the original common-sample
-historical predictions and scores for both names into the standard forecast and
-per_period paths. These are297-date research artifacts, never live submissions.
+E216 gates (`python3 -m src.live.jaci parity`, results in `results/reports/crypto/e216_jaci_live/`):
+recomputed features/coverage, normalization, frozen-head predictions and the
+FIXED_s0.75 blend all reproduce the stored E205/E206/E214 artifacts.
+`python3 -m src.analysis.e215_register_backtests` exports the 297-date research series.

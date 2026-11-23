@@ -1731,11 +1731,15 @@ MODELS = {
 # CURUPIRA_06 fits nothing, so it is cheapest -- but it must run AFTER the
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
-# E215 named deployment candidates. Historical results alone do not provide a
-# live JACI feature builder or a verified frozen-state/ridge prediction path.
+# E215 named deployment candidates, made live by E216. JACI_01 is not fitted in
+# the round: the src.live.jaci pre-stage (cron on deepsix, GPU states on
+# deepfive) writes models/live/jaci/forecasts.parquet, and blend.JaciForecast
+# reads it and residualises at 0.75 on the round's lagged meta snapshot.
 MODELS["JACI_01"] = {
-    "wrapper": None, "scored_under": "meta_resid",
-    "feature_set": "e205_ts_momentum3", "n_features": 33,
+    "wrapper": "precomputed_jaci", "scored_under": "meta_resid",
+    # Nominal: JaciForecast reads symbol/date/meta, not features, so the cheap
+    # raw set keeps load_slot_blend's per-member feature build trivial.
+    "feature_set": "raw", "n_features": 33,
     "backtest_run": "e215_jaci01",
     "why": "E214 FIXED_s0.75: equal-rank Chronos rolling C, t0 cross_section C, t0 rolling C and Timestral cross_section C; residualize the resulting ensemble once at strength0.75 against meta lagged at least5 calendar days.",
     "representation_members": [
@@ -1748,17 +1752,20 @@ MODELS["JACI_01"] = {
     "dataset": "crypto/v2.0-e205-ts-momentum3",
     "source_predictions": "results/reports/crypto/e214_meta_variants/variant_predictions.parquet",
     "source_column": "FIXED_s0.75", "backtest": {'corr': 0.1001741624899507, 'mmc': 0.0710306388054677, 'payout': 0.0810480550544628, 'payout_sharpe': 1.0281041543757112, 'payout_max_dd': 0.6482459196958477, 'n_periods': 297, 'scored_on': 'target_binned_return_20'},
-    "production_ready": False,
-    "production_blockers": ["Signal dataset ends2026-02-19; implement causal historical/live signal parity.", "Implement pinned per-asset TSFM extraction and independent ridge refit/predict path for all four configurations.", "Verify full-universe coverage/routing, lagged meta handling, current-date prediction and persisted-model round trip."],
-    "caveats": ["Frozen E206 heads tuned/fitted on historical splits; no production refit policy validated.", "Common-covered297-date exploratory selection; not a full-universe live-parity result."],
+    "production_ready": True,
+    "live_path": "src.live.jaci (prices -> momentum3 panel -> pinned TSFM states -> frozen E206 heads -> equal-rank blend); E216 gates in results/reports/crypto/e216_jaci_live/",
+    "production_blockers": [],
+    "caveats": ["Frozen E206 heads (training rows <= 2024-11-27), never refitted live; no refit policy validated.", "Common-covered297-date exploratory selection; not a full-universe live-parity result.", "Covers only coins with >=130 clean daily bars from their single price source and a fitted head (~210 of 300 live coins in Nov 2026)."],
 }
 MODELS["CU_SA_IA_BO_MA_JA_01"] = {
     "wrapper": None, "scored_under": "meta_resid", "feature_set": "allfeat_pp_fenc",
     "n_features": 834, "backtest_run": "e215_cu_sa_ia_bo_ma_ja01",
     "why": "E215 equal-rank50/50 blend of CU_SA_IA_BO_MA_R_01 and JACI_01. The first leg retains its native internal residualization and JACI is already residualized0.75; do not residualize either leg or the final blend again.",
     "slot_members": [{"name": "CU_SA_IA_BO_MA_R_01", "weight": .5}, {"name": "JACI_01", "weight": .5}],
-    "backtest": {'corr': 0.1719796991357274, 'mmc': 0.1034743447109958, 'payout': 0.1206723146245686, 'payout_sharpe': 1.503114362681692, 'payout_max_dd': 0.4889124433507037, 'n_periods': 297, 'scored_on': 'target_binned_return_20'}, "production_ready": False,
-    "production_blockers": ["JACI_01 has no verified live builder/refit/prediction path.", "Validate complete nested blend against a live round before adding to ORDER."],
+    "backtest": {'corr': 0.1719796991357274, 'mmc': 0.1034743447109958, 'payout': 0.1206723146245686, 'payout_sharpe': 1.503114362681692, 'payout_max_dd': 0.4889124433507037, 'n_periods': 297, 'scored_on': 'target_binned_return_20'}, "production_ready": True,
+    "backtest_window": "E215 common symbol/date sample (2025-01..2026-02-19, 116-157 assets/date)",
+    "production_blockers": [],
+    "live_routing": "E216: on JACI-covered coins the 50/50 within-subset rank blend is routed into CU_SA_IA_BO_MA_R_01's rank slots; other coins keep the CU leg's rank; no JACI forecast for the live date -> CU leg alone, with a round warning.",
     "caveats": ["Name uses20 characters; residualization is explicit in component metadata, not encoded in the abbreviated name.", "E215 scores cover297 dates on116–157 common assets/date; do not treat as a full-universe live result."],
 }
 
@@ -1804,7 +1811,10 @@ ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SA
          "MAPINGUARI_01", "CU_SA_IA_BO_MA_01",
          # The E107 meta-residualised blends: zero-fit, so after every member.
          # CU_SA_IA_BO_MA_R_01 nests CU_SA_IA_BO_MA_01, which must precede it.
-         "CU_SA_IA_BO_MA_R_01", "CU_R_IA_MA_60_01"]
+         "CU_SA_IA_BO_MA_R_01", "CU_R_IA_MA_60_01",
+         # E216: routes JACI_01 (precomputed, see PRECOMPUTED) into
+         # CU_SA_IA_BO_MA_R_01, which must precede it.
+         "CU_SA_IA_BO_MA_JA_01"]
 
 # Slots that are fitted and cached but never uploaded. CURUPIRA_05_60 exists
 # only as a component of CURUPIRA_07; submitting it would stake real money on
@@ -1836,9 +1846,13 @@ NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IA_02", "IAUARETE_01",
 #: of here means adding it to ORDER with a DEFAULT_FIT_SECONDS estimate -- for
 #: the TabPFN slots, only after a GPU fit / predict / joblib round-trip has been
 #: run through src/live/refit.py.
-BACKTEST_ONLY = {"TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01",
-                 "JACI_01", "CU_SA_IA_BO_MA_JA_01"}
-NOT_SUBMITTED.update({"JACI_01", "CU_SA_IA_BO_MA_JA_01"})
+BACKTEST_ONLY = {"TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01"}
+
+#: Components produced OUTSIDE the round by a pre-stage, so in no ORDER: run_round
+#: never fits them, it reads what the pre-stage left (blend.JaciForecast). Never
+#: uploaded on their own.
+PRECOMPUTED = {"JACI_01"}
+NOT_SUBMITTED.update(PRECOMPUTED)
 
 
 def is_blend(spec):

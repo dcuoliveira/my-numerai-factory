@@ -639,6 +639,10 @@ def test_every_slot_declares_a_backtest_run_and_stats():
         assert spec["why"], name
 
         expected = 470 if _touches_the_60_day_label(name) else 510
+        if spec.get("backtest_window"):
+            # A slot whose backtest is a common-sample study (E215: 297 dates
+            # where the TSFM streams and the book overlap) says so explicitly.
+            continue
         assert spec["backtest"]["n_periods"] == expected, (
             "%s declares %d periods; a slot %s the 60-day label should have %d"
             % (name, spec["backtest"]["n_periods"],
@@ -709,7 +713,12 @@ def test_submission_order_is_cheapest_first():
     assert registry.ORDER[0] == "CURUPIRA_02", "the no-build slot must go first"
     # BACKTEST_ONLY slots are named and backtested but have no live path, so they
     # are the one deliberate exception to "everything registered gets fitted".
-    assert set(registry.ORDER) == set(registry.MODELS) - registry.BACKTEST_ONLY
+    # PRECOMPUTED components (JACI_01, E216) are produced by a pre-stage outside
+    # the round, so they are in no ORDER either -- but they DO have a live path.
+    assert set(registry.ORDER) == (set(registry.MODELS) - registry.BACKTEST_ONLY
+                                   - registry.PRECOMPUTED)
+    assert registry.PRECOMPUTED <= registry.NOT_SUBMITTED
+    assert not registry.PRECOMPUTED & registry.BACKTEST_ONLY
     assert registry.BACKTEST_ONLY <= registry.NOT_SUBMITTED, (
         "a backtest-only slot can never be uploaded")
     live_members = {member["name"] for name in registry.ORDER
@@ -789,6 +798,8 @@ def test_slot_blends_run_after_every_slot_they_reuse():
         if not registry.is_slot_blend(spec):
             continue
         for member in spec["slot_members"]:
+            if member["name"] in registry.PRECOMPUTED:
+                continue    # produced before the round by its pre-stage (E216)
             assert member["name"] in position, (
                 "%s reuses unknown slot %s" % (name, member["name"]))
             assert position[member["name"]] < position[name], (
@@ -1375,3 +1386,99 @@ def test_fenccausal_adds_one_column_per_raw_feature():
     panel = _fenc_panel()
     _, added = add_fenccausal(panel)
     assert sorted(added) == ["feature_a_symmean", "feature_b_symmean"]
+
+
+
+# --------------------------------------------------------------------------- E216
+def _jaci_frame(tmp_path, date, symbols, raw):
+    path = tmp_path / "forecasts.parquet"
+    pd.DataFrame({"date": pd.Timestamp(date), "symbol": symbols, "jaci_raw": raw}).to_parquet(path)
+    return str(path)
+
+
+class _Const(object):
+    def __init__(self, values):
+        self.values = np.asarray(values, float)
+
+    def predict(self, X):
+        return self.values[:len(X)]
+
+
+def test_jaci_forecast_residualises_only_the_coins_it_covers(tmp_path):
+    from src.live.blend import META_COL, JaciForecast
+    from src.prediction import meta_resid
+    path = _jaci_frame(tmp_path, "2026-11-20", ["A", "B", "C", "D"], [0.1, 0.4, 0.2, 0.9])
+    X = pd.DataFrame({"symbol": ["A", "B", "C", "D", "E"], "date": pd.Timestamp("2026-11-20"),
+                      META_COL: [0.3, 0.1, np.nan, 0.8, 0.5]})
+    est = JaciForecast("JACI_01", path=path)
+    out = est.predict(X)
+    assert np.isnan(out[4]), "E has no JACI forecast and must stay uncovered"
+    expected, beta = meta_resid.residualise([0.1, 0.4, 0.2, 0.9], [0.3, 0.1, np.nan, 0.8], 0.75)
+    np.testing.assert_allclose(out[:4], expected)
+    assert est.last["covered"] == 4 and est.last["residualised"]
+
+
+def test_jaci_forecast_for_another_date_covers_nothing(tmp_path):
+    from src.live.blend import META_COL, JaciForecast
+    path = _jaci_frame(tmp_path, "2026-11-19", ["A"], [0.5])
+    X = pd.DataFrame({"symbol": ["A"], "date": pd.Timestamp("2026-11-20"), META_COL: [0.1]})
+    est = JaciForecast("JACI_01", path=path)
+    assert np.isnan(est.predict(X)).all()
+    assert "no rows" in est.last["note"]
+
+
+def test_routed_blend_reorders_only_covered_coins_inside_the_base_slots():
+    from src.live.blend import RoutedBlend
+    n = 30
+    base = np.arange(n, dtype=float)                 # full member: rank = position
+    partial = np.full(n, np.nan)
+    partial[:25] = -np.arange(25, dtype=float)       # reverses the covered block
+    blend = RoutedBlend([("CU", _Const(base), [], 0.5), ("JA", _Const(partial), [], 0.5)], ["JA"])
+    out = blend.predict(pd.DataFrame(index=range(n)))
+    from src.live.submit import rank_normalise
+    slots = rank_normalise(base)
+    # Uncovered coins keep exactly their base rank slot.
+    np.testing.assert_array_equal(out[25:], slots[25:])
+    # Covered coins occupy exactly the covered base slots, in a new order.
+    np.testing.assert_allclose(np.sort(out[:25]), np.sort(slots[:25]))
+    # 50/50 of an ascending and a descending ranking is a tie broken stably --
+    # the point is only that the partial member moved something.
+    assert blend.route_log()["covered"] == 25 and not blend.route_log()["pass_through"]
+
+
+def test_routed_blend_matches_e215_within_subset_rank_average():
+    from src.live.blend import RoutedBlend
+    from src.live.submit import rank_normalise
+    rng = np.random.default_rng(0)
+    n = 60
+    base, jaci = rng.normal(size=n), rng.normal(size=n)
+    jaci[rng.choice(n, 15, replace=False)] = np.nan
+    blend = RoutedBlend([("CU", _Const(base), [], 0.5), ("JA", _Const(jaci), [], 0.5)], ["JA"])
+    out = blend.predict(pd.DataFrame(index=range(n)))
+    c = np.isfinite(jaci)
+    e215 = 0.5 * rank_normalise(base[c]) + 0.5 * rank_normalise(jaci[c])
+    # Same ordering among covered coins as E215's equal-rank blend on shared rows.
+    assert (pd.Series(out[c]).rank().to_numpy() == pd.Series(e215).rank(method="first").to_numpy()).all()
+
+
+def test_routed_blend_passes_the_full_members_through_when_jaci_is_missing():
+    from src.live.blend import RoutedBlend
+    base = np.arange(40, dtype=float)
+    blend = RoutedBlend([("CU", _Const(base), [], 0.5), ("JA", _Const(np.full(40, np.nan)), [], 0.5)],
+                        ["JA"])
+    out = blend.predict(pd.DataFrame(index=range(40)))
+    assert blend.route_log()["pass_through"]
+    assert (pd.Series(out).rank().to_numpy() == pd.Series(base).rank().to_numpy()).all()
+
+
+def test_ja_slot_assembles_as_a_routed_blend_over_its_cu_leg():
+    spec = registry.get("CU_SA_IA_BO_MA_JA_01")
+    names = [m["name"] for m in spec["slot_members"]]
+    assert names == ["CU_SA_IA_BO_MA_R_01", "JACI_01"]
+    assert registry.get("JACI_01")["wrapper"] == "precomputed_jaci"
+    order = registry.ORDER
+    assert order.index("CU_SA_IA_BO_MA_R_01") < order.index("CU_SA_IA_BO_MA_JA_01")
+    assert "CU_SA_IA_BO_MA_JA_01" not in registry.NOT_SUBMITTED
+    assert "JACI_01" in registry.NOT_SUBMITTED and "JACI_01" not in order
+    # No double residualisation: neither leg is wrapped again in the slot.
+    assert not any(m.get("resid") for m in spec["slot_members"])

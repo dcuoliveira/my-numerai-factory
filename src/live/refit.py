@@ -210,7 +210,7 @@ def load_slot_blend(name, panel, seen=None):
     docstring asserts slot blends "never reach here"; that invariant was true
     only until a blend was made a member of another blend.
     """
-    from src.live.blend import MetaResidual, RankBlend
+    from src.live.blend import JaciForecast, MetaResidual, RankBlend, RoutedBlend
     from src.live.features import build_features
 
     spec = registry.get(name)
@@ -221,9 +221,16 @@ def load_slot_blend(name, panel, seen=None):
         return None, {"missing": ["%s (circular membership)" % name]}
     seen = seen | {name}
 
-    members, missing = [], []
+    members, missing, partial = [], [], []
     for entry in spec["slot_members"]:
         member_spec = registry.get(entry["name"])
+        if member_spec.get("wrapper") == "precomputed_jaci":
+            # E216: produced by the src.live.jaci pre-stage, not fitted here. It
+            # covers only part of the universe, so the blend is routed.
+            estimator = JaciForecast(entry["name"])
+            members.append((entry["name"], estimator, estimator.columns, entry["weight"]))
+            partial.append(entry["name"])
+            continue
         try:
             _, member_columns, _ = build_features(
                 panel.copy(), member_spec["feature_set"], verbose=False)
@@ -279,6 +286,9 @@ def load_slot_blend(name, panel, seen=None):
                     for n, e, c, w in members],
         "fitted_at": None,   # it fits nothing; freshness is its members'
     }
+    if partial:
+        metadata["routed"] = partial
+        return RoutedBlend(members, partial), metadata
     return RankBlend(members), metadata
 
 

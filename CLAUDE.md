@@ -525,6 +525,24 @@ that note is the fallback text for any mismatch without a reason of its own.
 `SACI_03` and `CURUPIRA_05_60` are the only 60-day-scored slots; every other slot
 is on the 20-day label, including the 470-period blends that hold a 60-day member.
 
+## JACI_01 runs as a pre-stage, not in the round (E216)
+
+`CU_SA_IA_BO_MA_JA_01` routes `CU_SA_IA_BO_MA_R_01` with `JACI_01`, which is E214's
+FIXED_s0.75: four frozen-TSFM design-C streams on own-history momentum features.
+`JACI_01` cannot be fitted inside `run_round`, so it is in `registry.PRECOMPUTED`
+(in no `ORDER`, never uploaded). `src/live/cron_jaci.sh` runs `python3 -m src.live.jaci all`
+on deepsix at 08:10 local (11:10 UTC). That job refreshes `data/crypto/live/jaci_prices.parquet`,
+rebuilds the momentum3 panel, extracts the new Chronos-2/t0/Timestral states on deepfive's GPUs
+(over ssh), and applies the frozen E206 per-asset heads. It then writes `models/live/jaci/forecasts.parquet`.
+`blend.JaciForecast` reads the live date's rows and residualises at 0.75 on the round's
+lagged meta. `blend.RoutedBlend` puts the 50/50 within-subset rank blend into the CU leg's
+rank slots, so coins JACI does not cover keep the CU rank.
+
+If the pre-stage fails, the slot goes out as the CU leg alone and the round report says
+`PASS-THROUGH`. Check `route` in `round_report.json`, and `logs/jaci/prestage_<date>.log`.
+The heads are never refitted. `python3 -m src.live.jaci parity` re-runs the E216 gates
+against the stored E206/E214 artifacts.
+
 ## The LSTM cannot run live
 
 `src/prediction/nn/` (torch LSTM) is deliberately absent from

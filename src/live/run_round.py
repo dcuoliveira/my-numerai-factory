@@ -191,7 +191,8 @@ DEFAULT_FIT_SECONDS = {"CURUPIRA_02": 60, "CURUPIRA_01": 60,
                        # CU_SA_IA_BO_MA_01 (= CU_SA_IA_BO_02 + MAPINGUARI_01): zero-fit
                        # slot blends of already-fitted members, run last.
                        "MAPINGUARI_01": 1, "CU_SA_IA_BO_MA_01": 1,
-                       "CU_SA_IA_BO_MA_R_01": 1, "CU_R_IA_MA_60_01": 1}
+                       "CU_SA_IA_BO_MA_R_01": 1, "CU_R_IA_MA_60_01": 1,
+                       "CU_SA_IA_BO_MA_JA_01": 1}
 
 REPORT_DIR = "results/live"
 
@@ -514,8 +515,11 @@ def prepare_slot(name, panel, live_date, budget, warnings, force_refit=False,
             % m["name"].replace("CURUPIRA_", "C") for m in spec["slot_members"])
         # A residualised leg also reads the lagged meta model, which is on the
         # panel but in no feature set, so predict() has to be handed it too.
-        if META_COL in estimator.columns and META_COL not in columns:
-            columns = list(columns) + [META_COL]
+        # A precomputed member (JACI, E216) also keys on symbol and date.
+        extra = [c for c in (META_COL, SYMBOL, PERIOD)
+                 if c in estimator.columns and c not in columns]
+        if extra:
+            columns = list(columns) + extra
         return estimator, columns, built, metadata, info
 
     estimator, metadata = load_cached(name, columns)
@@ -888,6 +892,18 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
                 if passed:
                     warnings.append("%s: %s went out un-residualised (meta model %s)"
                                     % (name, ", ".join(passed), meta_info["status"]))
+            route = (estimator.route_log() if source == "model"
+                     and hasattr(estimator, "route_log") else None)
+            if route:
+                record["route"] = route
+                note = "; ".join(filter(None, [note, "%s covers %d of %d coins%s" % (
+                    "+".join(route["partial"]), route["covered"], route["rows"],
+                    " -- PASS-THROUGH, full members only" if route["pass_through"] else "")]))
+                if route["pass_through"]:
+                    warnings.append("%s: %s covered only %d coins (%s), so it went out "
+                                    "as its full members alone" % (
+                                        name, "+".join(route["partial"]), route["covered"],
+                                        route["why"] or "see src.live.jaci logs"))
             if source != "model" and (record["detail"] or "").startswith("reuses "):
                 # "reuses ..." describes the blend that was PLANNED. Once the
                 # chain has fallen through it is not what went out, and detail is
