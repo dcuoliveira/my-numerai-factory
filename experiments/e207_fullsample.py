@@ -66,6 +66,7 @@ def main():
         E.save(d/'validation_selection.json',dict(mean_asset_mse=float(np.mean([x['mean_asset_mse'] for x in choices])),window='per-fold',descriptive_only=True))
         E.save(d/'COMPLETE.json',dict(task=dict(tag=c['id'],model=c['model']),folds=len(folds)))
     os.environ['E206_SCOPE_ID']='e207'
+    os.environ['E206_SCOPE_FULLSAMPLE']='1'
     E.save(ROOT/'status.json',dict(status='scoring_full_sample',folds=len(folds)))
     E.score()
     page=ROOT/'E206_momentum3_tsfm.html'

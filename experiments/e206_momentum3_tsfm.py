@@ -386,7 +386,7 @@ def score():
                 returns['segment_wealth']=(1+returns.net).groupby(returns.segment).cumprod()
                 parquet(ROOT/'returns'/f'{name}_{universe}_{side}.parquet',returns)
                 np.savez_compressed(SCR/'holdings'/f'{name}_{universe}_{side}.npz',weights=weights,assets=assets,dates=test_dates)
-                accountable=returns.accountable.to_numpy() & (returns.eligible_assets.to_numpy()>=10)
+                accountable=returns.accountable.to_numpy() & ((returns.eligible_assets.to_numpy()>=10) | bool(os.environ.get('E206_SCOPE_FULLSAMPLE')))
                 r=returns.loc[accountable,'net'].to_numpy();days=returns.loc[accountable,'days'].to_numpy()
                 # Calendar-time rate and risk, explicit non-daily intervals.
                 rate=float(r.sum()/days.sum()) if len(r) else np.nan
@@ -395,7 +395,7 @@ def score():
                 # Drawdowns computed inside accountable segments only.
                 drawdowns=[]
                 for _,segment in returns.groupby('segment'):
-                    q=segment[segment.accountable & (segment.eligible_assets>=10)].net.to_numpy()
+                    q=segment[segment.accountable & ((segment.eligible_assets>=10) | bool(os.environ.get('E206_SCOPE_FULLSAMPLE')))].net.to_numpy()
                     if len(q):
                         wealth=np.cumprod(1+q);peak=np.maximum.accumulate(np.r_[1,wealth])[1:];drawdowns.append(float((1-wealth/peak).max()))
                 summaries.append(dict(tag=name,model=c['model'],standardization=c['standardization'],design=c['design'],universe=universe,side=side,
@@ -461,7 +461,7 @@ def score():
             data={name:pd.read_parquet(ROOT/'returns'/f'{name}_{universe}_{side}.parquet') for name in list(predictions)+['momentum_baseline']}
             common_dates=None
             for frame in data.values():
-                eligible=set(frame.loc[frame.accountable & (frame.eligible_assets>=10),'date'])
+                eligible=set(frame.loc[frame.accountable & ((frame.eligible_assets>=10) | bool(os.environ.get('E206_SCOPE_FULLSAMPLE'))),'date'])
                 common_dates=eligible if common_dates is None else common_dates&eligible
             save(ROOT/f'common_accountable_dates_{universe}_{side}.json',list(map(str,sorted(common_dates))))
             for c in successful:
@@ -471,7 +471,7 @@ def score():
                     if reference not in data:continue
                     b=data[reference]
                     pair=a.merge(b,on='date',suffixes=('_a','_b'))
-                    pair=pair[pair.accountable_a & pair.accountable_b & (pair.eligible_assets_a>=10)&(pair.eligible_assets_b>=10)].sort_values('date')
+                    pair=pair[pair.accountable_a & pair.accountable_b & (((pair.eligible_assets_a>=10)&(pair.eligible_assets_b>=10)) | bool(os.environ.get('E206_SCOPE_FULLSAMPLE')))].sort_values('date')
                     if len(pair)<2:continue
                     for metric in ['gross','net']:
                         diff=(pair[metric+'_a']-pair[metric+'_b']).to_numpy();delta,t=newey_west(diff,lag=35)
