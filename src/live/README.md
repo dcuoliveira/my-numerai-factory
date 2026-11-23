@@ -265,3 +265,27 @@ otherwise the cached fit is used and the report says so.
 | `env.py` | `.env` loader |
 
 Tests: `python3 -m pytest src/tests/test_live.py -q` (38 tests, ~35 s).
+
+
+## CU_SA_IA_BO_MA_JA_01 (E215)
+
+The20-character account name identifies an equal-weight rank blend of
+CU_SA_IA_BO_MA_R_01 and JACI_01. The CU leg retains its internal0.5 residualization.
+JACI_01 is the equal-rank blend of Chronos rolling C, t0 cross_section C,
+t0 rolling C and Timestral cross_section C, followed by0.75 residualization
+against the meta-model lagged at least5 calendar days. No further residualization
+is applied to the outer blend.
+
+Definitions and exact E215 metrics live in src/live/registry.py. Both new names
+are BACKTEST_ONLY/NOT_SUBMITTED and excluded from ORDER: JACI currently has only
+the E205 development dataset ending2026-02-19, not a validated live data builder
+and per-asset TSFM/ridge path. They must not be submitted under fallback
+predictions as if that were JACI. Before promotion, implement live signal identity
+and coverage parity, pinned-model extraction, per-asset refits, full-universe
+routing, strict lagged-meta parity and a persisted-model/current-round prediction
+round trip. Then update dependency order, feature-set union, fit-cost estimates
+and tests together. The registry's production_blockers lists these open tasks.
+
+`python3 -m src.analysis.e215_register_backtests` exports the original common-sample
+historical predictions and scores for both names into the standard forecast and
+per_period paths. These are297-date research artifacts, never live submissions.

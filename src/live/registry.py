@@ -1731,6 +1731,37 @@ MODELS = {
 # CURUPIRA_06 fits nothing, so it is cheapest -- but it must run AFTER the
 # slots it reuses, because it loads their caches. Placed last for that
 # reason; the fit-cost ordering test allows it as a zero-cost tail.
+# E215 named deployment candidates. Historical results alone do not provide a
+# live JACI feature builder or a verified frozen-state/ridge prediction path.
+MODELS["JACI_01"] = {
+    "wrapper": None, "scored_under": "meta_resid",
+    "feature_set": "e205_ts_momentum3", "n_features": 33,
+    "backtest_run": "e215_jaci01",
+    "why": "E214 FIXED_s0.75: equal-rank Chronos rolling C, t0 cross_section C, t0 rolling C and Timestral cross_section C; residualize the resulting ensemble once at strength0.75 against meta lagged at least5 calendar days.",
+    "representation_members": [
+        {"model": "chronos2", "standardization": "rolling", "design": "C", "weight": .25},
+        {"model": "t0", "standardization": "cross_section", "design": "C", "weight": .25},
+        {"model": "t0", "standardization": "rolling", "design": "C", "weight": .25},
+        {"model": "timestral", "standardization": "cross_section", "design": "C", "weight": .25},
+    ],
+    "output_residualization": {"strength": .75, "lag_calendar_days": 5},
+    "dataset": "crypto/v2.0-e205-ts-momentum3",
+    "source_predictions": "results/reports/crypto/e214_meta_variants/variant_predictions.parquet",
+    "source_column": "FIXED_s0.75", "backtest": {'corr': 0.1001741624899507, 'mmc': 0.0710306388054677, 'payout': 0.0810480550544628, 'payout_sharpe': 1.0281041543757112, 'payout_max_dd': 0.6482459196958477, 'n_periods': 297, 'scored_on': 'target_binned_return_20'},
+    "production_ready": False,
+    "production_blockers": ["Signal dataset ends2026-02-19; implement causal historical/live signal parity.", "Implement pinned per-asset TSFM extraction and independent ridge refit/predict path for all four configurations.", "Verify full-universe coverage/routing, lagged meta handling, current-date prediction and persisted-model round trip."],
+    "caveats": ["Frozen E206 heads tuned/fitted on historical splits; no production refit policy validated.", "Common-covered297-date exploratory selection; not a full-universe live-parity result."],
+}
+MODELS["CU_SA_IA_BO_MA_JA_01"] = {
+    "wrapper": None, "scored_under": "meta_resid", "feature_set": "allfeat_pp_fenc",
+    "n_features": 834, "backtest_run": "e215_cu_sa_ia_bo_ma_ja01",
+    "why": "E215 equal-rank50/50 blend of CU_SA_IA_BO_MA_R_01 and JACI_01. The first leg retains its native internal residualization and JACI is already residualized0.75; do not residualize either leg or the final blend again.",
+    "slot_members": [{"name": "CU_SA_IA_BO_MA_R_01", "weight": .5}, {"name": "JACI_01", "weight": .5}],
+    "backtest": {'corr': 0.1719796991357274, 'mmc': 0.1034743447109958, 'payout': 0.1206723146245686, 'payout_sharpe': 1.503114362681692, 'payout_max_dd': 0.4889124433507037, 'n_periods': 297, 'scored_on': 'target_binned_return_20'}, "production_ready": False,
+    "production_blockers": ["JACI_01 has no verified live builder/refit/prediction path.", "Validate complete nested blend against a live round before adding to ORDER."],
+    "caveats": ["Name uses20 characters; residualization is explicit in component metadata, not encoded in the abbreviated name.", "E215 scores cover297 dates on116–157 common assets/date; do not treat as a full-universe live result."],
+}
+
 ORDER = ["CURUPIRA_02", "CURUPIRA_01", "IA_02", "IA_03", "IA_04", "SACI_04", "SACI_01",
          # IA_02/IA_03/IA_04 PIN their MLP config (no 50-draw search), so they are
          # cheaper (~70-80 s) than IA_01's 110 s search and sit early in the
@@ -1805,7 +1836,9 @@ NOT_SUBMITTED = {"CURUPIRA_05_60", "IA_01", "IA_02", "IAUARETE_01",
 #: of here means adding it to ORDER with a DEFAULT_FIT_SECONDS estimate -- for
 #: the TabPFN slots, only after a GPU fit / predict / joblib round-trip has been
 #: run through src/live/refit.py.
-BACKTEST_ONLY = {"TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01"}
+BACKTEST_ONLY = {"TUPA_01", "TUPA_02", "TU_CU_SA_IA_BO_CA_01",
+                 "JACI_01", "CU_SA_IA_BO_MA_JA_01"}
+NOT_SUBMITTED.update({"JACI_01", "CU_SA_IA_BO_MA_JA_01"})
 
 
 def is_blend(spec):
