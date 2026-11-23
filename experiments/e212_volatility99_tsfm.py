@@ -42,7 +42,7 @@ from src.live.submit import rank_normalise
 from e150_finish_scoring import matrix_scores
 
 ROOT=REPO/'results/reports/crypto/e212_volatility99_tsfm'
-SCR=Path('/scratch/danielco/e212_volatility99_tsfm')
+SCR=ROOT/'cache'
 DATASET='crypto/v2.0-e209-ts-volatility99'
 MODELS=['chronos2','t0','tabpfnts','timestral']
 NORMS={'chronos2':'rolling','t0':'rolling','tabpfnts':'asset','timestral':'robust','feature_ridge':'asset'}
@@ -140,7 +140,7 @@ def prepare(dataset=DATASET,models=None):
     prepared=dict(experiment='E212',dataset=dataset,rows=len(frame),features=names,assets=assets.tolist(),dates=list(map(str,dates)),
         panel_hash=sha(ROOT/'panel.parquet'),dataset_manifest=manifest,date_cutoff=str(cutoff),
         source_covered_rows=int(frame.covered.sum()),origin_counts=estimate,
-        estimate='GPU elapsed ETA updated from smoke and actual per-asset timings. Approx10GB embeddings/caches plus up to250GB block normalizations on shared scratch; score arrays<1GB. Exhaustive report table exported, PDF summarizes all standalone/top3 ensembles.',
+        estimate='GPU elapsed ETA updated from smoke and actual per-asset timings. Approx10GB shared-home embeddings/caches plus score arrays<1GB; normalized H stays in RAM, scaler references and head parameters retained. Exhaustive report table exported, PDF summarizes all standalone/top3 ensembles.',
         labels='Verified official frozen source by permanent ID/date, symbol and target20 equality; unavailable target60 retained NaN.')
     save(ROOT/'PREPARED.json',prepared)
     save(ROOT/'status.json',dict(stage='prepared_queued_gpu_smokes',trial_counts=config['trial_counts'],origin_counts=estimate,time=time.time()))
@@ -190,14 +190,12 @@ def solve_head(panel,horizon,model,norm,window,phase,blockroot,blockscr,selected
     h=np.load(extraction_dir(horizon,model)/'H_rows.npy',mmap_mode='r')
     valid=np.load(extraction_dir(horizon,model)/'valid_rows.npy') & panel.covered.to_numpy()
     directory=blockscr/'normalizations'/f'{phase}_w{window}';directory.mkdir(parents=True,exist_ok=True)
-    path=directory/'H.npy'
-    if not path.exists():
-        normalized,refs=N.normalize(h,panel.ucid.to_numpy(),panel.date.to_numpy(),valid,fit,norm,window)
-        with open(directory/'H.partial.npy','wb') as f:np.save(f,normalized)
-        (directory/'H.partial.npy').replace(path)
-        np.savez_compressed(directory/'scaler.npz',**refs)
-        del normalized
-    z=np.load(path,mmap_mode='r');valid=np.isfinite(z).all(axis=1)
+    # Derived normalized H is used once per block/phase/window. Recompute it
+    # from frozen H and retain exact scaler references instead of hundreds of
+    # GB of duplicate matrices. This does not alter any numerical operation.
+    z,refs=N.normalize(h,panel.ucid.to_numpy(),panel.date.to_numpy(),valid,fit,norm,window)
+    np.savez_compressed(directory/'scaler.npz',**refs)
+    valid=np.isfinite(z).all(axis=1)
     vocabulary=np.sort(panel.loc[train].groupby('ucid').size().loc[lambda s:s>=60].index.to_numpy())
     kernel=N.concat_kernel(z,panel.ucid.to_numpy(),panel.step.to_numpy(),valid,vocabulary,panel.step.max()+1)
     info=dict(vocabulary=vocabulary.tolist(),columns=len(vocabulary)*h.shape[1],own_once=True,fill='zero absent context blocks; no masks as predictors',constants='exact implicit removal by centered dual kernel')
@@ -345,6 +343,7 @@ def forecast_pool():
         ensembles='Equal means of causal-universe within-date standalone percentile ranks; trials.json membership. '
                   'Post view applies shared residualise once against recorded D-5 snapshots, then exact baseline slots. '
                   'Saved candidates, masks, snapshots and definitions reproduce all ensemble forecasts without refitting.',
+        ensemble_beta='cache/ensemble_residual_beta.npy: date x combination index; NaN denotes shared-helper pass-through; source snapshot in residualization_snapshots.parquet',
         ranking='scipy rankdata average; (rank-.5)/n for blending; deterministic project rank_normalise/route_slots for output'))
     return p,allnames,candidate,groups
 
@@ -375,6 +374,8 @@ def score():
     parquet(ROOT/'score_dates.parquet',dates)
     weights=np.zeros((k,len(combos)))
     for i,members in enumerate(combos):weights[list(members),i]=1/len(members)
+    beta_path=SCR/'ensemble_residual_beta.npy'
+    ensemble_beta=np.lib.format.open_memmap(beta_path,mode='r+' if beta_path.exists() else 'w+',dtype='float64',shape=(len(groups),len(combos)))
     arrays={}
     for h in WALLS:
         directory=SCR/'daily_scores'/f't{h}';directory.mkdir(parents=True,exist_ok=True)
@@ -396,6 +397,7 @@ def score():
         for first in range(0,len(combos),256):
             last=min(first+256,len(combos));blend=ranks@weights[:,first:last]
             post,beta=residual_matrix(blend,lagged)
+            ensemble_beta[d,first:last]=beta
             columns=np.arange(k+2*first,k+2*last)
             both=np.empty((len(blend),2*(last-first)));both[:,0::2]=blend;both[:,1::2]=post
             assign(both,columns)
@@ -408,13 +410,15 @@ def score():
                         corr,mmc=matrix_scores(both[evalpos,j,None],p[f'target_binned_return_{h}'].to_numpy()[scored_rows],p.meta_model.to_numpy()[scored_rows])
                         np.testing.assert_allclose([corr[0],mmc[0]],arrays[h][d,columns[j]],rtol=1e-11,atol=1e-12,equal_nan=True)
                 parity.append(dict(date=date,scalar_batch=True,native_residual=True))
+        ensemble_beta.flush()
         for array in arrays.values():array.flush()
         save(ROOT/'scoring_parity.json',parity)
         save(done,dict(date=date,assets=len(evalpos),complete=True));save(ROOT/'status.json',dict(stage='scoring',completed_dates=d+1,total_dates=len(groups),time=time.time()))
     summaries=[]
+    unique_assets=int(p.loc[np.concatenate([rows[pos] for _,rows,pos,_ in groups]),'ucid'].nunique())
     for h,array in arrays.items():
         for i,config in enumerate(configs):
-            summaries.append(dict(**config,evaluation_target=h,status='success',assets_mean=float(dates.assets.mean()),assets_min=int(dates.assets.min()),dates=len(groups),**payout_metrics(array[:,i,0],array[:,i,1])))
+            summaries.append(dict(**config,evaluation_target=h,status='success',assets=unique_assets,assets_mean=float(dates.assets.mean()),assets_min=int(dates.assets.min()),dates=len(groups),**payout_metrics(array[:,i,0],array[:,i,1])))
     table=pd.DataFrame(summaries).sort_values(['evaluation_target','payout','id'],ascending=[True,False,True],kind='stable')
     table['members']=table.members.map(' + '.join);table['member_indices']=table.member_indices.map(lambda x:','.join(map(str,x)))
     table.to_csv(ROOT/'all_trials.csv',index=False);parquet(ROOT/'all_trials.parquet',table)
@@ -449,8 +453,8 @@ def report(table,configs,dates,arrays):
     body+='maxdd.p is drawdown of additive cumulative payout. Target60 MMC uses the available historical-meta proxy. '
     body+='Top THREE ensembles are chosen on displayed development history and are exploratory. '
     body+='All trials (including equivalent configurations) are in all_trials.csv/parquet; complete daily CORR/MMC arrays '
-    body+='are stored in the scratch daily_scores directory, indexed by score_dates.parquet and trials.json.</p>'
-    cols=['id','members','training_targets','evaluation_target','view','standardization','design','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
+    body+='are stored in the shared cache daily_scores directory, indexed by score_dates.parquet and trials.json.</p>'
+    cols=['id','members','training_targets','evaluation_target','view','standardization','design','assets','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
     for h,array in arrays.items():
         section=table[table.evaluation_target==h];stand=section[section.kind=='standalone'];top=section[section.kind=='ensemble'].head(3)
         pay=.1*array[:,:,0]+array[:,:,1]
@@ -470,7 +474,7 @@ def report(table,configs,dates,arrays):
             rows=pd.concat([top,stand]) if add_top else stand
             for row in rows.itertuples():
                 y=pay[:,index[row.id]].cumsum();np.testing.assert_allclose(y,plotdata[row.id].cumsum())
-                ax.plot(dates.date,y,label=row.members+(' [POST]' if row.post_residualized else ''),
+                ax.plot(dates.date,y,label=(row.id if row.kind=='ensemble' else row.members)+(' [POST]' if row.post_residualized else ''),
                         lw=2.4 if row.kind=='ensemble' else .8,alpha=1 if row.kind=='ensemble' else .6)
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
             ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=6,ncol=2)

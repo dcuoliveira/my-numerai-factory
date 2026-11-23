@@ -24,7 +24,7 @@ import pandas as pd
 
 REPO = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get('TSFM_EMBED_ROOT', str(REPO/'results/reports/crypto/e212_volatility99_tsfm')))
-SCR = Path(os.environ.get('TSFM_EMBED_SCR', '/scratch/danielco/e212_volatility99_tsfm/t20'))
+SCR = Path(os.environ.get('TSFM_EMBED_SCR', str(REPO/'results/reports/crypto/e212_volatility99_tsfm/cache/t20')))
 TARGET = os.environ.get('TSFM_EMBED_TARGET', 'target_binned_return_20')
 CTX, MINIMUM, WALL = 256, 32, int(os.environ.get('TSFM_EMBED_WALL', '35'))
 CHECKPOINTS = {

@@ -4035,7 +4035,7 @@ STUDIES["E212"] = {
             "Both-target standalone tables, DAILY payout correlation heatmaps, all standalone cumulative curves and top THREE ensemble curves, "
             "full machine tables/daily metrics/reconstructable forecasts, hashes, audits and PDF emailed at completion. "
             "No momentum data/cache reuse, no new holdout opening, no native22 marginal/live/investment-return claim. "
-            "Writes OUTSIDE results/metrics/: results/reports/crypto/e212_volatility99_tsfm/; shared scratch /scratch/danielco/e212_volatility99_tsfm/. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e212_volatility99_tsfm/; shared home cache results/reports/crypto/e212_volatility99_tsfm/cache/. "
             "Default30% CPU/RAM, one study GPU per host when free, no CPU extraction fallback; registered GPU smokes precede extraction.",
     "runner": "experiments/e212_volatility99_tsfm.py", "prefix": "e212_", "scout_prefix": None,
     "models": ["chronos2", "t0", "tabpfnts", "timestral", "feature_ridge"], "expected_arms": 10,
