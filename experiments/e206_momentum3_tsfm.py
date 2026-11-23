@@ -407,7 +407,8 @@ def score():
                     turnover=float(returns.turnover.mean()),cost=float(returns.cost.sum()),mean_coverage=float(np.mean(eligible_counts)),
                     accounting='segment-only if missing held prices; not continuous wealth across gaps'))
             print('SCORE',name,universe,flush=True)
-    table=pd.DataFrame(summaries).sort_values(['universe','side','sharpe'],ascending=[True,True,False])
+    table=pd.DataFrame(summaries).assign(payout=lambda x:.1*x['corr']+x.mmc)
+    table=table.sort_values('payout',ascending=False,kind='stable',na_position='last')
     table['status']='success'
     for c in configs:
         if c['id'] not in predictions:
@@ -416,8 +417,7 @@ def score():
             record=json.loads(paths[0].read_text()) if paths else {'status':'failed','error':'Missing artifact'}
             table=pd.concat([table,pd.DataFrame([dict(tag=c['id'],model=c['model'],standardization=c['standardization'],design=c['design'],status=record.get('status','failed'),error=record.get('error'))])],ignore_index=True)
     table.to_csv(ROOT/'ranked_results.csv',index=False)
-    table[(table.universe=='common')&(table.side=='neutral')&(table.model!='momentum')].assign(
-        payout=lambda x:.1*x['corr']+x.mmc).to_csv(ROOT/'all_model_window_rows.csv',index=False)
+    table[(table.universe=='common')&(table.side=='neutral')&(table.model!='momentum')].to_csv(ROOT/'all_model_window_rows.csv',index=False)
     validation=[]
     for c in successful:
         choice=json.loads((ROOT/'fits'/c['id']/'validation_selection.json').read_text())
@@ -487,7 +487,7 @@ def score():
     pd.DataFrame(shared).to_csv(ROOT/'common_accountable_portfolio_summary.csv',index=False)
     import html
     doc='<html><head><meta charset="utf-8"></head><body><h1>E206 — Momentum3 frozen representations</h1><p>72 pretrained-model/scaler/design configurations; independent per-asset ridge. Validation selects parameters; the entire test grid is reported. Signal selection and historical checkpoint pretraining limit independent confirmation.</p>'
-    doc+='<p>Actual source-open return portfolios: decile long and gross-one neutral; execution lag1 calendar day;10bps per absolute traded weight; no borrow/funding charges. Missing held prices produce unaccountable segments, never zero returns. Numerai CORR/MMC are separate binned-target metrics.</p>'+table.to_html(index=False)
+    doc+='<p>Actual source-open return portfolios: decile long and gross-one neutral; execution lag1 calendar day;10bps per absolute traded weight; no borrow/funding charges. Missing held prices produce unaccountable segments, never zero returns. Numerai CORR/MMC are separate binned-target metrics.</p><p>Payout = 0.1 CORR + historical-meta proxy MMC. Rows sorted by payout descending; payout is a Numerai score, not portfolio return.</p>'+table.to_html(index=False)
     doc+='<h2>Frozen protocol</h2><pre>'+html.escape((ROOT/'PREPARED.json').read_text())+'</pre></body></html>'
     (ROOT/'E206_momentum3_tsfm.html').write_text(doc)
     try:
