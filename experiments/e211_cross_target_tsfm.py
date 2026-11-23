@@ -173,6 +173,10 @@ def fit_stream(model, horizon):
                 save(root/'selection.json', dict(status='warmup_no_eligible_asset_models'))
         parquet(root/'predictions.parquet', forecast)
         save(root/'COMPLETE.json', dict(rows=len(forecast), predictions=int(forecast.prediction.notna().sum())))
+        # These are reproducible from frozen H and the retained scaler references.
+        # Avoid retaining a full-panel copy for every completed forecast block.
+        for cache in (scratch/'normalizations').glob('*/*/*/H.npy'):
+            cache.unlink()
         outputs.append(forecast)
         print('BLOCK', name, block, protocol['origin'], forecast.prediction.notna().sum(), flush=True)
     assert outputs
