@@ -53,3 +53,21 @@ use [`$numerai-crypto-missing-values-audit`](.agents/skills/numerai-crypto-missi
 
 For Timmermann–Vulicevic epoch schedules, FLOP budgets, and compute scaling,
 use [`$timmermann-mlp-compute`](.agents/skills/timmermann-mlp-compute/SKILL.md).
+
+## Forecasting model embedding standardization
+
+Whenever using Chronos, t0, TabPFN-TS or Timestral embeddings H, use these
+user-recommended defaults unless the user specifies another method or requests
+a standardization comparison:
+
+| Model family | Recommended H standardization |
+| --- | --- |
+| Chronos (including Chronos-2 / `chronos2`) | `rolling` |
+| t0 | `rolling` |
+| TabPFN-TS / `tabpfnts` | `asset` |
+| Timestral | `robust` |
+
+Apply these defaults to downstream H processing; preserve the pretrained model's
+native input normalization. Use [`$tsfm-embedding-standardization`](.agents/skills/tsfm-embedding-standardization/SKILL.md)
+for the causal fitting and reporting details. This is a user preference, not a
+claim that these methods universally outperform the alternatives.
