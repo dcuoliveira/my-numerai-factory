@@ -46,7 +46,10 @@ def render(root, table):
         selected.loc[mask, 'payout'] = (.1*frame['corr'] + frame.mmc).mean()
         selected.loc[mask, 'score_dates'] = len(dates)
         payouts[tag] = .1*frame['corr'] + frame.mmc
+        volatility = payouts[tag].std(ddof=0)
+        selected.loc[mask, 'sharpe.p'] = payouts[tag].mean()/volatility if volatility > 0 else np.nan
     selected['score_dates'] = selected.score_dates.astype(int)
+    selected = selected.drop(columns=['sharpe'])
     selected = selected.sort_values('payout', ascending=False, kind='stable')
     selected.to_csv(root/'recommended_common_results.csv', index=False)
     daily = pd.DataFrame(payouts).loc[:, selected.tag]
@@ -79,12 +82,13 @@ def render(root, table):
     plt.close(fig)
 
     columns = ['model', 'standardization', 'design', 'score_dates', 'mean_coverage',
-               'corr', 'mmc', 'payout', 'rank_ic', 'mse', 'sharpe', 'max_drawdown']
+               'corr', 'mmc', 'payout', 'rank_ic', 'mse', 'sharpe.p', 'max_drawdown']
     return ('<h2>Recommended configurations and momentum baseline — common assets</h2>'
             '<p>Design C with each model’s recommended standardization; sorted by payout descending. '
             'The stored momentum control is an independent per-asset ridge on the 33 raw momentum features. '
             'All payout curves use identical common assets and shared score dates. '
-            'Sharpe and drawdown refer to the neutral return portfolio; payout is a Numerai score, '
+            'sharpe.p is mean payout divided by its population standard deviation, without annualization. '
+            'Drawdown still refers to the neutral return portfolio; payout is a Numerai score, '
             'not investment return. Correlations are Pearson correlations of daily payouts, '
             'not cumulative curves.</p>' +
             selected[columns].to_html(index=False, float_format=lambda x: f'{x:.6f}') +
