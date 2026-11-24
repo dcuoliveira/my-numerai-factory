@@ -188,3 +188,17 @@ def test_extractor_manifest_has_dataset_feature_and_package_fingerprint(tmp_path
     assert 'extractor_sha256' in manifest and 'package_versions' in manifest
     assert all(isinstance(key,str) for key in manifest)
     json.dumps(manifest)
+
+
+def test_progress_ignores_atomic_temporary_and_error_files(tmp_path,monkeypatch):
+    import json
+    monkeypatch.setattr(S,'ROOT',tmp_path)
+    monkeypatch.setattr(S,'WALLS',{20:35})
+    monkeypatch.setattr(S,'extraction_dir',lambda h,m:tmp_path)
+    (tmp_path/'PREPARED.json').write_text(json.dumps({'origin_counts':{'20':{'eligible_origins_per_model':10}}}))
+    (tmp_path/'asset_1.json').write_text(json.dumps({'rows':5,'seconds':2}))
+    (tmp_path/'asset_2.progress.host_123.tmp.json').write_text('invalid temporary data')
+    (tmp_path/'asset_2.error.json').write_text('{}')
+    progress=S.extraction_progress({'models':['chronos2']})[0]
+    assert progress['completed_assets']==1
+    assert progress['completed_origins']==5
