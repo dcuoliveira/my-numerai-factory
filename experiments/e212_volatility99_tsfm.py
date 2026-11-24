@@ -571,7 +571,7 @@ def extraction_progress(config):
         for model in config['models']:
             directory=extraction_dir(h,model);completed=0;seconds=0.;assets=0
             for path in directory.glob('asset_*.json'):
-                if path.name.endswith(('.progress.json','.error.json')):continue
+                if not path.stem.removeprefix('asset_').isdigit():continue
                 record=json.loads(path.read_text());completed+=record.get('rows',0);seconds+=record.get('seconds',0);assets+=1
             partial=0;partial_seconds=0.
             for path in directory.glob('asset_*.progress.json'):
