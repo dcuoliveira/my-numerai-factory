@@ -4086,6 +4086,15 @@ STUDIES["E216"] = {
 }
 
 
+STUDIES["E217"] = {
+ "title": "Restored E206 suggestions plus cross-section and post-blend meta residualization",
+ "idea": "User restores attached E206 backup five-row suggestions, adds Chronos/t0/Timestral cross_section C, excludes TabPFN-TS cross_section. Eight rows ->247 equal-rank2..8 subsets, each raw and output-residualized strength0.5 against native lag>=5 meta.502 scores including8 standalone controls on E206 common assets/297 dates. Restore main E206 table/plots, append raw/residual ensemble table and cumulative comparisons; preserve backup/history, hashes and forecasts. No fits/new labels; exploratory same-history selection. Outputs results/reports/crypto/e217_restored_suggestions/ and restored E206_momentum3_tsfm.pdf.",
+ "runner": "experiments/e217_restored_suggestions.py", "prefix": "e217_", "scout_prefix": None,
+ "models": ["rank_ensemble"], "expected_arms": 494,
+ "artifact_root": "results/reports/crypto/e217_restored_suggestions",
+}
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
