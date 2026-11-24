@@ -4095,6 +4095,16 @@ STUDIES["E217"] = {
 }
 
 
+STUDIES["E218"] = {
+ "title": "Per-asset KTZ learners on seven frozen E206 design-C inputs plus ridge ensembles",
+ "idea": "User requests screenshot seven TSFM input configurations excluding momentum: Chronos rolling/cross_section C; t0 rolling/cross_section C; Timestral robust/cross_section C; TabPFN-TS asset C. Reuse exact normalized H, selected rolling windows and training-asset vocabulary, explicitly materialize C (no PCA/kernel-as-features). Fresh per-asset lgbm_ktz (repo lgb_ktz), native sklearn-initialized mlp_ktz, catboost_ktz with4 frozen KTZ candidates per family, past-validation MSE per asset, fresh final refit. Original target20/date splits and matched297-date common scoring vs7 ridge references.21 new portfolios plus7 ridge, all122409 equal-rank2..5 subsets, all-trial CSV and concise PDF/plots. User explicitly authorizes one-off CPU share0.60 (default0.30 unchanged), auto restore on stop/completion, start email and completion email with PDF. Writes results/reports/crypto/e218_asset_ktz_states/ and /scratch/danielco/e218_asset_ktz_states/. Atomic configuration/asset/model checkpoints, bounded recovery, exact identity-MLP affine snapshots to avoid redundant large hidden-weight archives. Same-history exploratory standalone research, no live/price-return claims.",
+ "runner": "experiments/e218_asset_ktz_states.py", "prefix": "e218_", "scout_prefix": None,
+ "models": ["lgbm_ktz","mlp_ktz","catboost_ktz"], "expected_arms": 21,
+ "artifact_root": "results/reports/crypto/e218_asset_ktz_states",
+}
+
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
