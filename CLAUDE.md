@@ -608,3 +608,10 @@ stake pipeline, or asks whether it changes the top 3, use
 `--write` appends the slot to `factor_momentum_stake.BOOK`. It refuses when the
 slot's backtest ends before the book's, because `BOOK` is joined on common dates
 and the live watch would lose its tail.
+
+## Report presentation
+
+Omit the **Frozen protocol** section and raw configuration/manifest dumps from
+all generated reports, including HTML and PDF. Keep full protocols, configuration,
+provenance and audit details in their separate machine-readable artifacts.
+Concise descriptions needed to interpret results may remain in the report.

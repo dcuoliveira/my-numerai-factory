@@ -118,3 +118,10 @@ If the pre-stage fails, the slot goes out as the CU leg alone and the round repo
 `PASS-THROUGH`. Check `route` in `round_report.json`, and `logs/jaci/prestage_<date>.log`.
 The heads are never refitted. `python3 -m src.live.jaci parity` re-runs the E216 gates
 against the stored E206/E214 artifacts.
+
+## Report presentation
+
+Omit the **Frozen protocol** section and raw configuration/manifest dumps from
+all generated reports, including HTML and PDF. Keep full protocols, configuration,
+provenance and audit details in their separate machine-readable artifacts.
+Concise descriptions needed to interpret results may remain in the report.

@@ -150,7 +150,6 @@ def main():
     for i,label in enumerate(labels):ax.plot(dates,pay[:,i].cumsum(),label=label)
     ax.set(title='Expanded suggestions — cumulative payout',xlabel='Date',ylabel='Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9)
     standalone_plot='E217_suggestions_cumulative_payout.png';fig.savefig(ROOT/standalone_plot,dpi=170);plt.close(fig)
-    import html
     page=SOURCE/'E206_momentum3_tsfm.html'
     backup=Path('/home/danielco/.codex/attachments/31682d1f-633e-4fcb-a70c-c031309557e8/E206_momentum3_tsfm_backup.pdf')
     shutil.copy2(backup,ROOT/'E206_user_backup.pdf')
@@ -163,7 +162,7 @@ def main():
     document+='<h2>All247 ensembles — raw and output-residualized</h2><p>Equal member-rank average, then residualize the ensemble output at strength0.5 against the latest meta snapshot at least5 calendar days earlier. Both views retained and freshly scored. No component residualization is added. Rankings on this same history are exploratory, not independent confirmation.</p>'
     document+=ensembles.drop(columns='tag').to_html(index=False,float_format=lambda x:f'{x:.6f}')
     document+=f'<h2>Top three ensemble views plus eight standalones</h2><img style="width:100%" src="{plot}">'
-    document+='<h2>Frozen protocol</h2><pre>'+html.escape((SOURCE/'PREPARED.json').read_text())+'</pre></body></html>'
+    document+='</body></html>'
     page.write_text(document)
     for name in [heatmap,plot,standalone_plot]:shutil.copy2(ROOT/name,SOURCE/name)
     for row in ensembles.itertuples():

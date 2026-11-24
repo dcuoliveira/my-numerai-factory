@@ -84,3 +84,7 @@ it is momentum-specific, fixes the model pool and cutoff, lacks the extra
 ensemble residualization pass, and plots top five rather than this skill's top
 three. Adapt/reuse verified numerical components in a study-specific configurable
 runner; do not modify the configuration of an unrelated running experiment.
+
+Omit the Frozen protocol section and raw config/manifest dumps from HTML/PDF
+reports. Save those details in separate configuration and audit artifacts;
+retain concise explanations needed to interpret the tables and plots.
