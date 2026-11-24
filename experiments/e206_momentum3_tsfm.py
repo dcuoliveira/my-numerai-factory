@@ -485,12 +485,11 @@ def score():
                                    mean_gross=q.gross.mean(),turnover=q.turnover.mean(),cost=q.cost.sum()))
     pd.DataFrame(portfolio_pairs).to_csv(ROOT/'paired_portfolio_returns.csv',index=False)
     pd.DataFrame(shared).to_csv(ROOT/'common_accountable_portfolio_summary.csv',index=False)
-    import html
     doc='<html><head><meta charset="utf-8"></head><body><h1>E206 — Momentum3 frozen representations</h1><p>72 pretrained-model/scaler/design configurations; independent per-asset ridge. Validation selects parameters; the entire test grid is reported. Signal selection and historical checkpoint pretraining limit independent confirmation.</p>'
     doc+='<p>Actual source-open return portfolios: decile long and gross-one neutral; execution lag1 calendar day;10bps per absolute traded weight; no borrow/funding charges. Missing held prices produce unaccountable segments, never zero returns. Numerai CORR/MMC are separate binned-target metrics.</p><p>Payout = 0.1 CORR + historical-meta proxy MMC. The recommended summary is sorted by payout descending; payout is a Numerai score, not portfolio return.</p>'
     from src.analysis.tsfm_recommended_report import render
     doc+=render(ROOT,table)
-    doc+='<h2>Frozen protocol</h2><pre>'+html.escape((ROOT/'PREPARED.json').read_text())+'</pre></body></html>'
+    doc+='</body></html>'
     (ROOT/'E206_momentum3_tsfm.html').write_text(doc)
     try:
         from src.analysis.html_pdf import to_pdf

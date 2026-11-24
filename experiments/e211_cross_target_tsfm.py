@@ -312,7 +312,6 @@ def score():
 
 
 def report(panel, table, configs, groups, payouts):
-    import html
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -345,7 +344,7 @@ def report(panel, table, configs, groups, payouts):
         document += top.to_html(index=False, float_format=lambda x: f'{x:.6f}')
     document += '<h2>All trials — target then payout descending</h2>'
     document += table.to_html(index=False, float_format=lambda x: f'{x:.6f}')
-    document += '<h2>Frozen protocol</h2><pre>'+html.escape((ROOT/'PREPARED.json').read_text())+'</pre></body></html>'
+    document += '</body></html>'
     page = ROOT/'E211_cross_target_tsfm.html'
     page.write_text(document)
     subprocess.run(['ssh', '-o', 'BatchMode=yes', 'lovelace', 'python3', str(REPO/'src/analysis/html_pdf.py'), str(page)], check=True, timeout=300)
