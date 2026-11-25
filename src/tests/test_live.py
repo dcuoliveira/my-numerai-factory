@@ -247,6 +247,46 @@ def test_dry_run_never_touches_the_api():
     assert submit.upload(Exploding(), "x", "mid", "T", dry_run=True) == ("DRY_RUN", 0)
 
 
+def test_filtered_round_prepares_nested_fits_without_uploading_them(tmp_path, monkeypatch):
+    target = "CU_SA_IA_BO_02"
+    live_date = pd.Timestamp("2026-11-16")
+    live = pd.DataFrame({PERIOD: [live_date], SYMBOL: ["BTC"], "is_live": [True]})
+    prepared, uploaded = [], []
+
+    def prepare(name, *args, **kwargs):
+        prepared.append(name)
+        return object(), [], live, {}, dict(refit=False, detail="cached", note=None,
+                                             diagnostics=None)
+
+    def upload(api, path, model_id, name, dry_run):
+        assert dry_run
+        uploaded.append(name)
+        return "DRY_RUN", 0
+
+    monkeypatch.setattr(run_round, "load_env", lambda: None)
+    monkeypatch.setattr(run_round, "get_api", object)
+    monkeypatch.setattr(run_round, "resolve_model_ids",
+                        lambda api, names: ({target: "id"}, [], [target]))
+    monkeypatch.setattr(run_round, "open_round", lambda *a, **kw:
+                        (1, None, None, 60, "open", "test"))
+    monkeypatch.setattr(run_round, "download_live", lambda *a, **kw: None)
+    monkeypatch.setattr(run_round.pd, "read_parquet", lambda path: live)
+    monkeypatch.setattr(run_round, "append_live_history", lambda frame: None)
+    monkeypatch.setattr(run_round, "load_panel", lambda **kw: (live, live_date, 30))
+    monkeypatch.setattr(run_round, "prepare_slot", prepare)
+    monkeypatch.setattr(run_round, "REPORT_DIR", str(tmp_path))
+    monkeypatch.setattr(submit, "build_predictions", lambda name, context: (live, "model", None))
+    monkeypatch.setattr(submit, "write_csv", lambda *args: str(tmp_path / "predictions.csv"))
+    monkeypatch.setattr(submit, "upload", upload)
+
+    report = run_round.run(models=[target], dry_run=True, email=False)
+
+    assert prepared == ["CURUPIRA_02", "IA_02", "SACI_04", "CURUPIRA_04",
+                        "IA_01", "CURUPIRA_05", "CURUPIRA_05_60", target]
+    assert uploaded == [target]
+    assert [slot["name"] for slot in report["slots"]] == [target]
+
+
 # --------------------------------------------------------------------------
 # Crash survival -- what a failed write and a mid-round abort must not destroy
 # --------------------------------------------------------------------------
@@ -635,8 +675,8 @@ def test_every_slot_declares_a_backtest_run_and_stats():
     """
     for spec in registry.all_specs():
         name = spec["name"]
-        assert spec["backtest_run"], name
         assert spec["why"], name
+        assert spec["backtest_run"], name
 
         expected = 470 if _touches_the_60_day_label(name) else 510
         if spec.get("backtest_window"):
@@ -893,14 +933,15 @@ def test_feature_signature_tracks_column_identity_and_order():
 # Live feature construction
 # --------------------------------------------------------------------------
 
-def test_tenc_never_sees_a_live_row_target():
-    panel = make_panel(n_periods=60, n_live=3)
+@pytest.mark.parametrize("n_live", [3, 25])
+def test_tenc_never_sees_a_live_row_target(n_live):
+    panel = make_panel(n_periods=60, n_live=n_live)
     encoded, added = add_tenc(panel)
     assert added == ["feature_sym_tenc"]
     assert np.isfinite(encoded["feature_sym_tenc"]).all()
-    # The lag means the live rows' support stops 20 periods short of the end.
-    live_support = encoded.loc[encoded["is_live"], "_tenc_support"]
-    assert (live_support <= 60 - TENC_LAG + 3).all()
+    # Live dates advance time, and only observed training targets count.
+    live_support = encoded.loc[encoded[PERIOD] == encoded[PERIOD].max(), "_tenc_support"]
+    assert (live_support == min(60, 60 + n_live - TENC_LAG)).all()
 
 
 def test_tenc_survives_a_history_gap_longer_than_the_lag():

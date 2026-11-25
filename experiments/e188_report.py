@@ -209,6 +209,26 @@ def ridge_baseline():
     return pd.DataFrame(rows)
 
 
+def ridge_vs(fits, boots, ridge):
+    """One-sided bootstrap test per (loss, metric): does the fitted asymptote beat the best ridge?
+    Best ridge = best value of that metric over the penalty grid, held fixed (its own sampling noise is ignored).
+    Better = higher for R²/payout/Sharpe, lower for RMSE. p = share of draws where the asymptote does NOT beat it."""
+    rows = []
+    if not len(ridge):
+        return pd.DataFrame(rows)
+    for (loss, m), b in boots.items():
+        if m not in ridge.columns:                     # ridge.csv carries no R²; RMSE covers the statistical side
+            continue
+        higher = METRICS[m][1] == -1
+        ref = ridge[m].max() if higher else ridge[m].min()
+        d = b["asymptote"].to_numpy()
+        d = d[np.isfinite(d)]
+        est = fits.set_index(["loss", "metric"]).loc[(loss, m), "asymptote"]
+        p = float((d <= ref).mean() if higher else (d >= ref).mean())
+        rows.append(dict(loss=loss, metric=m, asymptote=est, best_ridge=ref, p_one_sided=p))
+    return pd.DataFrame(rows)
+
+
 # --------------------------------------------------------------------------- pages
 
 def page(title, subtitle, partial, number=None):
@@ -360,7 +380,7 @@ def run_page(pdf, run_id, partial, number):
     return interp
 
 
-def scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, partial, s):
+def scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, partial, s, rvs=None):
     sub = (f"{pts.groupby('loss').P.nunique().to_dict()} sizes · points = seed mean of retained-checkpoint test "
            f"metrics over 520 eras · bars = seed range · compute = full epoch budget")
     # scaling-law figure
@@ -448,7 +468,8 @@ def scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, partial, s):
                                   f"{r.asymptote_hi:.4f}]", f"{r.alpha:.3f} [{r.alpha_lo:.3f}, {r.alpha_hi:.3f}]",
                                   f"{r.A:.3g}", f"{r.c0:.3g}", f"{r.r2:.3f}", f"{r.asymptote_p:.3f}"], axis=1)
         tab = ax.table(cellText=list(t), colLabels=["loss", "metric", "asymptote [95%]", "alpha [95%]", "A", "c0",
-                                                    "fit R²", "p(asym)"], loc="upper center", cellLoc="right")
+                                                    "fit R²", "p(asym)"], loc="upper center", cellLoc="right",
+                       colWidths=[.07, .2, .2, .16, .08, .08, .07, .07])
         tab.auto_set_font_size(False)
         tab.set_fontsize(7.5)
     ax = fig.add_axes([.05, .27, .42, .2])
@@ -456,7 +477,8 @@ def scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, partial, s):
     if len(diffs):
         t = diffs.apply(lambda r: [METRICS[r.metric][0], r.param, f"{r.B_minus_A:+.4f}", f"[{r.lo:+.4f}, {r.hi:+.4f}]",
                                    f"{r.p:.3f}"], axis=1)
-        tab = ax.table(cellText=list(t), colLabels=["metric", "param", "B − A", "95%", "p"], loc="upper center")
+        tab = ax.table(cellText=list(t), colLabels=["metric", "param", "B − A", "95%", "p"], loc="upper center",
+                       colWidths=[.36, .12, .18, .26, .08])
         tab.auto_set_font_size(False)
         tab.set_fontsize(7.5)
     ax = fig.add_axes([.53, .27, .42, .2])
@@ -465,6 +487,15 @@ def scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, partial, s):
         t = ridge.apply(lambda r: [f"{r.penalty:g}", f"{r.rmse:.4f}", f"{r.payout:.4f}", f"{r.sharpe:.3f}"], axis=1)
         tab = ax.table(cellText=list(t), colLabels=["ridge penalty", "test RMSE", "test payout", "era-Sharpe"],
                        loc="upper center")
+        tab.auto_set_font_size(False)
+        tab.set_fontsize(7.5)
+    if rvs is not None and len(rvs):
+        ax = fig.add_axes([.05, .04, .9, .19])
+        ax.axis("off")
+        t = rvs.apply(lambda r: [LOSS_NAME[r.loss], METRICS[r.metric][0], f"{r.asymptote:.4f}", f"{r.best_ridge:.4f}",
+                                 f"{r.p_one_sided:.3f}"], axis=1)
+        tab = ax.table(cellText=list(t), colLabels=["loss", "metric", "asymptote", "best ridge",
+                                                    "p (one-sided: asymptote beats ridge)"], loc="upper center")
         tab.auto_set_font_size(False)
         tab.set_fontsize(7.5)
     pdf.savefig(fig)
@@ -522,18 +553,19 @@ def main():
     s, eras = load(args.partial)
     write_epochs(s)
     pts, per_seed = size_points(s, eras)
-    fits, diffs, _ = fit_all(pts, args.boot)
+    fits, diffs, boots = fit_all(pts, args.boot)
     fits.to_csv(OUT / "fits.csv", index=False)
     diffs.to_csv(OUT / "fits_A_vs_B.csv", index=False)
     ridge = ridge_baseline()
     ridge.to_csv(OUT / "ridge.csv", index=False)
-    # One-sided: does each financial asymptote exceed the best ridge?
+    rvs = ridge_vs(fits, boots, ridge)
+    rvs.to_csv(OUT / "ridge_vs_asymptote.csv", index=False)
     checks = sanity(s, pts)
     alpha_path = OUT / "alpha.json"
     alpha = json.loads(alpha_path.read_text()) if alpha_path.exists() else "not chosen yet"
     with PdfPages(OUT / "e188_scaling.pdf") as pdf:
         sanity_page(pdf, checks, alpha, args.partial)
-        scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, args.partial, s)
+        scaling_pages(pdf, pts, per_seed, fits, diffs, ridge, args.partial, s, rvs)
     if not args.skip_runs:
         grid = s.loc[s.kind.isin(["A", "B"]) & s.fold.eq(args.rep_fold) & s.seed.eq(args.rep_seed)]
         with PdfPages(OUT / "e188_runs.pdf") as pdf:
@@ -544,6 +576,7 @@ def main():
         print(fits[["loss", "metric", "asymptote", "asymptote_lo", "asymptote_hi", "alpha", "alpha_lo", "alpha_hi",
                     "r2"]].round(5).to_string(index=False))
     print(ridge.round(5).to_string(index=False))
+    print(rvs.round(5).to_string(index=False))
 
 
 if __name__ == "__main__":

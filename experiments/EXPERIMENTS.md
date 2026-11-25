@@ -1718,6 +1718,18 @@ Design: `experiments/e188_iara_scaling.py` (stages measure / smoke / worker / st
 
 Launch on `westeros` (the lab cluster is not reachable from this host): 8 GPU workers on the GTX 1080 Ti for P > 30k and 12 CPU workers for P <= 30k, each `systemd-run --user --unit nmr-e188-{gpu,cpu}N python3 experiments/e188_iara_scaling.py worker ...`, file-claim queue under `results/e188_iara_scaling/claims/`. Measured throughput: ~2.8 ms/step effective for the 1M network with 8 processes sharing the card; estimate 3-4 days wall time. The GPU is shared with E182. Logs `logs/e188/`.
 
+Run notes: completed 2026-11-24, 1,448/1,448 runs, no failed job. westeros rebooted twice (2026-11-21, 2026-11-22), costing ~35 h; orphaned claims were cleared and the 8 GPU workers relaunched (the 8 mid-run jobs restarted from scratch). `experiments/e188_resume.sh` was wired to cron `@reboot` for the rest of the run and removed from the crontab on completion. Loss A alpha = 1e-6 (mean validation R^2 0.0170, against 0.0145 at 0, 0.0090 at 1e-4, 0.0105 at 1e-2).
+
+Report: `python3 experiments/e188_report.py --boot 1000` -> `results/e188_iara_scaling/e188_scaling.pdf` (sanity page, scaling-law panels, fits / A-vs-B / ridge tables) and `e188_runs.pdf` (70 per-run pages, fold 3 seed 42); tables `fits.csv`, `fits_A_vs_B.csv`, `ridge.csv`, `ridge_vs_asymptote.csv`, `size_points.parquet`, `summary.parquet`, `epochs.parquet`. All section 10 sanity checks pass (min 33 steps/epoch; 0% of runs retain the final epoch, 37% retain epoch <= 3; 6.5 decades of compute; P/N >= 1 from P = 40,177).
+
+Findings (test window 2024-10-17..2026-10-14, 520 eras pooled over 4 folds, seed means; proxy payout = 0.1*CORR + MMC):
+- **The financial law holds for loss A only, and saturates early.** Payout rises from 0.023 (P = 217) to ~0.07 by P ~ 3k and is flat thereafter; fit asymptote 0.0663 [0.0639, 0.0689], alpha 0.66, fit R^2 0.57; era-Sharpe asymptote 0.93 [0.89, 0.97], fit R^2 0.47. Six decades of extra compute buy nothing past ~1e-9 PFLOP-days.
+- **Loss B has no usable law** (payout fit R^2 0.11, Sharpe 0.005): payout peaks at P = 737 (0.071) and settles at 0.055-0.063 for larger nets. Asymptote 0.0585 [0.0569, 0.0602].
+- **A beats B**: payout asymptote B - A = -0.0078 [-0.0105, -0.0051] (p 0.006), Sharpe -0.163 [-0.205, -0.120] (p < 0.001). The MMC loss also loses here, as in E186.
+- **The statistical laws do not hold.** Test RMSE is U-shaped, not a decreasing power law: best around P = 1k-10k (R^2 up to +0.015), worse once P/N >= 1 (R^2 negative, down to -0.06 at 800k). No second descent through P/N ~ 10-25; the decreasing-form fit collapses to a constant (R^2 0). Loss B RMSE/R^2 are meaningless (scale-free loss).
+- **Training risk falls monotonically with size while test does not.** Loss A final-epoch train MSE 0.050 (P = 217) -> 0.009 (P >= 300k, train R^2 ~ 0.8); loss B final train CORR reaches 0.96. Final-epoch test payout falls from 0.063 (P = 865) to ~0.036 at 600k+, so the retained checkpoint (early epochs, train MSE ~0.048) carries all of the large models' score.
+- **Ridge beats every MLP asymptote.** Best ridge: payout 0.0823 (penalty 0.01-0.1), era-Sharpe 1.016 (penalty 1000), RMSE 0.2212. One-sided bootstrap p(asymptote beats ridge) = 1.000 for A payout/Sharpe/RMSE and 0.997 for B payout (ridge treated as fixed). Even the best single MLP size (A, P = 90k: 0.0750) is below ridge.
+
 ### E189: normalisation of frozen Chronos-2-Synth hidden states, 5 axes x 7 transforms (registered 2026-11-19)
 
 **Request (user, 2026-11-19).** How does normalisation change the predictive value of frozen

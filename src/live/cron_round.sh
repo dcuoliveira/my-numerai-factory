@@ -22,7 +22,7 @@
 #
 set -uo pipefail
 
-REPO="/home/danielco/Downloads/my-numerai-agent"
+REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)" || exit 1
 PYTHON="/home/danielco/miniconda3/bin/python3"
 LOCK="/tmp/numerai_live_round.lock"
 LOG_DIR="${REPO}/logs"
@@ -58,7 +58,7 @@ ARGS=(--deadline-minutes "${DEADLINE}")
 # what run_round returns when a slot fails. Without a distinct code, "another
 # round is running" and "a submission failed" look identical in the log, and
 # only one of them needs waking up for.
-flock -n -E 99 "${LOCK}" "${PYTHON}" -u -m src.live.run_round "${ARGS[@]}" >> "${LOG}" 2>&1
+flock -n -E 99 "${LOCK}" "${PYTHON}" -u -m src.live.run_round "${ARGS[@]}" "$@" >> "${LOG}" 2>&1
 status=$?
 
 if [ "${status}" -eq 99 ]; then
