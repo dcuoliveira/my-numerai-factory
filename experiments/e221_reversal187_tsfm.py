@@ -61,6 +61,9 @@ PY = '/home/danielco/miniconda3/bin/python3'
 # User-authorized 2026-11-25: double the CPU share on the two idle-GPU boxes so E221's
 # GPU jobs are not starved by E218 workers; every other host keeps the default share.
 DOUBLED_HOSTS = {'deepfive': 2*budget.SHARE, 'deepsix': 2*budget.SHARE}
+# User-authorized 2026-11-25 (temporary, extraction stage only): both cards on those two
+# hosts when free; a card stays blocked if reserved by any active nmr unit or in use.
+DOUBLED_GPU_SLOTS = 2
 save, parquet, sha = E.save, E.parquet, E.sha
 CODE = [Path(__file__), REPO/'src/data_mani/e212_signal_embeddings.py', REPO/'experiments/e206_momentum3_tsfm.py',
         REPO/'src/analysis/tsfm_momentum_study.py', REPO/'src/analysis/asset_ktz_states.py',
@@ -528,13 +531,30 @@ def jobs_now(p, config):
     return jobs, stage
 
 
+def admission(probes, owned, active, snapshots):
+    """E212 admission, except that our own card on a DOUBLED_HOSTS box no longer blocks its second card."""
+    from dataclasses import replace
+    occupied = {r['host'] for u, r in owned.items() if u in active and r.get('gpus')}
+    result = []
+    for host in probes:
+        blocked, _, seen = snapshots.get(host.name, (set(), [], set()))
+        busy = set(host.busy_gpus) | blocked | (set(range(host.gpus))-seen)
+        if host.name in occupied:
+            if host.name in DOUBLED_HOSTS:
+                busy |= {g for u, r in owned.items() if u in active and r['host'] == host.name for g in r.get('gpus', [])}
+            else:
+                busy = set(range(host.gpus))
+        result.append(replace(host, busy_gpus=tuple(sorted(busy))))
+    return result
+
+
 def place(pending, admitted):
     """Doubled share on DOUBLED_HOSTS first; whatever does not fit there goes to the rest at the default."""
     placements, unplaced = [], list(pending)
     for name, share in DOUBLED_HOSTS.items():
         pool = [h for h in admitted if h.name == name]
         if pool and unplaced:
-            got, left = budget.distribute([j for j in unplaced], pool, share=share, gpu_slots=1)
+            got, left = budget.distribute([j for j in unplaced], pool, share=share, gpu_slots=DOUBLED_GPU_SLOTS)
             placements += got; unplaced = [j for j, _ in left]
     rest = [h for h in admitted if h.name not in DOUBLED_HOSTS]
     got, left = budget.distribute(unplaced, rest, share=budget.SHARE, gpu_slots=1)
@@ -570,7 +590,7 @@ def supervise():
                 if state['attempts'].get(job.name, 0) >= 3:
                     raise RuntimeError('Three attempts exhausted: '+job.name+f'; see logs/cluster/{job.name}.out')
                 pending.append(job)
-            admitted = G.admission_hosts(probes, state['owned'], active, snapshots)
+            admitted = admission(probes, state['owned'], active, snapshots)
             placements, unplaced = place(pending, admitted)
             for placement in placements:
                 subprocess.run(['ssh', '-o', 'BatchMode=yes', placement.host,
