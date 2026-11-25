@@ -182,11 +182,14 @@ def finish():
 
 def supervise():
     prepare()
+    training_cores=int(os.getenv('E218_TRAIN_CORES','4'))
+    cpu_share=float(os.getenv('E218_CPU_SHARE','.60'))
+    if training_cores<1 or not 0<cpu_share<=1:raise ValueError('Invalid E218 resource override')
     file=ROOT/'supervisor.json'
     state=json.loads(file.read_text()) if file.exists() else dict(owned={},attempts={},launches=[])
     def interrupt(*_):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,interrupt)
-    save(ROOT/'resource_lease.json',dict(active_share=.60,default_share=budget.SHARE,status='active',global_default_changed=False))
+    save(ROOT/'resource_lease.json',dict(active_share=cpu_share,training_cores=training_cores,default_share=budget.SHARE,status='active',global_default_changed=False))
     try:
         while not (ROOT/'COMPLETE.json').exists():
             probes=hosts.reachable(hosts.probe_all(timeout=3));snapshots=manager.status(names=[h.name for h in probes],timeout=3)
@@ -200,7 +203,7 @@ def supervise():
                 else:
                     for family in FAMILIES:
                         if not (ROOT/'fits'/f'{c["id"]}_{family}'/'COMPLETE.json').exists():
-                            jobs.append(budget.Job(f'e218_{c["id"]}_{family}',f'{PY} -u experiments/e218_asset_ktz_states.py fit --config {c["id"]} --family {family}',cores=4,ram_gb=24))
+                            jobs.append(budget.Job(f'e218_{c["id"]}_{family}',f'{PY} -u experiments/e218_asset_ktz_states.py fit --config {c["id"]} --family {family}',cores=training_cores,ram_gb=24))
             if not jobs:
                 save(ROOT/'status.json',dict(stage='scoring_and_reporting',time=time.time()));finish();break
             pending=[]
@@ -208,7 +211,7 @@ def supervise():
                 if 'nmr-'+job.name in active or 'nmr-'+job.name in state['owned']:continue
                 if state['attempts'].get(job.name,0)>=3:raise RuntimeError('Three attempts exhausted: '+job.name)
                 pending.append(job)
-            placements,unplaced=budget.distribute(pending,probes,share=.60)
+            placements,unplaced=budget.distribute(pending,probes,share=cpu_share)
             for placement in placements:
                 subprocess.run(['ssh','-o','BatchMode=yes',placement.host,'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user reset-failed '+placement.unit],capture_output=True,timeout=15)
                 ok,message=manager.launch(placement)
