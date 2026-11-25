@@ -548,6 +548,22 @@ def admission(probes, owned, active, snapshots):
     return result
 
 
+def recover_locks():
+    """Remove a per-asset extraction lock only when its owner process is confirmed gone."""
+    for path in SCR.glob('embeddings/*/*.lock'):
+        try:
+            owner = json.loads(path.read_text()); pid = int(owner['pid'])
+        except (OSError, ValueError, KeyError):
+            continue
+        try:
+            result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=4', owner['host'],
+                                     f'ps -p {pid} -o args='], capture_output=True, text=True, timeout=8)
+            if result.returncode in [0, 1] and 'src.data_mani.e212_signal_embeddings' not in result.stdout:
+                path.unlink(missing_ok=True)
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def place(pending, admitted):
     """Doubled share on DOUBLED_HOSTS first; whatever does not fit there goes to the rest at the default."""
     placements, unplaced = [], list(pending)
@@ -578,6 +594,7 @@ def supervise():
                         del state['owned'][unit]
                     else:
                         active.add(unit)
+            recover_locks()
             gpu_hosts = [h for h in probes if h.gpus]
             with ThreadPoolExecutor(max_workers=max(1, len(gpu_hosts))) as pool:
                 snapshots = {n: (b, r, s) for n, b, r, s in pool.map(G.gpu_snapshot, [h.name for h in gpu_hosts])}
