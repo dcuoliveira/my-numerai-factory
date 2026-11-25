@@ -659,13 +659,40 @@ def _would_downgrade(prior, source):
     return SOURCE_RANK.get(source, -1) < SOURCE_RANK.get(prior["source"], -1)
 
 
+def required_fits(names):
+    """Return the fittable slots needed by the requested slots."""
+    seen = set()
+    fitting = set()
+
+    def visit(name):
+        if name in seen:
+            return
+        seen.add(name)
+        members = registry.get(name).get("slot_members")
+        if members:
+            for member in members:
+                visit(member["name"])
+        else:
+            fitting.add(name)
+
+    for name in names:
+        visit(name)
+    return fitting
+
+
 def run(deadline_minutes=60, dry_run=False, safety_first=False,
         force_refit=False, models=None, email=True, skip_if_submitted=False,
         allow_late=False, progress=None, round_info=None):
+    names = models or registry.ORDER
+    if models:
+        unknown = set(models) - set(registry.ORDER)
+        if unknown:
+            raise ValueError("unknown live slots: %s" % ", ".join(sorted(unknown)))
+        names = [name for name in registry.ORDER if name in models]
+
     load_env()
     api = get_api()
 
-    names = models or registry.ORDER
     budget = Budget(deadline_minutes, len(names))
     warnings = []
     report_late = False
@@ -819,7 +846,7 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
     # whether or not this pass uploads it. cache_only, because a slot we are not
     # submitting must never spend the budget on a refit, and it is deliberately
     # not counted in budget.outstanding for the same reason.
-    if submit.SIBLING not in names and submit.SIBLING in registry.ORDER:
+    if not models and submit.SIBLING not in names and submit.SIBLING in registry.ORDER:
         estimator, columns, built, metadata, _ = prepare_slot(
             submit.SIBLING, panel, live_date, budget, warnings, cache_only=True)
         if estimator is not None:
@@ -855,6 +882,22 @@ def run(deadline_minutes=60, dry_run=False, safety_first=False,
                 print("   %s: guard submission in" % name)
             except Exception as error:
                 print("   %s: guard submission failed (%s)" % (name, error))
+
+    # A filtered run still has to refresh the fitted leaves of nested blends.
+    # Only the requested slots go through the CSV and upload loop below.
+    if models:
+        needed = required_fits(names) - set(names)
+        if submit.SIBLING not in names and submit.SIBLING in registry.ORDER:
+            needed.add(submit.SIBLING)
+        for name in registry.ORDER:
+            if name not in needed:
+                continue
+            estimator, columns, built, metadata, info = prepare_slot(
+                name, panel, live_date, budget, warnings, force_refit=force_refit)
+            if estimator is None:
+                warnings.append("%s could not be prepared: %s" % (name, info["note"]))
+            elif name == submit.SIBLING:
+                context["estimators"][name] = (estimator, columns, built, metadata)
 
     # --- main pass -----------------------------------------------------------
     for name in names:

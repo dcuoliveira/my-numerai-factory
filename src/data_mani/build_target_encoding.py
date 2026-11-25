@@ -107,33 +107,29 @@ def causal_target_encoding(df, symbol_col, period_col, target_col,
     pos = pd.Series(np.arange(len(periods)), index=periods)
     row_pos = df[period_col].map(pos).to_numpy()
 
-    global_mean = float(df[target_col].mean())
+    targets = df[target_col].to_numpy()
+    observed = np.isfinite(targets)
+    global_mean = float(targets[observed].mean())
     encoding = np.full(len(df), np.nan)
     counts = np.zeros(len(df))
 
-    order = np.argsort(row_pos, kind="stable")
     for symbol, idx in pd.Series(np.arange(len(df)), index=df[symbol_col].to_numpy()).groupby(level=0):
         rows = idx.to_numpy()
         rows = rows[np.argsort(row_pos[rows], kind="stable")]   # chronological
         p = row_pos[rows]
-        y = df[target_col].to_numpy()[rows]
+        # Unlabeled dates advance the embargo clock without contributing a target.
+        known_rows = rows[observed[rows]]
+        known_positions = row_pos[known_rows]
+        y = targets[known_rows]
 
-        # Prefix sums over this symbol's own chronological observations. A NaN
-        # target is a row whose label has not resolved yet -- the live panel's
-        # history rows -- and is not an observation: it adds nothing to either
-        # sum. Summing it raw poisoned every later prefix, and once Numerai's
-        # train file lagged live by more than the lag (32 days from 2026-10-01)
-        # every live row read a NaN. With no NaN target this is byte-identical
-        # to the plain cumsum/arange it replaces.
-        seen = ~np.isnan(y)
-        csum = np.concatenate([[0.0], np.cumsum(np.where(seen, y, 0.0))])
-        ccnt = np.concatenate([[0], np.cumsum(seen)])
+        # Prefix sums over this symbol's own chronological observations.
+        csum = np.concatenate([[0.0], np.cumsum(y)])
 
         # How many of this symbol's observations are at position <= p - lag?
-        hi = np.searchsorted(p, p - lag, side="right")
+        hi = np.searchsorted(known_positions, p - lag, side="right")
         lo = np.zeros_like(hi) if window <= 0 else np.maximum(0, hi - window)
 
-        n = ccnt[hi] - ccnt[lo]
+        n = hi - lo
         total = csum[hi] - csum[lo]
 
         # Shrink toward the global mean; n = 0 gives exactly the global mean.
