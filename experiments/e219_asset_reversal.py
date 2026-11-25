@@ -130,7 +130,9 @@ def prepare():
             for cut, short in truncated.items():
                 for slot in AUDIT_SLOTS:
                     raw, ts = frames[slot]
-                    sraw = R.signal(short, family, slot, factors(short))
+                    # Coins with no bar before the cutoff are absent from the truncated
+                    # pivot; their full-history values up to the cutoff must be all NaN.
+                    sraw = R.signal(short, family, slot, factors(short)).reindex(columns=raw.columns)
                     sts = M.prior_bins(sraw.to_numpy())
                     np.testing.assert_allclose(raw.loc[:cut].to_numpy(), sraw.to_numpy(),
                                                rtol=1e-9, atol=1e-12, equal_nan=True)
