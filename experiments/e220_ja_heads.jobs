@@ -1,0 +1,1 @@
+cores=1 ram=8 name=e220_ja_heads_supervisor -- python3 -u experiments/e220_ja_heads.py supervise

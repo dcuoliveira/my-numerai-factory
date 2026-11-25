@@ -4124,6 +4124,14 @@ STUDIES["E219"] = {
 
 
 
+STUDIES["E220"] = {
+ "title": "JA four H configurations: per-asset KTZ heads, H versus H plus momentum33",
+ "idea": "User requests MLP KTZ sklearn initialization, LightGBM KTZ, TabNet KTZ on JA four TSFM/standardization/design datasets, then same heads on H concatenated with crypto/v2.0-e205-ts-momentum3. Chronos2 rolling C, t0 cross_section C, t0 rolling C, Timestral cross_section C. Each target asset receives fixed-vocabulary full C plus its own33 momentum columns in Hmom.24 portfolios:8 exact E218 H-only MLP/LGB references plus16 fresh per-asset portfolios (4 H-only TabNet +12 Hmom). Original E206/E218 target20 splits, common masks/label wall, four frozen candidates/family, per-asset validation MSE then independent final refit. TabNet KTZ axes preserved except effective batch=min64,grid batch,largest power2<=fit rows; virtual batch capped correspondingly. Exact sparse identity storage avoids quadratic allocation; no projection/PCA/grouping. Prediction/gradient parity and small-history/serialization tests required before launch. Own cache copies hashed, original caches never modified. Matched common payout metrics and PDF/cumulative plot; no new ensembles or residualization requested. Source vintage/pretraining limits inherited; no marginal/live claim. OUTSIDE results/metrics: results/reports/crypto/e220_ja_heads/; scratch /scratch/danielco/e220_ja_heads/. Default30percent admission,4 cores per worker,48GiB reservation.",
+ "runner":"experiments/e220_ja_heads.py", "prefix":"e220_", "scout_prefix":None,
+ "models":["mlp_ktz","lgbm_ktz","tabnet_ktz"], "expected_arms":24,
+ "artifact_root":"results/reports/crypto/e220_ja_heads",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
