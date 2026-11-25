@@ -1,0 +1,1 @@
+cores=8 ram=48 name=e219_asset_reversal -- python3 -u experiments/e219_asset_reversal.py run --workers 8

@@ -4103,6 +4103,25 @@ STUDIES["E218"] = {
  "artifact_root": "results/reports/crypto/e218_asset_ktz_states",
 }
 
+STUDIES["E219"] = {
+    "title": "E205/E209-style independent per-asset reversal metrics: 17 formula datasets x 11 TS-binned windows",
+    "idea": "User asks to define reversal metrics (incl. short RSI and pivots) and run step 2 in the style of the latest "
+            "volatility/momentum studies: one model per asset, TS bins. 17 formula datasets from "
+            "src/data_mani/reversal_metrics.py (short return; residual on BTC and BTC+ETH; vol-scaled return; "
+            "stochastic %K; distance from w-high/low; low/high abnormal-volume return; max/min daily return; "
+            "trend deviation; RSI Wilder and SMA; classic floor pivot over ATR; swing-high/low distance), each "
+            "jointly using 11 weekday windows 2/3/4/5/7/10/14/20/30/60/120 (swing half-widths 1..40) as strictly-prior "
+            "own-history 252/min126 five-bin TS inputs, D-1 attach. Plus matched E205 momentum132 control refitted on "
+            "identical common rows. 18 datasets x {ridge, Torch identity MLP} = 36 portfolios; unchanged E205 per-asset "
+            "tuning (100 alphas / 80 frozen candidates, five seeds), folds, fallback, rank-slot routing, scoring. "
+            "Three fixed 17-formula equal-rank ensembles; paired HAC20/block20 vs asset mean, baseline and momentum132. "
+            "BTC/ETH excluded (residual factors). Development dates <2026-02-20; no native22 marginal/live claim. "
+            "Writes OUTSIDE results/metrics/: results/reports/crypto/e219_asset_reversal/; completion emails PDF.",
+    "runner": "experiments/e219_asset_reversal.py", "prefix": "e219_", "scout_prefix": None,
+    "models": ["ridge", "mlp_torch"], "expected_arms": 36,
+    "artifact_root": "results/reports/crypto/e219_asset_reversal",
+}
+
 
 
 if __name__ == "__main__":
