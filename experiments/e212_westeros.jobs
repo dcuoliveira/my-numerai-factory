@@ -1,0 +1,2 @@
+cores=1 ram=2 name=e212_gpu_extract_timestral_t20 -- python3 -u experiments/e212_westeros_bridge.py --target 20
+cores=1 ram=2 name=e212_gpu_extract_timestral_t60 -- python3 -u experiments/e212_westeros_bridge.py --target 60
