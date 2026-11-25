@@ -1,0 +1,1 @@
+cores=1 ram=8 name=e221_reversal187_supervisor -- python3 -u experiments/e221_reversal187_tsfm.py supervise
