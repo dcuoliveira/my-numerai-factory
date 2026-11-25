@@ -8,6 +8,7 @@ runtime=/home/danielco/e212_runtime
 root=$repo/results/reports/crypto/e212_volatility99_tsfm
 out=$root/cache/t$horizon/embeddings/timestral
 mkdir -p "$out"
+while [ ! -f "$runtime/READY.json" ]; do sleep 15; done
 exec 9>"$runtime/gpu0.lock"
 flock 9
 # Another user's work may have arrived since setup. Wait rather than compete.
