@@ -384,10 +384,10 @@ def report(table, deltas, daily, audit):
     from src.analysis.html_pdf import to_pdf
     to_pdf(str(page), 'lovelace')
     pdf = page.with_suffix('.pdf')
-    import fitz
-    with fitz.open(pdf) as document:
-        assert len(document) > 2 and 'E219' in document[0].get_text()
-        pages = len(document)
+    from pypdf import PdfReader
+    document = PdfReader(str(pdf))
+    assert len(document.pages) > 2 and 'E219' in document.pages[0].extract_text()
+    pages = len(document.pages)
     save(ROOT/'COMPLETE.json', dict(experiment='E219', finished=time.time(), portfolios=len(TASKS), fixed_ensembles=3,
                                     pdf=str(pdf), pdf_sha256=sha(pdf), pages=pages, audit=audit['outcome']))
 
