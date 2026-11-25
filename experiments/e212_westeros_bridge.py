@@ -80,7 +80,7 @@ print(json.dumps(result))
             rows=z['rows'];states=z['states']
             assert states.shape==(len(rows),expected['width']) and len(rows)==info['rows']
             assert len(np.unique(rows))==len(rows) and np.isfinite(states).all()
-            assert states.dtype==np.float16 and identity.loc[rows].eq(int(asset[6:])).all()
+            assert states.dtype==np.float16 and identity.loc[rows].astype(str).eq(asset.removeprefix('asset_')).all()
         for f in [data,meta]:
             dest=directory/f.name
             if dest.exists():
