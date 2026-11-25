@@ -608,7 +608,7 @@ def supervise(dataset=DATASET,models=None):
     signal.signal(signal.SIGTERM,interrupt)
     try:
         while not (ROOT/'COMPLETE.json').exists():
-            probes=hosts.reachable(hosts.probe_all(timeout=4))
+            probes=[h for h in hosts.reachable(hosts.probe_all(timeout=4)) if h.name not in {'westeros','imeusp'}]
             statuses=manager.status(names=[h.name for h in probes],timeout=4);active,failed=E.unit_states(statuses)
             recover_locks()
             for unit in list(state['owned']):

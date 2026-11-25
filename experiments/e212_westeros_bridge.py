@@ -1,6 +1,6 @@
 """E212 Timestral remote-only extraction bridge; no shared filesystem assumed.
 
-Launch with the same managed extraction unit names on hamilton, so the existing
+Launch with the same managed extraction unit names on hopper, so the existing
 E212 supervisor sees these streams as active instead of duplicating their work.
 The frozen extractor itself remains unchanged. Only complete, fingerprint- and
 hash-verified per-asset pairs become visible to the main study.
