@@ -64,6 +64,8 @@ DOUBLED_HOSTS = {'deepfive': 2*budget.SHARE, 'deepsix': 2*budget.SHARE}
 # User-authorized 2026-11-25 (temporary, extraction stage only): both cards on those two
 # hosts when free; a card stays blocked if reserved by any active nmr unit or in use.
 DOUBLED_GPU_SLOTS = 2
+# User-authorized 2026-11-25: GPU jobs get 2 cores per host above the doubled share there.
+GPU_EXTRA_CORES = 2
 save, parquet, sha = E.save, E.parquet, E.sha
 CODE = [Path(__file__), REPO/'src/data_mani/e212_signal_embeddings.py', REPO/'experiments/e206_momentum3_tsfm.py',
         REPO/'src/analysis/tsfm_momentum_study.py', REPO/'src/analysis/asset_ktz_states.py',
@@ -565,13 +567,21 @@ def recover_locks():
 
 
 def place(pending, admitted):
+    from dataclasses import replace
     """Doubled share on DOUBLED_HOSTS first; whatever does not fit there goes to the rest at the default."""
     placements, unplaced = [], list(pending)
     for name, share in DOUBLED_HOSTS.items():
         pool = [h for h in admitted if h.name == name]
         if pool and unplaced:
-            got, left = budget.distribute([j for j in unplaced], pool, share=share, gpu_slots=DOUBLED_GPU_SLOTS)
-            placements += got; unplaced = [j for j, _ in left]
+            for subset, extra in [([j for j in unplaced if j.gpus], GPU_EXTRA_CORES), ([j for j in unplaced if not j.gpus], 0)]:
+                if not subset:
+                    continue
+                taken = [c for x in placements if x.host == name for c in x.cpus]
+                hosts_now = [replace(h, our_cpus=tuple(sorted(set(h.our_cpus) | set(taken)))) for h in pool]
+                got, left = budget.distribute(subset, hosts_now, share=share, gpu_slots=DOUBLED_GPU_SLOTS, extra_cores=extra)
+                placements += got
+                done = {x.job.name for x in got}
+                unplaced = [j for j in unplaced if j.name not in done]
     rest = [h for h in admitted if h.name not in DOUBLED_HOSTS]
     got, left = budget.distribute(unplaced, rest, share=budget.SHARE, gpu_slots=1)
     return placements+got, left
