@@ -15,6 +15,14 @@ ROOT=REPO/'results/reports/crypto/e220_ja_heads';SCR=Path('/scratch/danielco/e22
 OLD=B.ROOT;OLD_SCR=B.SCR
 FAMILIES=['mlp_ktz','lgbm_ktz','tabnet_ktz']
 ORIGINAL_WRAPPER=K.wrapper
+VISION_HOSTS=['hamilton','hopper','lovelace','dostoievski','tolstoi','deepfour','deepfive','deepsix']
+
+
+def capacity():
+    # Remote probes avoid inheriting the supervisor's single-core affinity.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return hosts.reachable(list(pool.map(lambda name:hosts.probe(name,timeout=6,local_name='__remote_probe__'),VISION_HOSTS)))
 
 
 def wrapper(family,cores=1):
@@ -116,7 +124,7 @@ def supervise():
     signal.signal(signal.SIGTERM,interrupt)
     try:
         while True:
-            probes=hosts.reachable(hosts.probe_all(timeout=3));snapshots=manager.status(names=[h.name for h in probes],timeout=3);active,_=E.unit_states(snapshots)
+            probes=capacity();snapshots=manager.status(names=[h.name for h in probes],timeout=3);active,_=E.unit_states(snapshots)
             pending=[];complete=0
             for c in json.loads((ROOT/'plan.json').read_text()):
                 for variant in ['H','Hmom']:

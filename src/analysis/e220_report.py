@@ -36,7 +36,7 @@ def report(root,source):
             columns=['tag','corr','mmc','payout','sharpe.p','maxdd.p']
             cells=[[row['tag']]+[f'{row[k]:.6f}' for k in columns[1:]] for _,row in t.iterrows()]
             tab=ax.table(cellText=cells,colLabels=columns,loc='center');tab.auto_set_font_size(False);tab.set_fontsize(8);tab.scale(1,1.8)
-            fig.text(.07,.07,f'Matched common sample: {len(dates)} dates, {sum(counts)} asset/date rows. Payout=0.1 CORR + historical-meta proxy MMC.\nHistorical research; inherited data-vintage and pretrained-checkpoint limitations. No native-feature marginal or live claims.')
+            fig.text(.07,.07,f'JA key: c01=Chronos2/rolling/C; c02=t0/cross_section/C; c03=t0/rolling/C; c05=Timestral/cross_section/C.\nMatched common sample: {len(dates)} dates, {sum(counts)} asset/date rows. Payout=0.1 CORR + historical-meta proxy MMC.\nHistorical research; inherited data-vintage and pretrained-checkpoint limitations. No native-feature marginal or live claims.')
             pdf.savefig(fig,bbox_inches='tight');plt.close(fig)
         fig,ax=plt.subplots(figsize=(16,10))
         for j,n in enumerate(names):ax.plot(dates,pay[:,j].cumsum(),label=n)
