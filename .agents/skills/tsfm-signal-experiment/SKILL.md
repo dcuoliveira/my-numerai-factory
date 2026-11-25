@@ -88,3 +88,15 @@ runner; do not modify the configuration of an unrelated running experiment.
 Omit the Frozen protocol section and raw config/manifest dumps from HTML/PDF
 reports. Save those details in separate configuration and audit artifacts;
 retain concise explanations needed to interpret the tables and plots.
+
+### Optional extraction host outside the shared pool
+
+Westeros can be considered when authorized GPU work needs another host. Read
+AGENTS.md's "Optional server: westeros" section (Codex) or CLAUDE.md's matching
+section (Claude Code) for access and synchronization. It has independent storage;
+commit/push/pull code, transfer and hash-check data/checkpoints/results explicitly,
+and configure host-local environments and output paths. Do not add it to an
+existing NFS-based scheduler without implementing separate-host handling.
+Retain registered study IDs, resource accounting, execution-device manifests and
+cache identities; verify GTX 1080 Ti/Pascal compatibility with a registered smoke
+before real extraction. Documentation alone does not move a running study.

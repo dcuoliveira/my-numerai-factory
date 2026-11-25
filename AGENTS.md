@@ -125,3 +125,65 @@ Omit the **Frozen protocol** section and raw configuration/manifest dumps from
 all generated reports, including HTML and PDF. Keep full protocols, configuration,
 provenance and audit details in their separate machine-readable artifacts.
 Concise descriptions needed to interpret results may remain in the report.
+
+## Optional server: westeros (separate network and storage)
+
+`westeros` is an additional compute option, reached as `danielco` at
+`westeros.ime.usp.br` through `ProxyJump imeusp`. The jump host is
+`doliveira@ime.usp.br`, port `2222`; both use the existing local identity
+`~/.ssh/id_claude_code_rsa`. Connection settings live in `~/.ssh/config`:
+
+```sshconfig
+Host westeros
+  HostName westeros.ime.usp.br
+  User danielco
+  ProxyJump imeusp
+  IdentityFile ~/.ssh/id_claude_code_rsa
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+
+Host imeusp
+  HostName ime.usp.br
+  Port 2222
+  User doliveira
+  IdentityFile ~/.ssh/id_claude_code_rsa
+  IdentitiesOnly yes
+  PreferredAuthentications publickey,password
+  PasswordAuthentication yes
+  KbdInteractiveAuthentication yes
+  BatchMode no
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-imeusp-persistent
+  ControlPersist yes
+  ServerAliveInterval 60
+  ServerAliveCountMax 3
+```
+
+Use `ssh westeros`; unattended probes should use `BatchMode=yes` on both
+hops (for example `ssh -o BatchMode=yes -o 'ProxyCommand=ssh -o BatchMode=yes -W %h:%p imeusp' westeros hostname`).
+Never commit private keys or credentials, or bypass host-key verification.
+
+Observed 2026-11-25: 48 logical CPUs, 156 GiB RAM and one GTX 1080 Ti
+(11 GiB VRAM). Recheck availability before allocating; this is not a reservation.
+The existing checkout is `/home/danielco/Downloads/my-numerai-factory`, with
+`origin` pointing to `git@github.com:dcuoliveira/my-numerai-factory.git`.
+
+**Westeros is outside the Vision servers' shared NFS environment.** Its home,
+checkout, Python environments, datasets, checkpoints, results and logs are
+independent. The shared-home statements elsewhere apply only to the Vision pool.
+Commit and push the requested source changes from the source checkout to its
+configured project remote (currently `mine`), then inspect remote status and
+pull on westeros with `git pull --ff-only origin main`. Verify the exact intended
+commit is present before execution; stop on divergence or conflicting local
+edits rather than resetting, cleaning or overwriting anyone's work. If needed,
+use a separate checkout. Do not assume matching absolute paths imply shared files.
+
+Git does not transfer ignored datasets, weights, environments or results.
+Transfer only required artifacts explicitly (e.g. rsync/scp via the SSH alias),
+verify hashes and source identities on both ends, set host-local paths, and
+return outputs explicitly. Check dependencies, disk capacity and Pascal GPU /
+CUDA compatibility before choosing work; do not assume the Vision conda or
+scratch paths exist here. Keep study registration, resource limits and cache
+identity checks. Existing shared-filesystem schedulers/supervisors do not gain
+westeros support simply from this documentation: use an explicitly configured
+separate-host workflow, never add it blindly to their NFS host pool.
