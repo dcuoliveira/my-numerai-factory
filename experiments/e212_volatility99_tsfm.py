@@ -483,13 +483,12 @@ def report(table,configs,dates,arrays):
         body+=f'<img style="width:100%" src="all_standalones_t{h}.png"><img style="width:100%" src="payout_heatmap_t{h}.png">'
         body+='<h2>Top THREE ensembles (exploratory)</h2>'+top[cols].to_html(index=False,float_format=lambda v:f'{v:.6f}')
         body+=f'<img style="width:100%" src="top3_plus_standalones_t{h}.png">'
-    body+='<h2>Audit</h2><pre>'+html.escape((ROOT/'audit.json').read_text())+'</pre>'
-    body+='<h2>Frozen configuration</h2><pre>'+html.escape((ROOT/'config.json').read_text())+'</pre>'
+    body+='<h2>Audit</h2><p>'+html.escape(json.loads((ROOT/'audit.json').read_text())['outcome'])+'. Full audit, provenance and configuration are retained in separate machine-readable artifacts.</p>'
     page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}</style></head><body>'+body+'</body></html>')
     command='cd '+shlex.quote(str(REPO))+'\nexec '+shlex.join([PYTHON,'-m','src.analysis.html_pdf',str(page)])
     subprocess.run(['ssh','-o','BatchMode=yes','lovelace','bash','-s'],input=command,text=True,check=True,timeout=300)
     text=subprocess.check_output(['pdftotext',str(page.with_suffix('.pdf')),'-'],text=True)
-    assert 'E212' in text and 'top THREE' in text
+    assert 'E212' in text and 'top three' in text.lower()
 
 
 def email_report():
