@@ -33,6 +33,7 @@ if (p/'fits'/NAME/'WESTEROS_RETURN_READY.json').exists():
   if f.is_file():print(f.relative_to(p))
 """.replace('ROOT',repr(REMOTE+'/results/reports/crypto/e212_volatility99_tsfm')).replace('NAME',repr(name))
     files=remote('python3 -c '+shlex.quote(code)).splitlines()
+    files=[f for f in files if not (ROOT/f).exists()]
     if not files:return
     staging=ROOT/'westeros_fit_incoming';staging.mkdir(exist_ok=True)
     # rsync verifies each file's transmitted checksum; publish only the verified
@@ -43,7 +44,9 @@ if (p/'fits'/NAME/'WESTEROS_RETURN_READY.json').exists():
     fitdir=staging/'fits'/name
     if (fitdir/'predictions.sha256.json').exists():
         expected=json.loads((fitdir/'predictions.sha256.json').read_text())['sha256']
-        assert digest(fitdir/'predictions.parquet')==expected,'Prediction transfer hash mismatch'
+        prediction=fitdir/'predictions.parquet'
+        if not prediction.exists():prediction=ROOT/'fits'/name/'predictions.parquet'
+        assert digest(prediction)==expected,'Prediction transfer hash mismatch'
     ordered=sorted(files,key=lambda x:x.endswith('COMPLETE.json'))
     for name in ordered:
         source=staging/name;destination=ROOT/name
