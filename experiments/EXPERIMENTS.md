@@ -2554,3 +2554,13 @@ Launch after registration commit: python3 -m src.cluster run --jobs experiments/
 **E221 GPU-core amendment (2026-11-25).** User asks to give the GPU jobs 2 extra cores on deepfive and deepsix: the second cards were idle while the doubled 0.60 CPU share was full. E221 GPU jobs on those two hosts may use 2 cores per host above the doubled share (still bounded by physically free cores); CPU jobs get no extra cores. No scientific change.
 
 **Amendment 2026-11-26: TabPFN-TS removed.** At the user's request `tabpfnts` was dropped from `MODELS` mid-extraction (237/531 assets done; partial states left unused on scratch). E221 is now 3 TSFMs x {H,HX} x 4 learners + 4 X controls = 28 portfolios; the common sample requires Chronos-2, t0 and Timestral H valid.
+
+### E222: Chronos-2 feature-row state mean vs target-row state, ridge (registered 2026-11-26)
+
+**Request.** "Run an experiment with ridge that uses chronos hidden state with TS standardization and all the suggestion and compare with the same thing but with the average value of the representation of the features from each time step, and compare with the same base hidden state features concatenated with the features hidden states."
+
+**Design.** E221 feeds Chronos-2 one group per asset (target20 + 187 reversal187 covariates) but keeps only the target row's pre-head state. E222 re-runs that pass on E221's frozen panel (same extractor, context 256, 35-day wall, batch 4, audits) and keeps, per origin, the target-row state and the mean over the 187 feature rows at the same output patch. Arms, all per-asset dual ridge on design C with rolling standardization (window 63/126/252 chosen per arm by validation MSE), 33 alphas, E206 target20 splits, one common causal sample: **T** target row (768, parity-checked against E221's cache), **F** feature-row mean (768), **TF** concatenation (1536, one penalty). Paired Newey-West lag 20: F-T, TF-T, TF-F.
+
+**Launch.** GPU worker `python3 experiments/e222_c2_featmean_ridge.py extract` on deepfive card 0 (1 core; launched with `--share 0.6 --gpu-slots 1`, the doubled deepfive share the user granted for GPU jobs, because two 8-core E218 jobs fill the standard 30%); first asset's T block equals E221's cache bit for bit; orchestrator `python3 experiments/e222_c2_featmean_ridge.py all` on hopper waits for extraction, then collect, fit, score, PDF, email. Jobs: `experiments/e222_c2_featmean_ridge.jobs`.
+
+**Outputs.** `results/reports/crypto/e222_c2_featmean_ridge/` (fits, table.csv, paired_deltas.csv, PDF); cache `/scratch/danielco/e222_c2_featmean_ridge/`.

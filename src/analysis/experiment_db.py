@@ -4140,6 +4140,14 @@ STUDIES["E221"] = {
  "artifact_root":"results/reports/crypto/e221_reversal187_tsfm",
 }
 
+STUDIES["E222"] = {
+ "title": "Chronos-2 feature-row state mean vs target-row state, per-asset design-C ridge",
+ "idea": "User asks whether the discarded Chronos-2 states of the 187 reversal187 covariate rows add value. Same Chronos-2 pass as E221 (frozen E221 panel, target20 context, 35-day wall, E212 extractor via src/data_mani/e222_featmean_embeddings.py) keeping the target-row state and the mean of the 187 feature-row states at the same output patch. Per-asset dual ridge, design C, rolling standardization (63/126/252 by validation MSE), E206 target20 splits, three arms on one common sample: T (target row, parity-checked vs E221), F (feature-row mean), TF (concatenated); paired NW20 F-T, TF-T, TF-F. OUTSIDE results/metrics: results/reports/crypto/e222_c2_featmean_ridge/; cache /scratch/danielco/e222_c2_featmean_ridge/.",
+ "runner":"experiments/e222_c2_featmean_ridge.py", "prefix":"e222_", "scout_prefix":None,
+ "models":["chronos2","ridge"], "expected_arms":3,
+ "artifact_root":"results/reports/crypto/e222_c2_featmean_ridge",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

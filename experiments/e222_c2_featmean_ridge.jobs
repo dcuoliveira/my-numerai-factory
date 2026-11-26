@@ -1,0 +1,2 @@
+cores=1 ram=8 gpu=1 name=e222_c2_extract -- python3 -u experiments/e222_c2_featmean_ridge.py extract
+cores=4 ram=64 name=e222_c2_orchestrate -- python3 -u experiments/e222_c2_featmean_ridge.py all
