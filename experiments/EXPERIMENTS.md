@@ -2564,3 +2564,5 @@ Launch after registration commit: python3 -m src.cluster run --jobs experiments/
 **Launch.** GPU worker `python3 experiments/e222_c2_featmean_ridge.py extract` on deepfive card 0 (1 core; launched with `--share 0.6 --gpu-slots 1`, the doubled deepfive share the user granted for GPU jobs, because two 8-core E218 jobs fill the standard 30%); first asset's T block equals E221's cache bit for bit; orchestrator `python3 experiments/e222_c2_featmean_ridge.py all` on hopper waits for extraction, then collect, fit, score, PDF, email. Jobs: `experiments/e222_c2_featmean_ridge.jobs`.
 
 **Outputs.** `results/reports/crypto/e222_c2_featmean_ridge/` (fits, table.csv, paired_deltas.csv, PDF); cache `/scratch/danielco/e222_c2_featmean_ridge/`.
+
+**2026-11-26: second card.** At the user's request a second worker (`experiments/e222_c2_extract_b.jobs`, deepfive card 1, 1 core, `--share 0.6 --gpu-slots 1 --extra-cores 2`) is started by `nmr-e222_card1_waiter` on hopper once E221's Timestral frees that card; per-asset locks split the work, both on GPU so the cache stays single-device-type.
