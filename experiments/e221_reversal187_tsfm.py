@@ -10,7 +10,7 @@ training-asset vocabulary, own asset once). Two prediction experiments:
   HX  design-C H plus the predicted asset's own 187 reversal187 columns
 
 each fitted from scratch per asset with ridge, lgbm_ktz, mlp_ktz and tabnet_ktz,
-plus the matched X-only (reversal187 alone) control per learner. 36 portfolios
+plus the matched X-only (reversal187 alone) control per learner. 28 portfolios (TabPFN-TS removed 2026-11-26)
 on one common causal sample; E206 target20 splits; validation-MSE selection.
 """
 import os
@@ -52,7 +52,7 @@ SCR = Path('/scratch/danielco/e221_reversal187_tsfm')
 DATASET = 'crypto/v2.0-e219-ts-reversal187'
 TARGET = 'target_binned_return_20'
 WALL = 35
-MODELS = ['chronos2', 't0', 'tabpfnts', 'timestral']
+MODELS = ['chronos2', 't0', 'timestral']   # TabPFN-TS removed 2026-11-26 at the user's request
 NORMS = {'chronos2': 'rolling', 't0': 'rolling', 'tabpfnts': 'asset', 'timestral': 'robust'}
 FAMILIES = ['ridge', 'lgbm_ktz', 'mlp_ktz', 'tabnet_ktz']
 VARIANTS = ['H', 'HX']
@@ -74,7 +74,7 @@ CODE = [Path(__file__), REPO/'src/data_mani/e212_signal_embeddings.py', REPO/'ex
 
 
 def portfolios():
-    """36 tags: <model>_<variant>_<family> and X_<family>."""
+    """28 tags: <model>_<variant>_<family> and X_<family>."""
     tags = [f'{m}_{v}_{f}' for m in MODELS for v in VARIANTS for f in FAMILIES]
     return tags + [f'X_{f}' for f in FAMILIES]
 
@@ -172,7 +172,7 @@ def worker_command(model, smoke):
 
 
 def collect():
-    """Row-indexed H per model and the common causal mask shared by all 36 portfolios."""
+    """Row-indexed H per model and the common causal mask shared by all portfolios."""
     c = verify(); p = pd.read_parquet(ROOT/'panel.parquet'); common = p.covered.to_numpy().copy()
     for model in MODELS:
         d = embed_dir(model); manifest = json.loads((d/'extractor.json').read_text())
@@ -462,7 +462,7 @@ def report(table, deltas, dates, pay, tags, n_dates, n_keys):
             f'crypto/v2.0-e219-ts-reversal187 on the target20 context with a 35-day label wall, design C. '
             f'H = design-C states only; HX = H plus the asset\'s own 187 reversal columns; X = reversal187 alone '
             f'(matched control). Every learner is fitted from scratch per asset (validation-MSE selection, fresh final fit). '
-            f'Common sample: {n_dates} test dates, {n_keys:,} asset/date rows, identical for all 36 portfolios. '
+            f'Common sample: {n_dates} test dates, {n_keys:,} asset/date rows, identical for all {len(portfolios())} portfolios. '
             f'Payout = 0.1 CORR + historical-meta proxy MMC.</p>')
     body += '<h2>All portfolios, by payout</h2>' + table[cols].to_html(index=False, float_format=fmt)
     body += ('<h2>Paired differences (Newey-West lag 20)</h2><p>HX-X is the marginal value of the TSFM states over '
@@ -489,7 +489,7 @@ def email_report():
     pdf = ROOT/'E221_reversal187_tsfm.pdf'
     msg = EmailMessage(); msg['From'] = config['user']; msg['To'] = config['to']
     msg['Subject'] = '[numerai-crypto] E221 reversal187 TSFM states, ridge/LightGBM/MLP/TabNet — completed PDF'
-    msg.set_content('E221 is complete. Attached: 36 per-asset portfolios (4 TSFMs x H/HX x 4 learners + 4 reversal-only controls) '
+    msg.set_content('E221 is complete. Attached: 28 per-asset portfolios (3 TSFMs x H/HX x 4 learners + 4 reversal-only controls) '
                     'on one common sample, with paired Newey-West deltas. Development research only.')
     msg.add_attachment(pdf.read_bytes(), maintype='application', subtype='pdf', filename=pdf.name)
     with smtplib.SMTP(config['host'], config['port'], timeout=120) as server:
@@ -633,7 +633,7 @@ def supervise():
             done = [t for t in portfolios() if (ROOT/'fits'/t/'COMPLETE.json').exists()]
             state.update(stage=stage, updated=time.time(), waiting=[dict(job=j.name, reason=r) for j, r in unplaced])
             save(path, state)
-            save(ROOT/'status.json', dict(stage=stage, completed_portfolios=len(done), expected=36,
+            save(ROOT/'status.json', dict(stage=stage, completed_portfolios=len(done), expected=len(portfolios()),
                  active=sorted(state['owned']), waiting=state['waiting'], time=time.time()))
             time.sleep(30)
         email_report()

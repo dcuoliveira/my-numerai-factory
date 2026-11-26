@@ -4136,7 +4136,7 @@ STUDIES["E221"] = {
  "title": "Reversal187 TSFM states: per-asset ridge/LightGBM/MLP/TabNet on H and H plus reversal187",
  "idea": "User requests representations of the selected TSFMs (Chronos-2, t0, TabPFN-TS, Timestral) on crypto/v2.0-e219-ts-reversal187 with the recommended standardization (Chronos-2/t0 rolling 63/126/252 chosen by H-ridge validation MSE, TabPFN-TS asset, Timestral robust) and design C, then per-asset ridge, lgbm_ktz, mlp_ktz and tabnet_ktz tuned from scratch on H, and again on H concatenated with the asset's own 187 reversal187 columns (HX); matched reversal187-only (X) control per learner. Unchanged E212 extractor, target20 context only, 35-day label wall, context 256/min 32; GPU-queued smokes then extraction. E206 target20 splits; ridge 33 alphas, KTZ four frozen E220 candidates/family, validation MSE then fresh final fit. One common causal sample (complete187 coverage, all four H valid, 32-origin history). 36 portfolios = 4 TSFMs x {H,HX} x 4 learners + 4 X controls; paired NW20 deltas HX-X, HX-H, H-X; routed full-panel outputs on an X-ridge baseline. OUTSIDE results/metrics: results/reports/crypto/e221_reversal187_tsfm/; embeddings and C matrices /scratch/danielco/e221_reversal187_tsfm/.",
  "runner":"experiments/e221_reversal187_tsfm.py", "prefix":"e221_", "scout_prefix":None,
- "models":["chronos2","t0","tabpfnts","timestral","ridge","lgbm_ktz","mlp_ktz","tabnet_ktz"], "expected_arms":36,
+ "models":["chronos2","t0","timestral","ridge","lgbm_ktz","mlp_ktz","tabnet_ktz"], "expected_arms":28,
  "artifact_root":"results/reports/crypto/e221_reversal187_tsfm",
 }
 

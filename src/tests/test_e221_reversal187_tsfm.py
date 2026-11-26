@@ -20,10 +20,10 @@ def panel(tmp_path, monkeypatch, n_assets=3, n_dates=1600, seed=0):
     return p, common
 
 
-def test_36_portfolios():
+def test_28_portfolios():
     t = S.portfolios()
-    assert len(t) == 36 == len(set(t)) and sum(x.startswith('X_') for x in t) == 4
-    assert S.NORMS == {'chronos2': 'rolling', 't0': 'rolling', 'tabpfnts': 'asset', 'timestral': 'robust'}
+    assert len(t) == 28 == len(set(t)) and sum(x.startswith('X_') for x in t) == 4
+    assert S.MODELS == ['chronos2', 't0', 'timestral'] and {m: S.NORMS[m] for m in S.MODELS} == {'chronos2': 'rolling', 't0': 'rolling', 'timestral': 'robust'}
 
 
 def test_masks_respect_common_and_splits(tmp_path, monkeypatch):

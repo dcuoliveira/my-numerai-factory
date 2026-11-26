@@ -2552,3 +2552,5 @@ Launch after registration commit: python3 -m src.cluster run --jobs experiments/
 **E221 GPU amendment (2026-11-25).** User asks to temporarily double E221's cards where there is space: on deepfive and deepsix E221 may now hold both cards (extraction stage only). A card is still taken only if it is free (>=6 GB free, <=10% utilization) and not reserved by any active nmr unit, and jobs still need cores inside the doubled 0.60 CPU share. Other hosts keep one card. No scientific change.
 
 **E221 GPU-core amendment (2026-11-25).** User asks to give the GPU jobs 2 extra cores on deepfive and deepsix: the second cards were idle while the doubled 0.60 CPU share was full. E221 GPU jobs on those two hosts may use 2 cores per host above the doubled share (still bounded by physically free cores); CPU jobs get no extra cores. No scientific change.
+
+**Amendment 2026-11-26: TabPFN-TS removed.** At the user's request `tabpfnts` was dropped from `MODELS` mid-extraction (237/531 assets done; partial states left unused on scratch). E221 is now 3 TSFMs x {H,HX} x 4 learners + 4 X controls = 28 portfolios; the common sample requires Chronos-2, t0 and Timestral H valid.
