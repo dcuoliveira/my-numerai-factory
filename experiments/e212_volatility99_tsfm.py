@@ -641,8 +641,11 @@ def supervise(dataset=DATASET,models=None):
                     # Scoring is CPU work and receives a separately pinned allocation.
                     stage='scoring'
                     jobs=[budget.Job('e212_score',shlex.join([PYTHON,'-u','experiments/e212_volatility99_tsfm.py','score']),cores=4,ram_gb=24)]
+            claim_path=ROOT/'external_head_claims.json'
+            external=set(json.loads(claim_path.read_text())['jobs']) if claim_path.exists() else set()
             pending=[]
             for job in jobs:
+                if job.name in external:continue
                 unit='nmr-'+job.name
                 if unit in active or unit in state['owned']:continue
                 if state['attempts'].get(job.name,0)>=3:
