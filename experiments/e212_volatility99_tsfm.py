@@ -444,7 +444,7 @@ def report(table,configs,dates,arrays):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     index={c['id']:i for i,c in enumerate(configs)};body='<h1>E212 — Volatility99 TSFM signal experiment</h1>'
-    body+='<p>Four frozen foundation models; separate target20/60 contexts and independently fitted per-asset ridge heads. '
+    body+=f'<p>{len(settings()["models"])} frozen foundation models; separate target20/60 contexts and independently fitted per-asset ridge heads. '
     body+='Recommended H standardization and design C only; matched 99-feature ridge controls. '
     body+='Raw/residual views use strength0.5 and meta snapshots at least5 calendar days old. Every 2–5-member rank blend '
     body+='also receives a separate, single post-residualization pass, including blends with residualized members. '
@@ -502,7 +502,7 @@ def email_report():
     load_env(required=());config=_config();assert config
     pdf=ROOT/'E212_volatility99_tsfm.pdf'
     msg=EmailMessage();msg['From']=config['user'];msg['To']=config['to'];msg['Subject']='[numerai-crypto] E212 volatility99 TSFM signal experiment — completed PDF'
-    msg.set_content('E212 is complete. Attached: four foundation models, horizon-specific H and per-asset ridge heads, feature-only baselines, both evaluation targets, all standalone variants and top-three exhaustive ensemble plots. Full machine-readable trial/score artifacts accompany the local report. Development research only.')
+    msg.set_content(f'E212 is complete. Attached: {len(settings()["models"])} foundation models, horizon-specific H and per-asset ridge heads, feature-only baselines, both evaluation targets, all standalone variants and top-three exhaustive ensemble plots. Full machine-readable trial/score artifacts accompany the local report. Development research only.')
     msg.add_attachment(pdf.read_bytes(),maintype='application',subtype='pdf',filename=pdf.name)
     assert len(msg.as_bytes())<24_000_000
     with smtplib.SMTP(config['host'],config['port'],timeout=120) as server:
