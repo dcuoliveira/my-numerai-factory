@@ -518,7 +518,8 @@ def report(table,configs,dates,arrays):
     def display_table(frame,columns,classes=None):
         shown=frame.copy();shown['members']=shown.members.map(display_name)
         shown.loc[shown.model.eq('feature_ridge'),'design']='own binned X'
-        result=shown[columns].to_html(index=False,float_format=lambda v:f'{v:.6f}',classes=classes)
+        labels=dict(id='ID',members='Model / members',information_set='Inputs',training_targets='Train d',evaluation_target='Score d',view='View',standardization='Scaling',design='Design',assets='Assets',assets_mean='Avg assets',dates='Dates',corr='CORR',mmc='MMC',payout='Payout',**{'sharpe.p':'Sharpe','maxdd.p':'Max DD'})
+        result=shown[columns].rename(columns=labels).to_html(index=False,float_format=lambda v:f'{v:.6f}',classes=classes)
         for identity in frame.loc[frame.model.eq('feature_ridge'),'id']:
             result=re.sub(r'(<tr)(>\s*<td>'+re.escape(identity)+r'</td>)',r'\1 class="ridge-row"\2',result)
         return result
@@ -545,7 +546,7 @@ def report(table,configs,dates,arrays):
     if supplement.exists():
         coverage_summary=pd.read_csv(REPO/'data'/extra['dataset']/'coverage_summary.csv').head(3)
         body+='<h2>E226 dataset coverage</h2><p>Stored feature availability before the stricter E212 model/history mask. All model results below use the original matched E212 cohort, including CS-only heads.</p>'
-        body+=coverage_summary.to_html(index=False,float_format=lambda v:f'{v:.2f}')
+        body+=coverage_summary.rename(columns=dict(information_set='Inputs',covered_rows='Covered rows',total_rows='Total rows',covered_row_pct='Rows %',covered_assets='Covered assets',total_assets='Total assets',covered_asset_pct='Assets %')).to_html(index=False,float_format=lambda v:f'{v:.2f}')
     raw_names=[v['members'][0] for v in configs if v['kind']=='standalone' and v['view']=='raw']
     colors={name:plt.get_cmap('tab10')(i) for i,name in enumerate(raw_names)}
     colors['feature_ridge_t20']='#007f8b';colors['feature_ridge_t60']='#b2182b'
@@ -598,7 +599,7 @@ def report(table,configs,dates,arrays):
         body+=f'<img style="width:100%" src="top3_plus_standalones_t{h}.png">'
     body+='<h2>Interpretation</h2><p>This is a retrospective development comparison. Volatility features were selected in earlier studies, and the displayed history also selects the top ensembles. Historical vendor vintages and pretrained-model overlap are not independently certified. Payout scores are Numerai metrics, not investment returns.</p>'
     body+='<h2>Audit</h2><p>'+html.escape(json.loads((ROOT/'audit.json').read_text())['outcome'])+'. Full audit, provenance and configuration are retained in separate machine-readable artifacts.</p>'
-    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}tr.ridge-row td{background:#e9f3f3;font-weight:600}.ridge-summary td:nth-child(n+5),.ridge-summary th:nth-child(n+5){white-space:nowrap;overflow-wrap:normal}img{display:block;margin:8px auto;object-fit:contain}@media print{table{break-inside:avoid!important;page-break-inside:avoid!important}td:nth-child(n+9),th:nth-child(n+9){white-space:nowrap;overflow-wrap:normal}img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
+    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}td:nth-child(6){white-space:nowrap;overflow-wrap:normal}pre{white-space:pre-wrap}tr.ridge-row td{background:#e9f3f3;font-weight:600}.ridge-summary td:nth-child(n+5),.ridge-summary th:nth-child(n+5){white-space:nowrap;overflow-wrap:normal}img{display:block;margin:8px auto;object-fit:contain}@media print{table{break-inside:avoid!important;page-break-inside:avoid!important}td:nth-child(n+9),th:nth-child(n+9){white-space:nowrap;overflow-wrap:normal}img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
     command='cd '+shlex.quote(str(REPO))+'\nexec '+shlex.join([PYTHON,'-m','src.analysis.html_pdf',str(page)])
     subprocess.run(['ssh','-o','BatchMode=yes','lovelace','bash','-s'],input=command,text=True,check=True,timeout=300)
     text=subprocess.check_output(['pdftotext',str(page.with_suffix('.pdf')),'-'],text=True)
