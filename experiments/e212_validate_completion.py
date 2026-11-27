@@ -52,6 +52,15 @@ def run():
     chosen=set()
     for horizon in [20,60]:
         chosen.update(table[(table.evaluation_target==horizon)&(table.kind=='ensemble')].head(3).id)
+    old_path=Path(c['scoring_revision']['prior_results'])
+    if not old_path.is_absolute():old_path=S.REPO/old_path
+    prior=pd.read_csv(old_path/'standalone_summary.csv')
+    keys=['id','evaluation_target'];metrics=['corr','mmc','payout','sharpe.p','maxdd.p']
+    before=prior[prior.view=='raw'].set_index(keys).sort_index()[metrics]
+    after=table[(table.kind=='standalone')&(table.view=='raw')].set_index(keys).sort_index()[metrics]
+    pd.testing.assert_index_equal(before.index,after.index)
+    np.testing.assert_allclose(before.to_numpy(),after.to_numpy(),rtol=1e-12,atol=1e-12,equal_nan=True)
+    raw_score_change=float(np.nanmax(np.abs(before.to_numpy()-after.to_numpy())))
     max_corr_error=0.;max_mmc_error=0.;checks=[]
     for day in sorted({0,len(dates)//2,len(dates)-1}):
         date=dates.date.iloc[day]
@@ -114,7 +123,7 @@ def run():
     assert 'Evaluation target20' in text and 'Evaluation target60' in text and text.count('Top THREE')>=2
     assert 'Frozen protocol' not in text and 'Frozen configuration' not in text
     outcome=dict(outcome='PASS WITH CONDITIONS',native_score_checks=checks,max_native_corr_error=max_corr_error,
-        max_native_mmc_error=max_mmc_error,verified_fold_protocols=protocols,trial_rows=len(table),scored_dates=len(dates),scoreable_asset_dates=int(dates.assets.sum()),
+        max_native_mmc_error=max_mmc_error,verified_fold_protocols=protocols,frozen_head_forecasts_verified=len(heads),raw_standalone_score_max_change=raw_score_change,trial_rows=len(table),scored_dates=len(dates),scoreable_asset_dates=int(dates.assets.sum()),
         routing='Full routed matrix finite; native routing and both exact rank-slot invariants replayed on first/middle/last scored dates',
         residualization='Native D-5 standalone and ensemble post transforms replayed on identical causal universes',
         plots='Heatmaps reconstructed from daily payout arrays; selected trial summaries reproduced; all six plot files present',
