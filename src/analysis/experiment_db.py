@@ -4164,6 +4164,14 @@ STUDIES["E224"] = {
  "artifact_root":"results/reports/crypto/e224_t0_timestral_featmean_norms",
 }
 
+STUDIES["E225"] = {
+ "title": "E222+E223 on momentum3: Chronos-2 target-row vs covariate-row-mean states, six standardizations",
+ "idea": "User asks for the same extended experiment as E223 but with crypto/v2.0-e205-ts-momentum3 as inputs. E206's frozen momentum3 panel (target20 + 33 momentum covariates, 35-day wall, E206 target20 splits; panel symlinked, PREPARED.json copied with dataset added) through the unchanged E222 extractor: target-row state T (compared with E206's Chronos-2 cache) and mean of the 33 covariate-row states F; per-asset design-C dual ridge under rolling, pooled, asset, robust, cross_section, l2; arms T, F, TF; 18 fits on one common sample; paired NW20 within norm and against rolling. OUTSIDE results/metrics: results/reports/crypto/e225_mom3_c2_featmean_norms/; cache /scratch/danielco/e225_mom3_c2_featmean_norms/.",
+ "runner":"experiments/e225_mom3_c2_featmean_norms.py", "prefix":"e225_", "scout_prefix":None,
+ "models":["chronos2","ridge"], "expected_arms":18,
+ "artifact_root":"results/reports/crypto/e225_mom3_c2_featmean_norms",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

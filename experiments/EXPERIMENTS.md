@@ -2586,3 +2586,13 @@ Launch after registration commit: python3 -m src.cluster run --jobs experiments/
 **Design.** Identical to E223 (same westeros panel, common sample, splits, arms, six standardizations, tests) with t0-gamma and Timestral-209M representations: each extractor keeps the target row's pre-head state and the mean of the 187 covariate rows' states at the same horizon token (t0: decoder input at context_patches-1+(h-1)//patch; Timestral: head input at ll+(h-1)//patch). 2 TSFMs x 3 arms x 6 standardizations = 36 portfolios.
 
 **Launch.** As E223, same runner and cache. Outputs `results/reports/crypto/e224_t0_timestral_featmean_norms/`.
+
+### E225: E222+E223 on momentum3 inputs (registered 2026-11-27)
+
+**Request.** "Create a equal extended experiment but use as inputs crypto/v2.0-e205-ts-momentum3. Run now."
+
+**Design.** E223's design (T/F/TF, per-asset design-C dual ridge, alpha by validation MSE, fresh final fit) on E206's frozen momentum3 panel instead of E221's reversal187 panel: target20 plus the 33 momentum covariates, 35-day label wall, E206 target20 splits. New Chronos-2 pass with the unchanged E222 extractor keeps the target-row state T (compared with E206's Chronos-2 cache, recorded not fatal) and the mean of the 33 covariate-row states F. All six standardizations (rolling window 63/126/252 by validation MSE; pooled, asset, robust, cross_section, l2) x 3 arms = 18 fits on one common sample. Paired NW20 F-T, TF-T, TF-F per standardization and each standardization minus rolling per arm. The panel folder symlinks E206's panel.parquet and copies its PREPARED.json with a `dataset` key added (E206's file lacks it; E206 itself is not touched).
+
+**Launch.** `python3 -m src.cluster run --jobs experiments/e225_mom3_c2_featmean_norms.jobs --gpu-slots 1`: GPU extract worker (1 core, 1 card) plus orchestrator (`all --workers 3`, 9 cores) that waits for extraction, then collect, 18 fits, PDF, email.
+
+**Outputs.** `results/reports/crypto/e225_mom3_c2_featmean_norms/` (fits, table.csv, paired_deltas.csv, `E225_mom3_c2_featmean_norms.pdf`); cache `/scratch/danielco/e225_mom3_c2_featmean_norms/`.

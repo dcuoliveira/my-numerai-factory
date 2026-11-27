@@ -1,0 +1,2 @@
+cores=1 ram=8 gpu=1 name=e225_c2_extract -- python3 -u experiments/e225_mom3_c2_featmean_norms.py extract
+cores=9 ram=72 name=e225_orchestrate -- python3 -u experiments/e225_mom3_c2_featmean_norms.py all --workers 3
