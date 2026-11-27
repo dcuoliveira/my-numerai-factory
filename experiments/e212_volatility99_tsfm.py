@@ -486,7 +486,34 @@ def report(table,configs,dates,arrays):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    supplement=ROOT/'report_supplement.json'
+    if supplement.exists():
+        extra=json.loads(supplement.read_text());directory=Path(extra['root'])
+        assert sha(directory/'summary.parquet')==extra['summary_sha256']
+        assert sha(directory/'trials.json')==extra['trial_sha256']
+        additions=pd.read_parquet(directory/'summary.parquet')
+        more=json.loads((directory/'trials.json').read_text())
+        assert len(more)==8 and len(additions)==16
+        table=table.copy()
+        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else 'TS99 → H (C)')
+        table=pd.concat([table,additions],ignore_index=True).sort_values(['evaluation_target','payout','id'],ascending=[True,False,True])
+        configs=list(configs)+more
+        arrays=dict(arrays)
+        for h in arrays:
+            path=directory/f'daily_scores_t{h}.npy'
+            assert sha(path)==extra['array_sha256'][str(h)]
+            a=np.load(path);assert a.shape==(len(dates),len(more),2)
+            arrays[h]=np.concatenate([arrays[h],a],axis=1)
+        parquet(ROOT/'report_comparison_trials.parquet',table)
+        table.to_csv(ROOT/'report_comparison_trials.csv',index=False)
+    else:
+        table=table.copy()
+        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else 'TS99 → H (C)')
     def display_name(name):
+        name=str(name)
+        for arm,label in [('CS99','CS-only ridge'),('TS_CS198','TS+CS ridge')]:
+            for h in (20,60):
+                name=name.replace(f'ridge_{arm}_t{h}_residual',f'{label} ({h}d, residual)').replace(f'ridge_{arm}_t{h}',f'{label} ({h}d)')
         return str(name).replace('feature_ridge_t20_residual','Tuned ridge (20d, residual)').replace('feature_ridge_t60_residual','Tuned ridge (60d, residual)').replace('feature_ridge_t20','Tuned ridge (20d)').replace('feature_ridge_t60','Tuned ridge (60d)')
     def display_table(frame,columns,classes=None):
         shown=frame.copy();shown['members']=shown.members.map(display_name)
@@ -512,10 +539,13 @@ def report(table,configs,dates,arrays):
     body+='All trials (including equivalent configurations) are in all_trials.csv/parquet; complete daily CORR/MMC arrays '
     body+='are stored in the shared cache daily_scores directory, indexed by score_dates.parquet and trials.json.</p>'
     body+='<p><strong>Tuned from-scratch volatility ridge:</strong> the feature_ridge_t20 and feature_ridge_t60 baselines are labeled Tuned ridge (20d) and Tuned ridge (60d) below. Each is fitted separately per asset on the 99 volatility features. For every forecast block, 33 regularization strengths from 0.0001 to 10000 are compared by past validation MSE; feature scaling is fitted on training data, and the selected model is refitted on resolved history. Both raw and residualized variants are shown, using the same E212 coverage and evaluation keys.</p>'
+    if supplement.exists():
+        body+='<p><strong>E226 additional ridge comparisons:</strong> CS99 independently bins raw D-1 volatility across finite source-eligible assets on each date, with average-rank ties and the same five-bin cuts. TS+CS198 concatenates the unchanged TS99 and CS99 columns; CS is not applied after TS binning. New CS-only and TS+CS per-asset heads use the same E212 training/evaluation keys, folds, label walls, training-only scaling and 33-alpha search. Raw and residual predictions appear in every standalone table, curve comparison and correlation heatmap. Original E212 ensemble memberships and rankings remain fixed; the ensemble pool has not been expanded. This is a matched representation comparison, not a marginal native-v2 feature test. Full added results are in report_comparison_trials.csv and E226 artifacts.</p>'
     raw_names=[v['members'][0] for v in configs if v['kind']=='standalone' and v['view']=='raw']
     colors={name:plt.get_cmap('tab10')(i) for i,name in enumerate(raw_names)}
     colors['feature_ridge_t20']='#007f8b';colors['feature_ridge_t60']='#b2182b'
-    cols=['id','members','training_targets','evaluation_target','view','standardization','design','assets','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
+    colors.update({'ridge_CS99_t20':'#3155a4','ridge_CS99_t60':'#e57b16','ridge_TS_CS198_t20':'#6b3487','ridge_TS_CS198_t60':'#267348'})
+    cols=['id','members','information_set','training_targets','evaluation_target','view','standardization','design','assets','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
     for h,array in arrays.items():
         section=table[table.evaluation_target==h];stand=section[section.kind=='standalone'];top=section[section.kind=='ensemble'].head(3)
         pay=.1*array[:,:,0]+array[:,:,1]
@@ -546,13 +576,13 @@ def report(table,configs,dates,arrays):
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
             ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=2)
             name=f'{"top3_plus" if add_top else "all"}_standalones_t{h}.png';fig.savefig(ROOT/name,dpi=150);plt.close(fig)
-        ridge=stand[stand.model=='feature_ridge'];assert len(ridge)==4
-        baseline_cols=['members','training_targets','view','corr','mmc','payout','sharpe.p','maxdd.p']
+        ridge=stand[stand.model=='feature_ridge'];assert len(ridge)==(12 if supplement.exists() else 4)
+        baseline_cols=['members','information_set','training_targets','view','corr','mmc','payout','sharpe.p','maxdd.p']
         fig,ax=plt.subplots(figsize=(15,8),layout='constrained')
         for row in ridge.itertuples():
             ax.plot(dates.date,pay[:,index[row.id]].cumsum(),label=display_name(row.members),color=colors[row.members.removesuffix('_residual')],ls='--' if row.view=='residual' else '-',lw=2)
         ax.set_title(f'Target{h}: tuned from-scratch volatility ridge baselines')
-        ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=10,ncol=2)
+        ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=3)
         fig.savefig(ROOT/f'ridge_baselines_t{h}.png',dpi=150);plt.close(fig)
         parquet(ROOT/f'ridge_baseline_daily_payout_t{h}.parquet',plotdata[['date']+ridge.id.tolist()])
         body+=f'<h2>Evaluation target{h}: tuned from-scratch ridge baselines</h2>'+display_table(ridge,baseline_cols,classes='ridge-summary')
@@ -563,7 +593,7 @@ def report(table,configs,dates,arrays):
         body+=f'<img style="width:100%" src="top3_plus_standalones_t{h}.png">'
     body+='<h2>Interpretation</h2><p>This is a retrospective development comparison. Volatility features were selected in earlier studies, and the displayed history also selects the top ensembles. Historical vendor vintages and pretrained-model overlap are not independently certified. Payout scores are Numerai metrics, not investment returns.</p>'
     body+='<h2>Audit</h2><p>'+html.escape(json.loads((ROOT/'audit.json').read_text())['outcome'])+'. Full audit, provenance and configuration are retained in separate machine-readable artifacts.</p>'
-    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}tr.ridge-row td{background:#e9f3f3;font-weight:600}.ridge-summary td:nth-child(n+4),.ridge-summary th:nth-child(n+4){white-space:nowrap;overflow-wrap:normal}img{display:block;margin:8px auto;object-fit:contain}@media print{table{break-inside:avoid!important;page-break-inside:avoid!important}td:nth-child(n+8),th:nth-child(n+8){white-space:nowrap;overflow-wrap:normal}img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
+    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}tr.ridge-row td{background:#e9f3f3;font-weight:600}.ridge-summary td:nth-child(n+5),.ridge-summary th:nth-child(n+5){white-space:nowrap;overflow-wrap:normal}img{display:block;margin:8px auto;object-fit:contain}@media print{table{break-inside:avoid!important;page-break-inside:avoid!important}td:nth-child(n+9),th:nth-child(n+9){white-space:nowrap;overflow-wrap:normal}img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
     command='cd '+shlex.quote(str(REPO))+'\nexec '+shlex.join([PYTHON,'-m','src.analysis.html_pdf',str(page)])
     subprocess.run(['ssh','-o','BatchMode=yes','lovelace','bash','-s'],input=command,text=True,check=True,timeout=300)
     text=subprocess.check_output(['pdftotext',str(page.with_suffix('.pdf')),'-'],text=True)

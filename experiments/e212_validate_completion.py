@@ -114,8 +114,19 @@ def run():
             for key,value in metrics.items():np.testing.assert_allclose(value,row[key],rtol=1e-12,atol=1e-12,equal_nan=True)
         expected_corr=np.corrcoef((.1*arrays[horizon][:,:16,0]+arrays[horizon][:,:16,1]),rowvar=False)
         order=[index[x] for x in part[part.kind=='standalone'].id]
+        supplement=root/'report_supplement.json'
+        if supplement.exists():
+            extra=json.loads(supplement.read_text());directory=Path(extra['root'])
+            comparison=pd.read_parquet(root/'report_comparison_trials.parquet')
+            comparison=comparison[(comparison.evaluation_target==horizon)&comparison.kind.eq('standalone')]
+            extra_configs=json.loads((directory/'trials.json').read_text())
+            extra_array=np.load(directory/f'daily_scores_t{horizon}.npy')
+            curves={c['id']:.1*arrays[horizon][:,j,0]+arrays[horizon][:,j,1] for j,c in enumerate(configs) if c['kind']=='standalone'}
+            curves.update({c['id']:.1*extra_array[:,j,0]+extra_array[:,j,1] for j,c in enumerate(extra_configs)})
+            expected_corr=np.corrcoef(np.column_stack([curves[i] for i in comparison.id]),rowvar=False)
+        else:expected_corr=expected_corr[np.ix_(order,order)]
         actual=pd.read_csv(root/f'daily_payout_correlation_t{horizon}.csv',index_col=0).to_numpy()
-        np.testing.assert_allclose(actual,expected_corr[np.ix_(order,order)],rtol=1e-12,atol=1e-12)
+        np.testing.assert_allclose(actual,expected_corr,rtol=1e-12,atol=1e-12)
         for name in ['payout_heatmap','all_standalones','top3_plus_standalones','ridge_baselines']:
             assert (root/f'{name}_t{horizon}.png').stat().st_size>10000
     pdf=root/'E212_volatility99_tsfm.pdf';assert S.sha(pdf)==complete['report_sha256']
