@@ -121,7 +121,7 @@ def heatmap(matrix,title,path,split=False):
 
 def run():
     ROOT.mkdir(parents=True,exist_ok=True);save(ROOT/'status.json',dict(stage='aligning',time=time.time()))
-    base,x,catalog=load();groups=list(base.groupby(level='date',sort=True).indices.items());scores=np.empty((len(groups),len(catalog),2));native_checks=[]
+    base,x,catalog=load();save(ROOT/'status.json',dict(stage='scoring',rows=len(base),candidates=len(catalog),time=time.time()));groups=list(base.groupby(level='date',sort=True).indices.items());scores=np.empty((len(groups),len(catalog),2));native_checks=[]
     for d,(date,idx) in enumerate(groups):
         y=base.target_binned_return_20.iloc[idx].to_numpy();m=base.meta_model.iloc[idx].to_numpy();corr,mmc=S.matrix_scores(x[idx],y,m)
         scores[d,:,0]=np.nan_to_num(corr,nan=0.);scores[d,:,1]=mmc
