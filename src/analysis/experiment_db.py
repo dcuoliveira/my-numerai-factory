@@ -4148,6 +4148,22 @@ STUDIES["E222"] = {
  "artifact_root":"results/reports/crypto/e222_c2_featmean_ridge",
 }
 
+STUDIES["E223"] = {
+ "title": "E222 rebuilt on westeros with six standardizations of H, Chronos-2 T/F/TF ridge",
+ "idea": "User asks for a new version of E222 with a different standardization of the hidden states H, and chose all of them: rolling (63/126/252 by validation MSE, the E222 baseline), pooled, asset, cross_section, robust and l2. Built on westeros, which cannot reach E221/E222's inputs, so the chain is rebuilt from a FRESH price download (yfinance -> Binance cascade), a westeros-vintage reversal187 dataset (data/crypto/v2.0-e223-ts-reversal187, same E219 formulas on the frozen E156 keys) and a re-made E221-style panel; numbers are therefore not E222's and the rolling arm is the matched rebuilt baseline. Chronos-2 extraction with the E222 extractor (target row + mean of the 187 feature-row states). Per-asset dual ridge, design C, 33 alphas, E206 target20 splits; 3 arms (T, F, TF) x 6 standardizations = 18 portfolios on one common sample; paired NW20 F-T, TF-T, TF-F per standardization and each standardization vs rolling. OUTSIDE results/metrics: results/reports/crypto/e223_c2_featmean_norms/; cache /home/danielco/scratch/e223_c2_featmean_norms/.",
+ "runner":"experiments/e223_featmean_norms.py", "prefix":"e223_", "scout_prefix":None,
+ "models":["chronos2","ridge"], "expected_arms":18,
+ "artifact_root":"results/reports/crypto/e223_c2_featmean_norms",
+}
+
+STUDIES["E224"] = {
+ "title": "E222 and E223 with t0 and Timestral: target-row vs feature-row-mean states, six standardizations",
+ "idea": "User asks to run E222 and its standardization variant E223 again with representations built by t0 (t0-gamma) and Timestral (Timestral-209M). Same westeros rebuild as E223 (fresh prices, v2.0-e223-ts-reversal187, same panel and common sample), extractors keep the target row's pre-head state and the mean of the 187 covariate-row states at the same horizon token. Per TSFM: T, F, TF x 6 standardizations (rolling 63/126/252, pooled, asset, cross_section, robust, l2) = 18 portfolios, 36 in all; per-asset dual ridge, design C, E206 target20 splits; paired NW20 as E223. OUTSIDE results/metrics: results/reports/crypto/e224_t0_timestral_featmean_norms/; cache /home/danielco/scratch/e223_c2_featmean_norms/.",
+ "runner":"experiments/e223_featmean_norms.py", "prefix":"e224_", "scout_prefix":None,
+ "models":["t0","timestral","ridge"], "expected_arms":36,
+ "artifact_root":"results/reports/crypto/e224_t0_timestral_featmean_norms",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

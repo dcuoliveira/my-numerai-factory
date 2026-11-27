@@ -2568,3 +2568,21 @@ Launch after registration commit: python3 -m src.cluster run --jobs experiments/
 **Outputs.** `results/reports/crypto/e222_c2_featmean_ridge/` (fits, table.csv, paired_deltas.csv, PDF); cache `/scratch/danielco/e222_c2_featmean_ridge/`.
 
 **2026-11-26: second card.** At the user's request a second worker (`experiments/e222_c2_extract_b.jobs`, deepfive card 1, 1 core, `--share 0.6 --gpu-slots 1 --extra-cores 2`) is started by `nmr-e222_card1_waiter` on hopper once E221's Timestral frees that card; per-asset locks split the work, both on GPU so the cache stays single-device-type.
+
+### E223: E222 rebuilt on westeros with six standardizations of H, Chronos-2 (registered 2026-11-27)
+
+**Request.** "Set a new version of E222 with different standardization of the hidden states H. Run and add results to the attached report." (Attached: E222's PDF.) Standardization chosen by the user: all of them. Location chosen by the user: rebuild on westeros, with a fresh price download, after being told the frozen inputs are not reachable from westeros and numbers will not match E222.
+
+**Design.** E222's three arms (T target-row state, F mean of the 187 feature-row states, TF concatenated) x six standardizations of H: rolling (63/126/252 by validation MSE; E222's choice, here the rebuilt baseline), pooled, asset, cross_section, robust, l2 (all `tsfm_momentum_study.normalize`). Per-asset dual ridge on design C, 33 alphas by validation MSE, fresh final fit, E206 target20 splits, one common causal sample for all 18 portfolios. Paired Newey-West lag 20: F-T, TF-T, TF-F within each standardization, and each standardization against rolling within each arm.
+
+**Rebuilt inputs (westeros).** Prices: fresh yfinance -> Binance download for the frozen E156 panel symbols (dates < 2026-02-20), schema of E157's `prices.parquet`. Dataset: `data/crypto/v2.0-e223-ts-reversal187`, E219's 17 formulas x 11 windows via the unchanged `build_e219_reversal187.compute`, E157/E163 identity/OHLC cohort, BTC/ETH excluded, keys of `v2.0-e156-frozen`. Panel: E221's `prepare` re-pointed at that dataset. Extraction: E222 extractor (Chronos-2 pinned revision, context 256, 35-day wall). Vendor history today is not E157's snapshot, so coverage and values differ from E222; the attached E222 numbers stay as reported and the rebuilt rolling arm is the comparison baseline.
+
+**Launch.** westeros, GTX 1080 Ti (single card), `experiments/e223_featmean_norms.py`. Outputs `results/reports/crypto/e223_c2_featmean_norms/`; cache `/home/danielco/scratch/e223_c2_featmean_norms/` (no /scratch on westeros). Report: the attached E222 PDF with E223 and E224 sections appended.
+
+### E224: E222 and E223 with t0 and Timestral (registered 2026-11-27)
+
+**Request.** "Then run the same of E222 and this new experiment we just defined but building representations with t0 and timestral. Run this experiment and add to the already added-up new version of the attached report."
+
+**Design.** Identical to E223 (same westeros panel, common sample, splits, arms, six standardizations, tests) with t0-gamma and Timestral-209M representations: each extractor keeps the target row's pre-head state and the mean of the 187 covariate rows' states at the same horizon token (t0: decoder input at context_patches-1+(h-1)//patch; Timestral: head input at ll+(h-1)//patch). 2 TSFMs x 3 arms x 6 standardizations = 36 portfolios.
+
+**Launch.** As E223, same runner and cache. Outputs `results/reports/crypto/e224_t0_timestral_featmean_norms/`.
