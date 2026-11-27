@@ -4180,6 +4180,14 @@ STUDIES["E226"] = {
  "artifact_root":"results/reports/crypto/e226_volatility_cs_ridge",
 }
 
+STUDIES["E227"] = {
+ "title": "Original v2.0 volatility-only tuned ridge controls for E212",
+ "idea": "User asks to add tuned ridge using v2.0 volatility features to the report. Two fresh per-asset heads (20d/60d) on feature_volatility_20d and feature_volatility_60d from frozen v2.0-e156-frozen, no additional binning. Match E212 common training, validation, forecasts and scoring keys; trailing504/validation63/forecast130,35/91-day label walls, train-only scaling,33 alphas1e-4..1e4. Exact primal ridge for two inputs, audited against original dual solver. Raw/residual D-5 strength0.5, both evaluation targets. OUTSIDE results/metrics: results/reports/crypto/e227_v20_volatility_ridge. Add standalone controls to existing E212/E226 tables, plots and heatmaps; existing forecasts, trials and ensemble pool unchanged. Feature-only retrospective comparison, not native22 marginal/live claim.",
+ "runner":"experiments/e227_v20_volatility_ridge.py", "prefix":"e227_", "scout_prefix":None,
+ "models":["ridge"], "expected_arms":2,
+ "artifact_root":"results/reports/crypto/e227_v20_volatility_ridge",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
