@@ -470,6 +470,8 @@ def report(table,configs,dates,arrays):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     index={c['id']:i for i,c in enumerate(configs)};body='<h1>E212 — Volatility99 TSFM signal experiment</h1>'
+    prepared=json.loads((ROOT/'PREPARED.json').read_text())
+    body+=f'<p>Dataset: {html.escape(settings()["dataset"])}. Evaluation covers {len(dates):,} dates, {int(table.assets.iloc[0]):,} distinct assets and {int(dates.assets.sum()):,} scored asset-date observations from {prepared["rows"]:,} original rows. All comparisons use the same common covered keys for both targets.</p>'
     body+=f'<p>{len(settings()["models"])} frozen foundation models; separate target20/60 contexts and independently fitted per-asset ridge heads. '
     body+='Recommended H standardization and design C only; matched 99-feature ridge controls. '
     body+='Raw/residual views use strength0.5 and meta snapshots at least5 calendar days old. Every 2–5-member rank blend '
@@ -492,7 +494,7 @@ def report(table,configs,dates,arrays):
         stand_indices=[index[x] for x in stand.id];corr=np.corrcoef(pay[:,stand_indices],rowvar=False)
         pd.DataFrame(corr,index=stand.members,columns=stand.members).to_csv(ROOT/f'daily_payout_correlation_t{h}.csv')
         fig,ax=plt.subplots(figsize=(12,10));image=ax.imshow(corr,vmin=-1,vmax=1,cmap='coolwarm')
-        ax.set_xticks(range(len(stand)),stand.members,rotation=90,fontsize=6);ax.set_yticks(range(len(stand)),stand.members,fontsize=6)
+        ax.set_xticks(range(len(stand)),stand.members,rotation=90,fontsize=9);ax.set_yticks(range(len(stand)),stand.members,fontsize=9)
         ax.set_title(f'Target{h}: Pearson correlation of DAILY payout scores');fig.colorbar(image,ax=ax);fig.tight_layout()
         fig.savefig(ROOT/f'payout_heatmap_t{h}.png',dpi=150);plt.close(fig)
         for add_top in [False,True]:
@@ -503,14 +505,15 @@ def report(table,configs,dates,arrays):
                 ax.plot(dates.date,y,label=(row.id if row.kind=='ensemble' else row.members)+(' [POST]' if row.post_residualized else ''),
                         lw=2.4 if row.kind=='ensemble' else .8,alpha=1 if row.kind=='ensemble' else .6)
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
-            ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=6,ncol=2)
+            ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=2)
             name=f'{"top3_plus" if add_top else "all"}_standalones_t{h}.png';fig.savefig(ROOT/name,dpi=150);plt.close(fig)
         body+=f'<h2>Evaluation target{h}: all standalone variants</h2>'+stand[cols].to_html(index=False,float_format=lambda v:f'{v:.6f}')
         body+=f'<img style="width:100%" src="all_standalones_t{h}.png"><img style="width:100%" src="payout_heatmap_t{h}.png">'
         body+='<h2>Top THREE ensembles (exploratory)</h2>'+top[cols].to_html(index=False,float_format=lambda v:f'{v:.6f}')
         body+=f'<img style="width:100%" src="top3_plus_standalones_t{h}.png">'
+    body+='<h2>Interpretation</h2><p>This is a retrospective development comparison. Volatility features were selected in earlier studies, and the displayed history also selects the top ensembles. Historical vendor vintages and pretrained-model overlap are not independently certified. Payout scores are Numerai metrics, not investment returns.</p>'
     body+='<h2>Audit</h2><p>'+html.escape(json.loads((ROOT/'audit.json').read_text())['outcome'])+'. Full audit, provenance and configuration are retained in separate machine-readable artifacts.</p>'
-    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}</style></head><body>'+body+'</body></html>')
+    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}img{display:block;margin:8px auto;object-fit:contain}@media print{img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
     command='cd '+shlex.quote(str(REPO))+'\nexec '+shlex.join([PYTHON,'-m','src.analysis.html_pdf',str(page)])
     subprocess.run(['ssh','-o','BatchMode=yes','lovelace','bash','-s'],input=command,text=True,check=True,timeout=300)
     text=subprocess.check_output(['pdftotext',str(page.with_suffix('.pdf')),'-'],text=True)
