@@ -183,7 +183,7 @@ def collect():
     save(ROOT/'EMBEDDINGS_READY.json',dict(models=c['models'],targets=[20,60],common_rows=int(common.sum()),mask_sha256=sha(path),time=time.time()))
 
 
-def solve_head(panel,horizon,model,norm,window,phase,blockroot,blockscr,selected=None):
+def solve_head(panel,horizon,model,norm,window,phase,blockroot,blockscr,selected=None,representation_cache=None):
     target=f'target_binned_return_{horizon}';common=np.load(SCR/'common_rows.npy')
     train=common & panel.train.to_numpy() & np.isfinite(panel[target])
     fit=common & panel['train' if phase=='selection' else 'final_fit'].to_numpy() & np.isfinite(panel[target])
@@ -193,11 +193,37 @@ def solve_head(panel,horizon,model,norm,window,phase,blockroot,blockscr,selected
     # Derived normalized H is used once per block/phase/window. Recompute it
     # from frozen H and retain exact scaler references instead of hundreds of
     # GB of duplicate matrices. This does not alter any numerical operation.
-    z,refs=N.normalize(h,panel.ucid.to_numpy(),panel.date.to_numpy(),valid,fit,norm,window)
+    # Rolling statistics depend only on immutable H/history, not fit labels or
+    # forecast-block masks. Reuse precisely those arrays within this one head
+    # process; pooled/asset/robust scalers always refit for the current block.
+    memo=representation_cache if norm=='rolling' else None
+    key=(model,horizon,window)
+    if memo is not None:
+        source=extraction_dir(horizon,model)/'H_rows.npy'
+        signature=(str(source.resolve()),source.stat().st_size,source.stat().st_mtime_ns)
+        identity=panel[['row','ucid','date','step','covered']]
+        if 'identity' not in memo:
+            memo.update(identity=identity.copy(),source=signature,valid=valid.copy(),normalizations={},kernels={})
+        if memo['source']!=signature or not memo['identity'].equals(identity) or not np.array_equal(memo['valid'],valid):
+            raise RuntimeError('Rolling representation cache source/row/coverage identity changed')
+        if key not in memo['normalizations']:
+            z,refs=N.normalize(h,panel.ucid.to_numpy(),panel.date.to_numpy(),valid,fit,norm,window)
+            z.flags.writeable=False
+            memo['normalizations'][key]=(z,refs,np.isfinite(z).all(axis=1))
+        z,refs,valid=memo['normalizations'][key]
+    else:
+        z,refs=N.normalize(h,panel.ucid.to_numpy(),panel.date.to_numpy(),valid,fit,norm,window)
+        valid=np.isfinite(z).all(axis=1)
     np.savez_compressed(directory/'scaler.npz',**refs)
-    valid=np.isfinite(z).all(axis=1)
     vocabulary=np.sort(panel.loc[train].groupby('ucid').size().loc[lambda s:s>=60].index.to_numpy())
-    kernel=N.concat_kernel(z,panel.ucid.to_numpy(),panel.step.to_numpy(),valid,vocabulary,panel.step.max()+1)
+    kernel_key=(key,tuple(vocabulary))
+    if memo is not None and kernel_key in memo['kernels']:
+        kernel=memo['kernels'][kernel_key]
+    else:
+        kernel=N.concat_kernel(z,panel.ucid.to_numpy(),panel.step.to_numpy(),valid,vocabulary,panel.step.max()+1)
+        if memo is not None:
+            kernel.flags.writeable=False
+            memo['kernels'][kernel_key]=kernel
     info=dict(vocabulary=vocabulary.tolist(),columns=len(vocabulary)*h.shape[1],own_once=True,fill='zero absent context blocks; no masks as predictors',constants='exact implicit removal by centered dual kernel')
     save(directory/'design.json',info)
     query=common & valid & panel['validation' if phase=='selection' else 'test'].to_numpy()
@@ -250,7 +276,7 @@ def fit_stream(model,horizon):
     c=verify();assert model in c['models']+['feature_ridge']
     name=f'{model}_t{horizon}';destination=ROOT/'fits'/name
     if (destination/'COMPLETE.json').exists():return
-    p=pd.read_parquet(ROOT/'panel.parquet');outputs=[]
+    p=pd.read_parquet(ROOT/'panel.parquet');outputs=[];representation_cache={}
     for block,start in enumerate(range(200,p.step.max()+1,130)):
         part=fold_panel(p,start,horizon)
         if part is None:continue
@@ -267,12 +293,12 @@ def fit_stream(model,horizon):
             if ((training>=60)&(validation>=20)).any():
                 choices=[]
                 for window in (N.ROLLING if NORMS[model]=='rolling' else [126]):
-                    pred,records,params,info=solve_head(q,horizon,model,NORMS[model],window,'selection',root,scratch)
+                    pred,records,params,info=solve_head(q,horizon,model,NORMS[model],window,'selection',root,scratch,representation_cache=representation_cache)
                     if records:choices.append((np.mean([r['mse'] for r in records]),window,records,params,info))
                 if choices:
                     loss,window,records,params,info=min(choices,key=lambda x:(x[0],x[1]))
                     save(root/'selection.json',dict(window=window,loss=loss,assets=records,candidates=[dict(window=x[1],loss=x[0]) for x in choices]))
-                    values,records,_,info=solve_head(q,horizon,model,NORMS[model],window,'final',root,scratch,params)
+                    values,records,_,info=solve_head(q,horizon,model,NORMS[model],window,'final',root,scratch,params,representation_cache=representation_cache)
                     save(root/'parameters.json',dict(assets=records,design=info))
         forecast['prediction']=values[q.test.to_numpy()]
         parquet(root/'predictions.parquet',forecast);save(root/'COMPLETE.json',dict(predictions=int(forecast.prediction.notna().sum())))
