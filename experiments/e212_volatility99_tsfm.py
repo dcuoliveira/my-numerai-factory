@@ -486,32 +486,33 @@ def report(table,configs,dates,arrays):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    supplement=ROOT/'report_supplement.json'
+    supplement=ROOT/'report_supplement.json';extra_streams=0;extra_studies=[]
+    table=table.copy()
+    table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else ('TS99 members' if m=='equal-rank ensemble' else 'TS99 → H (C)'))
     if supplement.exists():
-        extra=json.loads(supplement.read_text());directory=Path(extra['root'])
-        assert sha(directory/'summary.parquet')==extra['summary_sha256']
-        assert sha(directory/'trials.json')==extra['trial_sha256']
-        additions=pd.read_parquet(directory/'summary.parquet')
-        more=json.loads((directory/'trials.json').read_text())
-        assert len(more)==8 and len(additions)==16
-        table=table.copy()
-        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else ('TS99 members' if m=='equal-rank ensemble' else 'TS99 → H (C)'))
-        table=pd.concat([table,additions],ignore_index=True).sort_values(['evaluation_target','payout','id'],ascending=[True,False,True])
-        configs=list(configs)+more
-        arrays=dict(arrays)
-        for h in arrays:
-            path=directory/f'daily_scores_t{h}.npy'
-            assert sha(path)==extra['array_sha256'][str(h)]
-            a=np.load(path);assert a.shape==(len(dates),len(more),2)
-            arrays[h]=np.concatenate([arrays[h],a],axis=1)
+        extra=json.loads(supplement.read_text())
+        configs=list(configs);arrays=dict(arrays)
+        for addition in [extra]+extra.get('additional_supplements',[]):
+            directory=Path(addition['root']);extra_studies.append(addition['experiment'])
+            assert sha(directory/'summary.parquet')==addition['summary_sha256']
+            assert sha(directory/'trials.json')==addition['trial_sha256']
+            additions=pd.read_parquet(directory/'summary.parquet')
+            more=json.loads((directory/'trials.json').read_text())
+            assert len(additions)==2*len(more) and all(c['kind']=='standalone' for c in more)
+            extra_streams+=len(more)
+            table=pd.concat([table,additions],ignore_index=True)
+            configs+=more
+            for h in arrays:
+                path=directory/f'daily_scores_t{h}.npy'
+                assert sha(path)==addition['array_sha256'][str(h)]
+                a=np.load(path);assert a.shape==(len(dates),len(more),2)
+                arrays[h]=np.concatenate([arrays[h],a],axis=1)
+        table=table.sort_values(['evaluation_target','payout','id'],ascending=[True,False,True])
         parquet(ROOT/'report_comparison_trials.parquet',table)
         table.to_csv(ROOT/'report_comparison_trials.csv',index=False)
-    else:
-        table=table.copy()
-        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else ('TS99 members' if m=='equal-rank ensemble' else 'TS99 → H (C)'))
     def display_name(name):
         name=str(name)
-        for arm,label in [('CS99','CS-only ridge'),('TS_CS198','TS+CS ridge')]:
+        for arm,label in [('CS99','CS-only ridge'),('TS_CS198','TS+CS ridge'),('V20_VOL2','v2.0 vol ridge')]:
             for h in (20,60):
                 name=name.replace(f'ridge_{arm}_t{h}_residual',f'{label} ({h}d, residual)').replace(f'ridge_{arm}_t{h}',f'{label} ({h}d)')
         return str(name).replace('feature_ridge_t20_residual','TS-only ridge (20d, residual)').replace('feature_ridge_t60_residual','TS-only ridge (60d, residual)').replace('feature_ridge_t20','TS-only ridge (20d)').replace('feature_ridge_t60','TS-only ridge (60d)')
@@ -547,10 +548,12 @@ def report(table,configs,dates,arrays):
         coverage_summary=pd.read_csv(REPO/'data'/extra['dataset']/'coverage_summary.csv').head(3)
         body+='<h2>E226 dataset coverage</h2><p>Stored feature availability before the stricter E212 model/history mask. All model results below use the original matched E212 cohort, including CS-only heads.</p>'
         body+=coverage_summary.rename(columns=dict(information_set='Inputs',covered_rows='Covered rows',total_rows='Total rows',covered_row_pct='Rows %',covered_assets='Covered assets',total_assets='Total assets',covered_asset_pct='Assets %')).to_html(index=False,float_format=lambda v:f'{v:.2f}')
+    if 'E227' in extra_studies:
+        body+='<p><strong>E227 original v2.0 volatility controls:</strong> v2.0 vol ridge uses only feature_volatility_20d and feature_volatility_60d, exactly as supplied in the frozen v2.0 dataset; both are five-valued bins, with no further TS or CS processing. Independent 20d/60d per-asset ridge fits use the same E212 common keys, folds, label walls, training-only scaling and 33-alpha validation sweep. A two-feature primal solver implements the identical ridge objective and is checked against the original dual solver. Raw/residual predictions are included throughout the tables, curves and correlation heatmaps. Existing E212/E226 forecasts and the original ensemble pool remain fixed.</p>'
     raw_names=[v['members'][0] for v in configs if v['kind']=='standalone' and v['view']=='raw']
     colors={name:plt.get_cmap('tab10')(i) for i,name in enumerate(raw_names)}
     colors['feature_ridge_t20']='#007f8b';colors['feature_ridge_t60']='#b2182b'
-    colors.update({'ridge_CS99_t20':'#3155a4','ridge_CS99_t60':'#e57b16','ridge_TS_CS198_t20':'#6b3487','ridge_TS_CS198_t60':'#267348'})
+    colors.update({'ridge_CS99_t20':'#3155a4','ridge_CS99_t60':'#e57b16','ridge_TS_CS198_t20':'#6b3487','ridge_TS_CS198_t60':'#267348','ridge_V20_VOL2_t20':'#222222','ridge_V20_VOL2_t60':'#bc5090'})
     cols=['id','members','information_set','training_targets','evaluation_target','view','standardization','design','assets','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
     for h,array in arrays.items():
         section=table[table.evaluation_target==h];stand=section[section.kind=='standalone'];top=section[section.kind=='ensemble'].head(3)
@@ -582,7 +585,7 @@ def report(table,configs,dates,arrays):
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
             ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=3 if supplement.exists() else 2)
             name=f'{"top3_plus" if add_top else "all"}_standalones_t{h}.png';fig.savefig(ROOT/name,dpi=150);plt.close(fig)
-        ridge=stand[stand.model=='feature_ridge'];assert len(ridge)==(12 if supplement.exists() else 4)
+        ridge=stand[stand.model=='feature_ridge'];assert len(ridge)==4+extra_streams
         baseline_cols=['members','information_set','training_targets','view','corr','mmc','payout','sharpe.p','maxdd.p']
         fig,ax=plt.subplots(figsize=(15,8),layout='constrained')
         for row in ridge.itertuples():

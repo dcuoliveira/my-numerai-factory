@@ -101,13 +101,15 @@ def run():
     complete=json.loads((R.ROOT/'COMPLETE.json').read_text())
     for path,h in complete['original_numerical_hashes'].items():assert R.sha(path)==h,path
     table=pd.read_parquet(S.ROOT/'report_comparison_trials.parquet')
-    assert len(table)==27520 and not table.duplicated(['id','evaluation_target']).any()
+    supplement=json.loads((S.ROOT/'report_supplement.json').read_text())
+    additional=sum(len(json.loads((Path(a['root'])/'trials.json').read_text())) for a in supplement.get('additional_supplements',[]))
+    assert len(table)==27520+2*additional and not table.duplicated(['id','evaluation_target']).any()
     for h in (20,60):
         rows=table[(table.evaluation_target==h)&table.kind.eq('standalone')]
-        assert len(rows)==24 and (rows.model=='feature_ridge').sum()==12
-        assert set(rows.loc[rows.model.eq('feature_ridge'),'information_set'])=={'TS99','CS99','TS_CS198'}
+        assert len(rows)==24+additional and (rows.model=='feature_ridge').sum()==12+additional
+        assert {'TS99','CS99','TS_CS198'}<=set(rows.loc[rows.model.eq('feature_ridge'),'information_set'])
     report=S.ROOT/'E212_volatility99_tsfm.pdf';assert R.sha(report)==complete['report_sha256']
-    result=dict(outcome='PASS WITH CONDITIONS',dataset_exact_TS_keys_targets=True,independent_CS_replay_dates=cs_dates,fit_names=fits,all44_fold_protocols_and_asset_training_counts_matched=True,independent_scaler_prediction_and33_alpha_replays=checked,max_prediction_replay_error=max_error,independent_native_residual_and_routing_replays=True,original_E212_forecasts_trials_hashes_unchanged=True,report_standalones_per_target=24,report_ridge_variants_per_target=12,pdf_sha256=R.sha(report),conditions=json.loads((R.ROOT/'audit.json').read_text())['conditions'])
+    result=dict(outcome='PASS WITH CONDITIONS',dataset_exact_TS_keys_targets=True,independent_CS_replay_dates=cs_dates,fit_names=fits,all44_fold_protocols_and_asset_training_counts_matched=True,independent_scaler_prediction_and33_alpha_replays=checked,max_prediction_replay_error=max_error,independent_native_residual_and_routing_replays=True,original_E212_forecasts_trials_hashes_unchanged=True,report_standalones_per_target=24+additional,report_ridge_variants_per_target=12+additional,pdf_sha256=R.sha(report),conditions=json.loads((R.ROOT/'audit.json').read_text())['conditions'])
     # Add verified task identities for the repository's checkpoint indexer.
     for name in fits:
         marker=R.ROOT/'fits'/name/'COMPLETE.json'

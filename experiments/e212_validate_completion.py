@@ -119,10 +119,12 @@ def run():
             extra=json.loads(supplement.read_text());directory=Path(extra['root'])
             comparison=pd.read_parquet(root/'report_comparison_trials.parquet')
             comparison=comparison[(comparison.evaluation_target==horizon)&comparison.kind.eq('standalone')]
-            extra_configs=json.loads((directory/'trials.json').read_text())
-            extra_array=np.load(directory/f'daily_scores_t{horizon}.npy')
             curves={c['id']:.1*arrays[horizon][:,j,0]+arrays[horizon][:,j,1] for j,c in enumerate(configs) if c['kind']=='standalone'}
-            curves.update({c['id']:.1*extra_array[:,j,0]+extra_array[:,j,1] for j,c in enumerate(extra_configs)})
+            for addition in [extra]+extra.get('additional_supplements',[]):
+                directory=Path(addition['root'])
+                extra_configs=json.loads((directory/'trials.json').read_text())
+                extra_array=np.load(directory/f'daily_scores_t{horizon}.npy')
+                curves.update({c['id']:.1*extra_array[:,j,0]+extra_array[:,j,1] for j,c in enumerate(extra_configs)})
             expected_corr=np.corrcoef(np.column_stack([curves[i] for i in comparison.id]),rowvar=False)
         else:expected_corr=expected_corr[np.ix_(order,order)]
         actual=pd.read_csv(root/f'daily_payout_correlation_t{horizon}.csv',index_col=0).to_numpy()
