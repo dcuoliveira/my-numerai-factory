@@ -116,7 +116,7 @@ def run():
         order=[index[x] for x in part[part.kind=='standalone'].id]
         actual=pd.read_csv(root/f'daily_payout_correlation_t{horizon}.csv',index_col=0).to_numpy()
         np.testing.assert_allclose(actual,expected_corr[np.ix_(order,order)],rtol=1e-12,atol=1e-12)
-        for name in ['payout_heatmap','all_standalones','top3_plus_standalones']:
+        for name in ['payout_heatmap','all_standalones','top3_plus_standalones','ridge_baselines']:
             assert (root/f'{name}_t{horizon}.png').stat().st_size>10000
     pdf=root/'E212_volatility99_tsfm.pdf';assert S.sha(pdf)==complete['report_sha256']
     text=subprocess.check_output(['pdftotext',str(pdf),'-'],text=True)
@@ -126,7 +126,7 @@ def run():
         max_native_mmc_error=max_mmc_error,verified_fold_protocols=protocols,frozen_head_forecasts_verified=len(heads),raw_standalone_score_max_change=raw_score_change,trial_rows=len(table),scored_dates=len(dates),scoreable_asset_dates=int(dates.assets.sum()),
         routing='Full routed matrix finite; native routing and both exact rank-slot invariants replayed on first/middle/last scored dates',
         residualization='Native D-5 standalone and ensemble post transforms replayed on identical causal universes',
-        plots='Heatmaps reconstructed from daily payout arrays; selected trial summaries reproduced; all six plot files present',
+        plots='Heatmaps reconstructed from daily payout arrays; selected trial summaries reproduced; all eight plot files present',
         pdf_sha256=complete['report_sha256'],conditions=c['limitations'])
     S.save(root/'independent_completion_audit.json',outcome)
     print(json.dumps({k:v for k,v in outcome.items() if k not in ['conditions','native_score_checks']},indent=2))
