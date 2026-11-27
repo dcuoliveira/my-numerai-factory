@@ -4188,6 +4188,14 @@ STUDIES["E227"] = {
  "artifact_root":"results/reports/crypto/e227_v20_volatility_ridge",
 }
 
+STUDIES["E228"] = {
+ "title": "Top-five standalone hidden-state momentum versus E212 volatility correlations",
+ "idea": "User requests a correlation matrix between top5 per-asset hidden-state momentum and top5 E212 volatility models, explicitly excluding ensembles. Pool completed E206 design-C TSFM standalone configurations and E211 H-only raw/residual standalone streams; exclude feature-only momentum controls and unfinished E218/E220/E225 studies. Volatility pool is all28 standalone streams in updated E212/E226/E227 report. Rescore all candidates on one joint covered asset/date cohort with consistent target20 and E212 historical-meta benchmark; rank each family by mean20d payout, select5 each. Frozen residual views retained as delivered. Pearson correlation of daily payout series and equal-date mean Spearman prediction-rank correlation; full10x10 and cross-family5x5 matrices, selected-model mapping, coverage, native-score and reconstruction audits. No training, new ensembles, live or native-feature marginal claim. Same-history top selection exploratory. OUTSIDE results/metrics: results/reports/crypto/e228_momentum_volatility_correlation.",
+ "runner":"experiments/e228_momentum_volatility_correlation.py", "prefix":"e228_", "scout_prefix":None,
+ "models":["forecast_correlation"], "expected_arms":10,
+ "artifact_root":"results/reports/crypto/e228_momentum_volatility_correlation",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
