@@ -14,6 +14,11 @@ from src.analysis.asset_momentum import route_slots
 
 def run():
     manifest=json.loads((R.DATA/'manifest.json').read_text())
+    plan=json.loads((R.B.SOURCE/'registration.json').read_text())
+    assert plan['selected_specs']==[list(s) for s in R.B.GROUPS.values()]
+    for rel in ('src/data_mani/volatility_proxies.py','src/data_mani/build_volatility_replacement.py'):
+        assert R.sha(R.REPO/rel)==plan['code_hashes'][rel],rel
+    assert manifest['price_sha256']==R.sha(manifest['price_path'])
     for name,h in manifest['output_hashes'].items():assert R.sha(R.DATA/name)==h,name
     assert manifest['builder_sha256']==R.sha(R.__file__)
     base=pd.read_parquet(R.BASE/'train.parquet');new=pd.read_parquet(R.DATA/'train.parquet')
