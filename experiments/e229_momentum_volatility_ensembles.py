@@ -71,9 +71,10 @@ def run():
         catalog[name]=[S.payout_metrics(scores[:,j,0],scores[:,j,1])[name] for j in range(len(catalog))]
     catalog['cumulative_payout']=payout.sum(0);catalog['dates']=len(groups);catalog['asset_dates']=len(base)
     catalog=catalog.sort_values(['payout','id'],ascending=[False,True],kind='stable').reset_index(drop=True);catalog['rank']=np.arange(1,len(catalog)+1)
-    ensemble=catalog[catalog.kind.eq('Ensemble')];mixed=ensemble[ensemble.family.eq('Mixed')]
     best_standalone=catalog[catalog.kind.eq('Standalone')].iloc[0]
     catalog['delta_mean_vs_best_standalone']=catalog.payout-best_standalone.payout
+    ensemble=catalog[catalog.kind.eq('Ensemble')];mixed=ensemble[ensemble.family.eq('Mixed')]
+    S.save(ROOT/'status.json',dict(stage='reporting',arms=len(catalog),time=time.time()))
     catalog.to_csv(ROOT/'all_results.csv',index=False);models.to_csv(ROOT/'member_mapping.csv',index=False)
     np.save(ROOT/'daily_corr_mmc.npy',scores)
     daily=pd.DataFrame(payout,index=dates,columns=[r['id'] for r in records]);daily.index.name='date';S.parquet(ROOT/'daily_payout.parquet',daily.reset_index())
@@ -112,9 +113,13 @@ def run():
     body+='<h2>Top ten mixed ensembles</h2>'+table(mixed.head(10))+'<h2>All standalone controls</h2>'+table(catalog[catalog.kind.eq('Standalone')])+'<img src="standalone_comparison.png">'
     body+='<h2>Member mapping</h2>'+models[['key','family','label','view']].to_html(index=False)+'<h2>Ensemble size sweep</h2><img src="ensemble_size_sweep.png">'+bysize.to_html(index=False,float_format=lambda v:f'{v:.6f}')
     body+='<h2>Audit and interpretation</h2><p>PASS WITH CONDITIONS. Exact permanent-ID/date and symbol equality, finite predictions with no filling, unchanged source hashes, native scoring parity on first/middle/last dates for all1,023 arms, independent subset reconstruction, exact-tie/member-order tests and E228 standalone-score parity passed. Shared coverage is inherited from E228; no full-universe routing or marginal feature attribution is claimed. Historical vendor vintages and pretraining overlap remain uncertified. Complete results and daily score artifacts accompany this report.</p>'
-    page=ROOT/'E229_momentum_volatility_ensembles.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:11px Arial}table{border-collapse:collapse;font-size:9px;break-inside:avoid}td,th{border:1px solid #ccc;padding:4px}img{display:block;max-width:100%;max-height:160mm;object-fit:contain;margin:auto;break-inside:avoid}td:nth-child(n+5){white-space:nowrap}</style></head><body>'+body+'</body></html>')
+    page=ROOT/'E229_momentum_volatility_ensembles.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:11px Arial}table{border-collapse:collapse;font-size:9px;break-inside:avoid!important;page-break-inside:avoid!important}td,th{border:1px solid #ccc;padding:4px}img{display:block;max-width:100%;max-height:160mm;object-fit:contain;margin:auto;break-inside:avoid}td:nth-child(n+5){white-space:nowrap}</style></head><body>'+body+'</body></html>')
     subprocess.run([S.PYTHON,'-m','src.analysis.html_pdf',str(page)],check=True,timeout=300)
-    for row in catalog.itertuples():S.save(ROOT/'fits'/row.id/'COMPLETE.json',dict(task=dict(tag=row.id,model='rank_ensemble'),members=row.members))
+    for row in catalog.itertuples():
+        marker=ROOT/'fits'/row.id/'COMPLETE.json'
+        value=dict(task=dict(tag=row.id,model='rank_ensemble'),members=row.members)
+        if marker.exists():assert json.loads(marker.read_text())==value
+        else:S.save(marker,value)
     S.save(ROOT/'COMPLETE.json',dict(experiment='E229',status='success',arms=len(catalog),ensemble_count=len(ensemble),report=str(page.with_suffix('.pdf')),pdf_sha256=S.sha(page.with_suffix('.pdf')),audit='PASS WITH CONDITIONS',time=time.time()))
     S.save(ROOT/'status.json',dict(stage='complete',time=time.time()))
     print(shown[['id','members','payout','sharpe.p','maxdd.p']].to_string(index=False),flush=True)
