@@ -13,6 +13,15 @@ from src.prediction import meta_resid as MR
 def run():
     root=S.ROOT;complete=json.loads((root/'COMPLETE.json').read_text());c=S.verify()
     assert c['models']==['chronos2','t0','timestral']
+    readiness=json.loads((root/'EMBEDDINGS_READY.json').read_text())
+    assert S.sha(root/'cache/common_rows.npy')==readiness['mask_sha256']
+    protocols=0
+    for path in (root/'blocks').glob('*/*/protocol.json'):
+        protocol=json.loads(path.read_text());wall=pd.Timedelta(days=S.WALLS[int(protocol['target'])])
+        assert pd.Timestamp(protocol['last_resolved'])+wall<=pd.Timestamp(protocol['origin'])
+        assert pd.Timestamp(protocol['training_last'])+wall<=pd.Timestamp(protocol['validation_first'])
+        protocols+=1
+    assert protocols==88
     assert complete['actual_rows']==27504
     table=pd.read_parquet(root/'all_trials.parquet');configs=json.loads((root/'trials.json').read_text())
     dates=pd.read_parquet(root/'score_dates.parquet');panel=pd.read_parquet(root/'panel.parquet')
@@ -99,7 +108,7 @@ def run():
     assert 'Evaluation target20' in text and 'Evaluation target60' in text and text.count('Top THREE')>=2
     assert 'Frozen protocol' not in text and 'Frozen configuration' not in text
     outcome=dict(outcome='PASS WITH CONDITIONS',native_score_checks=checks,max_native_corr_error=max_corr_error,
-        max_native_mmc_error=max_mmc_error,trial_rows=len(table),scored_dates=len(dates),scoreable_asset_dates=int(dates.assets.sum()),
+        max_native_mmc_error=max_mmc_error,verified_fold_protocols=protocols,trial_rows=len(table),scored_dates=len(dates),scoreable_asset_dates=int(dates.assets.sum()),
         routing='Full routed matrix finite; native routing and both exact rank-slot invariants replayed on first/middle/last scored dates',
         residualization='Native D-5 standalone and ensemble post transforms replayed on identical causal universes',
         plots='Heatmaps reconstructed from daily payout arrays; selected trial summaries reproduced; all six plot files present',
