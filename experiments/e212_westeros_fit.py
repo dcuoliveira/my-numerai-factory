@@ -81,6 +81,7 @@ def run():
     for model,horizon in TASKS:
         name=f'{model}_t{horizon}';job='e212_head_'+name
         if (ROOT/'fits'/name/'COMPLETE.json').exists():continue
+        if job not in json.loads(claims.read_text())['jobs']:continue
         # The hashes recorded before transfer protect H, coverage and config.
         ready=REMOTE+'/results/reports/crypto/e212_volatility99_tsfm/westeros_fit_ready.json'
         while True:
@@ -108,7 +109,7 @@ def run():
             if 'ActiveState=failed' in state or 'ActiveState=inactive' in state:
                 raise RuntimeError('Remote fitting did not complete: '+name+' '+state)
             time.sleep(30)
-    save(ROOT/'westeros_fit_COMPLETE.json',dict(time=time.time()))
+    save(ROOT/'westeros_fit_COMPLETE.json',dict(time=time.time(),scope='Offloaded claimed tasks only; main supervisor owns other heads'))
 
 
 if __name__=='__main__':
