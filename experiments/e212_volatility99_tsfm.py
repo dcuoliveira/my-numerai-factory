@@ -313,10 +313,25 @@ def residual_matrix(predictions,meta):
     x=np.asarray(predictions,float);assert np.isfinite(x).all()
     gp=ndtri((rankdata(x,axis=0,method='average')-.5)/len(x))
     gm=MR.gauss_rank(meta) if meta is not None else np.zeros(len(x))
-    denominator=float(gm@gm)
+    # Canonical accumulation makes reconstructed post views independent of
+    # BLAS batch layout/CPU reduction order; the shared projection is unchanged.
+    denominator=math.fsum(gm*gm)
     if denominator==0:return gp,np.full(x.shape[1],np.nan)
-    beta=gp.T@gm/denominator
+    beta=np.array([math.fsum(gp[:,j]*gm) for j in range(gp.shape[1])])/denominator
     return gp-MR.STRENGTH*np.outer(gm,beta),beta
+
+
+
+def rank_average_blends(rank_numerators,membership,sizes):
+    """Exact sums of 2*average_rank-1, followed by one percentile-mean scale.
+
+    Mid-ranks are integer or half-integer. Integer accumulation preserves their
+    mathematical ties across batch layouts and processors; floating weighted
+    products can split an equal average by one ULP and change rank-based scores.
+    """
+    if rank_numerators.dtype.kind not in 'iu' or membership.dtype.kind not in 'iu':
+        raise TypeError('Rank averaging requires integer mid-rank numerators and membership')
+    return (rank_numerators@membership)/(2.0*len(rank_numerators)*np.asarray(sizes)[None,:])
 
 
 def definitions(k):
@@ -366,7 +381,7 @@ def forecast_pool():
     parquet(ROOT/'residualization_snapshots.parquet',pd.DataFrame(snapshots))
     save(ROOT/'forecast_reconstruction.json',dict(standalone_candidates='standalone_forecasts.parquet',
         routing_baseline='coverage.parquet:baseline',causal_mask='coverage.parquet:causal_common',
-        ensembles='Equal means of causal-universe within-date standalone percentile ranks; trials.json membership. '
+        ensembles='Equal means of causal-universe within-date standalone percentile ranks via integer twice-mid-rank sums and one final scale; trials.json membership. '
                   'Post view applies shared residualise once against recorded D-5 snapshots, then exact baseline slots. '
                   'Saved candidates, masks, snapshots and definitions reproduce all ensemble forecasts without refitting.',
         ensemble_beta='cache/ensemble_residual_beta.npy: date x combination index; NaN denotes shared-helper pass-through; source snapshot in residualization_snapshots.parquet',
@@ -398,8 +413,9 @@ def score():
     save(ROOT/'trials.json',configs)
     dates=pd.DataFrame([dict(index=i,date=g[0],assets=len(g[2]),causal_assets=len(g[1])) for i,g in enumerate(groups)])
     parquet(ROOT/'score_dates.parquet',dates)
-    weights=np.zeros((k,len(combos)))
-    for i,members in enumerate(combos):weights[list(members),i]=1/len(members)
+    membership=np.zeros((k,len(combos)),dtype=np.int64)
+    sizes=np.array([len(members) for members in combos],dtype=np.int64)
+    for i,members in enumerate(combos):membership[list(members),i]=1
     beta_path=SCR/'ensemble_residual_beta.npy'
     ensemble_beta=np.lib.format.open_memmap(beta_path,mode='r+' if beta_path.exists() else 'w+',dtype='float64',shape=(len(groups),len(combos)))
     arrays={}
@@ -411,7 +427,7 @@ def score():
     for d,(date,causal_rows,evalpos,lagged) in enumerate(groups):
         done=ROOT/'scored_dates'/f'd{d:04d}.json'
         if done.exists():continue
-        values=candidate[causal_rows];ranks=(rankdata(values,axis=0,method='average')-.5)/len(causal_rows)
+        values=candidate[causal_rows];rank_numerators=(2*rankdata(values,axis=0,method='average')-1).astype(np.int64)
         scored_rows=causal_rows[evalpos]
         def assign(matrix,columns):
             for h in WALLS:
@@ -421,7 +437,7 @@ def score():
                 arrays[h][d,columns,0]=corr;arrays[h][d,columns,1]=mmc
         assign(values,np.arange(k))
         for first in range(0,len(combos),256):
-            last=min(first+256,len(combos));blend=ranks@weights[:,first:last]
+            last=min(first+256,len(combos));blend=rank_average_blends(rank_numerators,membership[:,first:last],sizes[first:last])
             post,beta=residual_matrix(blend,lagged)
             ensemble_beta[d,first:last]=beta
             columns=np.arange(k+2*first,k+2*last)

@@ -23,6 +23,9 @@ def run():
         protocols+=1
     assert protocols==88
     assert complete['actual_rows']==27504
+    heads=json.loads((root/'head_execution_summary.json').read_text())['heads']
+    assert len(heads)==8
+    for head in heads:assert S.sha(root/'fits'/head['task']/'predictions.parquet')==head['predictions_sha256']
     table=pd.read_parquet(root/'all_trials.parquet');configs=json.loads((root/'trials.json').read_text())
     dates=pd.read_parquet(root/'score_dates.parquet');panel=pd.read_parquet(root/'panel.parquet')
     coverage=pd.read_parquet(root/'coverage.parquet');forecasts=pd.read_parquet(root/'standalone_forecasts.parquet')
@@ -44,8 +47,8 @@ def run():
     candidates=np.ascontiguousarray(forecasts[names].to_numpy(float))
     assert np.isfinite(routed[names].to_numpy()).all()
     meta=pd.read_parquet(S.REPO/'data'/c['dataset']/'historical_meta_models.parquet').reset_index()
-    combos=S.definitions(16);weights=np.zeros((16,len(combos)))
-    for j,members in enumerate(combos):weights[list(members),j]=1/len(members)
+    combos=S.definitions(16);membership=np.zeros((16,len(combos)),dtype=np.int64);sizes=np.array([len(m) for m in combos])
+    for j,members in enumerate(combos):membership[list(members),j]=1
     chosen=set()
     for horizon in [20,60]:
         chosen.update(table[(table.evaluation_target==horizon)&(table.kind=='ensemble')].head(3).id)
@@ -55,7 +58,7 @@ def run():
         rows=np.flatnonzero((panel.date==date).to_numpy()&coverage.causal_common.to_numpy())
         evaluation=coverage.evaluation_available.to_numpy()[rows];evalrows=rows[evaluation]
         assert len(evalrows)==dates.assets.iloc[day]
-        values=np.ascontiguousarray(candidates[rows]);ranks=(rankdata(values,axis=0,method='average')-.5)/len(rows)
+        values=np.ascontiguousarray(candidates[rows]);rank_numerators=(2*rankdata(values,axis=0,method='average')-1).astype(np.int64)
         lagged,snapshot=MR.lagged_meta(meta,panel.symbol.iloc[rows],date)
         for j in range(8):
             native,_=MR.residualise(values[:,j],lagged)
@@ -71,7 +74,7 @@ def run():
         selection={configs[j]['id']:values[:,j] for j in [0,3,7,8,15]}
         for identity in chosen:
             ci=index[identity];combo=(ci-16)//2;first=combo//256*256;last=min(first+256,len(combos))
-            blend=ranks@weights[:,first:last]
+            blend=S.rank_average_blends(rank_numerators,membership[:,first:last],sizes[first:last])
             if configs[ci]['post_residualized']:
                 transformed,_=S.residual_matrix(blend,lagged)
                 native,_=MR.residualise(blend[:,combo-first],lagged)
@@ -89,6 +92,9 @@ def run():
                 expected=arrays[horizon][day,index[identity]]
                 error=np.abs(np.array([corr[identity],mmc[identity]])-expected)
                 max_corr_error=max(max_corr_error,float(error[0]));max_mmc_error=max(max_mmc_error,float(error[1]))
+                if not np.allclose([corr[identity],mmc[identity]],expected,rtol=2e-6,atol=2e-7):
+                    scalar=S.matrix_scores(pred[[identity]].to_numpy(),target.to_numpy(),benchmark.to_numpy())
+                    print('PARITY_CONTEXT',date,horizon,identity,configs[index[identity]]['kind'],configs[index[identity]]['view'], 'native',corr[identity],mmc[identity],'replay_helper',scalar,'stored',expected,flush=True)
                 np.testing.assert_allclose([corr[identity],mmc[identity]],expected,rtol=2e-6,atol=2e-7)
             checks.append(dict(date=str(date),target=horizon,trials=len(selection),assets=len(evalrows),snapshot=str(snapshot)))
     for horizon in [20,60]:
