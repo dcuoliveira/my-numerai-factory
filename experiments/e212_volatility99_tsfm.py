@@ -495,7 +495,7 @@ def report(table,configs,dates,arrays):
         more=json.loads((directory/'trials.json').read_text())
         assert len(more)==8 and len(additions)==16
         table=table.copy()
-        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else 'TS99 → H (C)')
+        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else ('TS99 members' if m=='equal-rank ensemble' else 'TS99 → H (C)'))
         table=pd.concat([table,additions],ignore_index=True).sort_values(['evaluation_target','payout','id'],ascending=[True,False,True])
         configs=list(configs)+more
         arrays=dict(arrays)
@@ -508,13 +508,13 @@ def report(table,configs,dates,arrays):
         table.to_csv(ROOT/'report_comparison_trials.csv',index=False)
     else:
         table=table.copy()
-        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else 'TS99 → H (C)')
+        table['information_set']=table.model.map(lambda m:'TS99' if m=='feature_ridge' else ('TS99 members' if m=='equal-rank ensemble' else 'TS99 → H (C)'))
     def display_name(name):
         name=str(name)
         for arm,label in [('CS99','CS-only ridge'),('TS_CS198','TS+CS ridge')]:
             for h in (20,60):
                 name=name.replace(f'ridge_{arm}_t{h}_residual',f'{label} ({h}d, residual)').replace(f'ridge_{arm}_t{h}',f'{label} ({h}d)')
-        return str(name).replace('feature_ridge_t20_residual','Tuned ridge (20d, residual)').replace('feature_ridge_t60_residual','Tuned ridge (60d, residual)').replace('feature_ridge_t20','Tuned ridge (20d)').replace('feature_ridge_t60','Tuned ridge (60d)')
+        return str(name).replace('feature_ridge_t20_residual','TS-only ridge (20d, residual)').replace('feature_ridge_t60_residual','TS-only ridge (60d, residual)').replace('feature_ridge_t20','TS-only ridge (20d)').replace('feature_ridge_t60','TS-only ridge (60d)')
     def display_table(frame,columns,classes=None):
         shown=frame.copy();shown['members']=shown.members.map(display_name)
         result=shown[columns].to_html(index=False,float_format=lambda v:f'{v:.6f}',classes=classes)
@@ -538,9 +538,13 @@ def report(table,configs,dates,arrays):
     body+='Top THREE ensembles are chosen on displayed development history and are exploratory. '
     body+='All trials (including equivalent configurations) are in all_trials.csv/parquet; complete daily CORR/MMC arrays '
     body+='are stored in the shared cache daily_scores directory, indexed by score_dates.parquet and trials.json.</p>'
-    body+='<p><strong>Tuned from-scratch volatility ridge:</strong> the feature_ridge_t20 and feature_ridge_t60 baselines are labeled Tuned ridge (20d) and Tuned ridge (60d) below. Each is fitted separately per asset on the 99 volatility features. For every forecast block, 33 regularization strengths from 0.0001 to 10000 are compared by past validation MSE; feature scaling is fitted on training data, and the selected model is refitted on resolved history. Both raw and residualized variants are shown, using the same E212 coverage and evaluation keys.</p>'
+    body+='<p><strong>Tuned from-scratch volatility ridge:</strong> the feature_ridge_t20 and feature_ridge_t60 baselines are labeled TS-only ridge (20d) and TS-only ridge (60d) below. Each is fitted separately per asset on the 99 volatility features. For every forecast block, 33 regularization strengths from 0.0001 to 10000 are compared by past validation MSE; feature scaling is fitted on training data, and the selected model is refitted on resolved history. Both raw and residualized variants are shown, using the same E212 coverage and evaluation keys.</p>'
     if supplement.exists():
         body+='<p><strong>E226 additional ridge comparisons:</strong> CS99 independently bins raw D-1 volatility across finite source-eligible assets on each date, with average-rank ties and the same five-bin cuts. TS+CS198 concatenates the unchanged TS99 and CS99 columns; CS is not applied after TS binning. New CS-only and TS+CS per-asset heads use the same E212 training/evaluation keys, folds, label walls, training-only scaling and 33-alpha search. Raw and residual predictions appear in every standalone table, curve comparison and correlation heatmap. Original E212 ensemble memberships and rankings remain fixed; the ensemble pool has not been expanded. This is a matched representation comparison, not a marginal native-v2 feature test. Full added results are in report_comparison_trials.csv and E226 artifacts.</p>'
+    if supplement.exists():
+        coverage_summary=pd.read_csv(REPO/'data'/extra['dataset']/'coverage_summary.csv').head(3)
+        body+='<h2>E226 dataset coverage</h2><p>Stored feature availability before the stricter E212 model/history mask. All model results below use the original matched E212 cohort, including CS-only heads.</p>'
+        body+=coverage_summary.to_html(index=False,float_format=lambda v:f'{v:.2f}')
     raw_names=[v['members'][0] for v in configs if v['kind']=='standalone' and v['view']=='raw']
     colors={name:plt.get_cmap('tab10')(i) for i,name in enumerate(raw_names)}
     colors['feature_ridge_t20']='#007f8b';colors['feature_ridge_t60']='#b2182b'
@@ -574,7 +578,7 @@ def report(table,configs,dates,arrays):
                 ax.plot(dates.date,y,label=(row.id if row.kind=='ensemble' else display_name(row.members))+(' [POST]' if row.post_residualized else ''),
                         color=color,ls=style,lw=2.4 if row.kind=='ensemble' else (2.0 if row.model=='feature_ridge' else .9),alpha=1 if row.kind=='ensemble' or row.model=='feature_ridge' else .6)
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
-            ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=2)
+            ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=3 if supplement.exists() else 2)
             name=f'{"top3_plus" if add_top else "all"}_standalones_t{h}.png';fig.savefig(ROOT/name,dpi=150);plt.close(fig)
         ridge=stand[stand.model=='feature_ridge'];assert len(ridge)==(12 if supplement.exists() else 4)
         baseline_cols=['members','information_set','training_targets','view','corr','mmc','payout','sharpe.p','maxdd.p']
