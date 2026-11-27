@@ -112,14 +112,14 @@ def build():
     assert np.array_equal(masks['TS99'],cov.covered.to_numpy())
     assert not (masks['TS99']&~masks['CS99']).any(),'E212 covered keys must retain valid CS values'
     DATA.mkdir(parents=True,exist_ok=True)
-    parquet(DATA/'train.parquet',result)
+    B.store_parquet(DATA/'train.parquet',result)
     metadata=keys[['symbol','date','ucid']].set_index(['symbol','date'])
     for arm,mask in masks.items():metadata[arm]=mask
     metadata['covered']=masks['TS_CS198'];metadata['source_eligible']=eligible
-    parquet(DATA/'coverage.parquet',metadata)
-    parquet(DATA/'feature_availability.parquet',result[names].notna())
-    parquet(DATA/'historical_meta_models.parquet',pd.read_parquet(BASE/'historical_meta_models.parquet'))
-    parquet(ROOT/'raw_volatility.parquet',pd.DataFrame(raw,index=base.index,columns=csnames))
+    B.store_parquet(DATA/'coverage.parquet',metadata)
+    B.store_parquet(DATA/'feature_availability.parquet',result[names].notna())
+    B.store_parquet(DATA/'historical_meta_models.parquet',pd.read_parquet(BASE/'historical_meta_models.parquet'))
+    B.store_parquet(ROOT/'raw_volatility.parquet',pd.DataFrame(raw,index=base.index,columns=csnames))
     summary=[]
     for arm,mask in list(masks.items())+[(n,np.isfinite(cs[:,j])) for j,n in enumerate(csnames)]:
         count=keys.loc[mask,'ucid'].nunique()
@@ -137,7 +137,7 @@ def build():
     actual=cs_bins(tiny,np.repeat(np.datetime64('2020-01-01'),4))
     np.testing.assert_array_equal(actual,np.array([[.5,np.nan],[.5,.25],[.75,.5],[np.nan,.75]],np.float32))
     pd.testing.assert_frame_equal(pd.read_parquet(DATA/'train.parquet'),result)
-    manifest=dict(experiment='E226',dataset=str(DATA.relative_to(REPO/'data')),n_features=198,features=names,feature_sets={'TS99':B.feature_names(),'CS99':csnames,'TS_CS198':names},rows=len(base),assets=int(keys.ucid.nunique()),target=original_manifest['target'],date_min=original_manifest['date_min'],date_max=original_manifest['date_max'],missing_value_policy='coverage_required',processing={'TS99':'Unchanged E209 prior-history five bins','CS99':'Raw source-eligible D-1 volatility, average finite per-feature/date midranks, (rank-.5)/n, cuts .05/.25/.75/.95; minimum2 assets; no TS preprocessing','TS_CS198':'Column concatenation; no sequential TS-then-CS processing','source_cutoff':'D-1 completed daily / weekday bar, no filling'},source_manifest_sha256=sha(BASE/'manifest.json'),price_sha256=sha(pricepath),price_path=str(pricepath),builder_sha256=sha(__file__),source_calculation_hashes={str(p.relative_to(REPO)):sha(p) for p in [Path(V.__file__),Path(B.__file__)]},output_hashes={p.name:sha(p) for p in DATA.iterdir() if p.suffix in ['.parquet','.csv','.json']},conditions=original_manifest['audit']['conditions'])
+    manifest=dict(experiment='E226',dataset=str(DATA.relative_to(REPO/'data')),n_features=198,index=['symbol','date'],feature_dtype='float32',windows=list(B.WINDOWS),feature_groups={**{f'TS_{k}':v for k,v in original_manifest['feature_groups'].items()},**{f'CS_{k}':[n.replace('_ts_','_cs_') for n in v] for k,v in original_manifest['feature_groups'].items()}},features=names,feature_sets={'TS99':B.feature_names(),'CS99':csnames,'TS_CS198':names},rows=len(base),assets=int(keys.ucid.nunique()),target=original_manifest['target'],date_min=original_manifest['date_min'],date_max=original_manifest['date_max'],missing_value_policy='coverage_required',processing={'TS99':'Unchanged E209 prior-history five bins','CS99':'Raw source-eligible D-1 volatility, average finite per-feature/date midranks, (rank-.5)/n, cuts .05/.25/.75/.95; minimum2 assets; no TS preprocessing','TS_CS198':'Column concatenation; no sequential TS-then-CS processing','source_cutoff':'D-1 completed daily / weekday bar, no filling'},source_manifest_sha256=sha(BASE/'manifest.json'),price_sha256=sha(pricepath),price_path=str(pricepath),builder_sha256=sha(__file__),source_calculation_hashes={str(p.relative_to(REPO)):sha(p) for p in [Path(V.__file__),Path(B.__file__)]},output_hashes={p.name:sha(p) for p in DATA.iterdir() if p.suffix in ['.parquet','.csv','.json']},conditions=original_manifest['audit']['conditions'])
     save(DATA/'manifest.json',manifest)
     save(DATA/'audit.json',dict(outcome='PASS WITH CONDITIONS',scope='Dataset construction',exact_original_keys_targets_TS99=True,raw_reference_and_prefix_replays=checks,cs_cut_date_replay=True,missing_and_tie_fixture=True,conditions=manifest['conditions']))
     (DATA/'README.md').write_text('# E226 TS+CS volatility198\n\n198 inputs = unchanged TS99 + independent CS99 of the same nine selected formula groups x11 windows. CS is applied to raw volatility, not to TS bins. Feature sets TS99, CS99 and TS_CS198 are in features.json. All base keys, targets and partial NaNs retained; coverage metadata is excluded from predictors. Use covered-only fitting and matched causal controls. This is retrospective research, not a certified historical-vintage or live dataset.\n')

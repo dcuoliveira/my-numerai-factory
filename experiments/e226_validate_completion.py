@@ -26,7 +26,9 @@ def run():
     names=manifest['feature_sets']['CS99'];both=manifest['feature_sets']['TS_CS198'];assert len(names)==99 and len(both)==198
     assert np.isin(new[both].to_numpy()[np.isfinite(new[both].to_numpy())],[0,.25,.5,.75,1]).all()
     raw=pd.read_parquet(R.ROOT/'raw_volatility.parquet');pd.testing.assert_index_equal(raw.index,base.index)
-    assert np.array_equal(np.isfinite(new[names]),np.isfinite(raw))
+    counts=raw.notna().groupby(level='date').sum().reindex(raw.index.get_level_values('date')).to_numpy()
+    np.testing.assert_array_equal(np.isfinite(new[names]),np.isfinite(raw)&(counts>=2))
+    pd.testing.assert_frame_equal(pd.read_parquet(R.DATA/'historical_meta_models.parquet'),pd.read_parquet(R.BASE/'historical_meta_models.parquet'))
     # Independently calculate every CS feature on three complete panel dates.
     unique=np.sort(new.index.get_level_values('date').unique());cs_dates=[]
     for d in unique[[len(unique)//4,len(unique)//2,-1]]:
