@@ -2660,3 +2660,27 @@ User request: correlate the top5 momentum models built from per-asset hidden sta
 Pool: all completed E206 design-C TSFM normalization variants and E211 TSFM raw/residual standalones, excluding momentum feature-only controls. Incomplete E218/E220/E225 work is excluded. Volatility pool: all standalone streams in the updated E212/E226/E227 report, including feature-only controls. Preserve fitted forecasts and original residual transforms; no refits or re-residualization. Match permanent ID/date and symbols, verify target equality, choose one common finite/source-eligible cohort across every candidate, and use E212's historical-meta benchmark for consistent native rescoring. Require at least10 assets per date. Select top5 per family by common-cohort target20 mean payout, tie-break by stable ID. Pearson correlations of daily payout; equal-date mean Spearman correlations of within-date predictions; full10x10 and cross-family5x5 matrices. Same-history selection is exploratory.
 
 Launch: `python3 -m experiments.e228_momentum_volatility_correlation`; CPU host selected under30% policy. Outputs `results/reports/crypto/e228_momentum_volatility_correlation/` with PNG/CSV matrices, PDF, full candidate ranking, daily scores, selected forecasts, source hashes and audits. Existing E212 and momentum reports/artifacts remain unchanged.
+
+**Completed 2026-11-27 (E228).** User confirmed standalone models only, excluding ensembles. Re-scored all 64 candidates (36 momentum, 28 volatility) on identical permanent-ID/date keys, symbol/target checks and the E212 historical-meta benchmark. The 36 momentum candidates are 24 E206 design-C H/scaler configurations plus 12 E211 H-only raw/residual variants; the 28 volatility candidates are the updated E212/E226/E227 standalone rows. Original residual transforms were retained, not refitted or reprojected. Incomplete E218/E220/E225 work and feature-only momentum controls were excluded. Executed on Tolstoi with two pinned CPU slots under the 30% policy; no new model fitting or source-report changes.
+
+Shared cohort: 297 dates, 2025-01-01 through 2026-02-19; 37,334 asset-dates; 163 distinct assets; 109–139 assets per date. All 64 candidates use exactly these observations. Original target values and overlapping meta values match across sources. Top five per family were selected by descending common-cohort mean target20 payout, with stable-ID tie breaking; these rankings may differ from source PDFs scored on broader cohorts.
+
+| Key | Selected standalone variant | Mean20d payout |
+| --- | --- | ---: |
+| M1 | E206 t0 / cross_section / 20d | 0.060487 |
+| M2 | E206 t0 / asset / 20d | 0.060066 |
+| M3 | E206 Timestral / robust / 20d | 0.059246 |
+| M4 | E206 t0 / rolling / 20d | 0.058406 |
+| M5 | E206 t0 / pooled / 20d | 0.058269 |
+| V1 | E212 Timestral / robust / 20d | 0.059231 |
+| V2 | E212 Timestral / robust / 20d / residual | 0.058967 |
+| V3 | v2.0 vol2 ridge / 20d / residual | 0.049761 |
+| V4 | v2.0 vol2 ridge / 20d | 0.049393 |
+| V5 | TS-only99 ridge / 60d | 0.045925 |
+
+Cross-family daily-payout Pearson correlations range 0.183281–0.467350. Equal-date mean within-date prediction Spearman correlations range 0.207094–0.375924; all 297 dates are usable, with no constant-forecast exclusions. Exported both full 10x10 and cross-family 5x5 matrices as PNG/CSV, plus CSVs with full model labels, complete candidate ranking, selected-model mapping, selected/all candidate forecasts, daily scores, coverage, source-file hashes and a five-page PDF. Raw/residual views can both appear among the selected rows and are not independent fitted model families.
+
+Audit: **PASS WITH CONDITIONS**. Native Numerai scoring matches all 64 candidates on first/middle/last dates (maximum CORR discrepancy 6.11e-16, MMC exact); direct centered Pearson reconstruction and per-date SciPy Spearman parity pass. Correlation matrices are symmetric, unit diagonal and positive semidefinite within tolerance. Source hashes remain unchanged; no missing forecasts were filled. Same-history top-five selection is exploratory and correlation does not establish added predictive value, ensemble improvement or investment returns. All ten selected streams are indexed under E228.
+
+Artifacts: `results/reports/crypto/e228_momentum_volatility_correlation/`; `E228_momentum_volatility_correlation.pdf` SHA256 `9bd2f79d625f25fdffad183cd43498bd4e9866dd13c6f8b446d293b48ca16bc0`. Visual QA passed for the model table and matrix pages; four figures are embedded without clipping. Existing momentum and E212 report versions remain unchanged.
+
