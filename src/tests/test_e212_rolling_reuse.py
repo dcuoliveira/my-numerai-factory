@@ -13,6 +13,8 @@ def test_cached_heads_match_uncached_across_blocks_and_label_changes(tmp_path,mo
     p=pd.DataFrame([(d,str(a)) for d in dates for a in [1,2]],columns=['date','ucid'])
     p['row']=np.arange(len(p));p['step']=np.repeat(np.arange(len(dates)),2);p['covered']=True
     p['target_binned_return_20']=rng.uniform(size=len(p))
+    # Asset 2 joins the eligible training vocabulary only in the later fold.
+    p.loc[(p.ucid=='2')&(p.date<dates[300]),'target_binned_return_20']=np.nan
     directory=S.extraction_dir(20,'chronos2');directory.mkdir(parents=True)
     h=rng.normal(size=(len(p),6)).astype(np.float16)
     np.save(directory/'H_rows.npy',h);np.save(directory/'valid_rows.npy',np.ones(len(p),bool))
@@ -30,6 +32,7 @@ def test_cached_heads_match_uncached_across_blocks_and_label_changes(tmp_path,mo
         actual,*_=S.solve_head(q,20,'chronos2','rolling',63,'final',S.ROOT,S.SCR/'future',params,representation_cache=memo)
         np.testing.assert_array_equal(actual,reference)
     assert len(memo['normalizations'])==1
+    assert len(memo['kernels'])==2
     assert not next(iter(memo['normalizations'].values()))[0].flags.writeable
     # A changed underlying H file must not silently reuse the old transform.
     np.save(directory/'H_rows.npy',h*2)
