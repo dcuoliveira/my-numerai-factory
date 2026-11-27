@@ -105,7 +105,7 @@ def finish():
     for d,(date,ix) in enumerate(groups):
         y=base[D.TARGET].iloc[ix].to_numpy();m=base.meta_model.iloc[ix].to_numpy();corr,mmc=S.matrix_scores(x[ix],y,m);scores[d,:,0]=np.nan_to_num(corr,nan=0.);scores[d,:,1]=mmc
         if d in (0,len(groups)//2,len(groups)-1):
-            nc=numerai_corr(pd.DataFrame(x[ix],columns=names),pd.Series(y)).fillna(0).to_numpy();nm=correlation_contribution(pd.DataFrame(x[ix],columns=names),pd.Series(m),pd.Series(y)).to_numpy();np.testing.assert_allclose(scores[d,:,0],nc,atol=2e-7,rtol=2e-6);np.testing.assert_allclose(mmc,nm,atol=1e-12,rtol=1e-10)
+            nc=numerai_corr(pd.DataFrame(x[ix],columns=names),pd.Series(y,name="target")).fillna(0).to_numpy();nm=correlation_contribution(pd.DataFrame(x[ix],columns=names),pd.Series(m,name="meta"),pd.Series(y,name="target")).to_numpy();np.testing.assert_allclose(scores[d,:,0],nc,atol=2e-7,rtol=2e-6);np.testing.assert_allclose(mmc,nm,atol=1e-12,rtol=1e-10)
             native_checks.append(dict(date=str(date),max_corr_error=float(abs(scores[d,:,0]-nc).max()),max_mmc_error=float(abs(mmc-nm).max())))
     assert np.isfinite(scores).all();np.save(D.ROOT/'daily_corr_mmc.npy',scores)
     payout=.1*scores[:,:,0]+scores[:,:,1];dates=pd.DatetimeIndex([d for d,_ in groups]);daily=pd.DataFrame(payout,index=dates,columns=names);daily.index.name='date';daily.to_csv(D.ROOT/'daily_payout.csv');daily.cumsum().to_csv(D.ROOT/'cumulative_payout.csv')
