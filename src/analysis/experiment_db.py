@@ -4204,6 +4204,14 @@ STUDIES["E229"] = {
  "artifact_root":"results/reports/crypto/e229_momentum_volatility_ensembles",
 }
 
+STUDIES["E230"] = {
+ "title": "Momentum33 plus TS volatility99 plus native volatility2: per-asset and pooled ridge/MLP",
+ "idea": "User requests concatenating unique raw feature columns behind E229 winning members and fitting ridge/MLP per asset and on pooled panel. Dataset crypto/v2.0-e230-momentum-volatility134 contains unchanged33 E205 momentum TS bins,99 E209 volatility TS bins and2 original frozen v2.0 volatility bins; preserve base keys/targets/NaNs, join permanent ID/date with symbol/target identity assertions and source hashes. Target20 with E206 chronological split: train<=2023-11-27,validation2024-01-01..2024-11-27,final<=2024-11-27,test2025-01-01..2026-02-19,35-day label walls. Complete134/source-eligible rows only; asset eligibility min60 train/20 validation fixed before test; identical train/validation/final/test row union for per-asset vs pooled. Ridge33 alphas1e-4..1e4, train-only scaling, validation MSE then fresh final refit; nonlinear ReLU MLP grid widths32 or64-32 x alpha0.01/1,Adam lr0.001,100 fixed epochs,no early stopping,seed230,train-only scaling; independently selected per asset vs one pooled selection. Pooled models use asset-date rows, no asset-ID input or cross-asset slot concatenation. Covered-sample target20 comparison on matched E228 keys where eligible, all4 standalone forecasts, cumulative plots/table/PDF with frozen E229 references rescored if needed. No hidden states, new residualization, native-feature marginal or live claim. OUTSIDE results/metrics: data/crypto/v2.0-e230-momentum-volatility134 and results/reports/crypto/e230_momentum_volatility134.",
+ "runner":"experiments/e230_momentum_volatility134.py", "prefix":"e230_", "scout_prefix":None,
+ "models":["ridge","mlp"], "expected_arms":4,
+ "artifact_root":"results/reports/crypto/e230_momentum_volatility134",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
