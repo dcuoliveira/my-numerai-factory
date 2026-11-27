@@ -48,6 +48,7 @@ def prepare():
     save(ROOT/'PREPARED.json',dict(experiment='E227',native_source=str(NATIVE),native_sha256=sha(NATIVE),runner_sha256=sha(__file__),features=FEATURES,feature_processing='As supplied; no further binning or filling',panel_sha256=sha(ROOT/'panel.parquet'),common_sha256=sha(SOURCE/'cache/common_rows.npy'),rows=len(q),alphas=N.ALPHAS.tolist(),solver='Primal ridge with unpenalized intercept; objective identical to E212 dual ridge'))
 
 def primal(x,v,y,alphas):
+    y=np.asarray(y,float)
     shift=x.mean(0);x=x-shift;v=v-shift;intercept=float(y.mean())
     eig,vec=np.linalg.eigh(x.T@x)
     weights=vec@((vec.T@(x.T@(y-intercept)))[:,None]/(np.maximum(eig,0)[:,None]+np.asarray(alphas)[None,:]))
