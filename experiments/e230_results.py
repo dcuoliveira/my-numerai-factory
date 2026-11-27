@@ -82,7 +82,8 @@ def audit_models(meta,p,indices):
 def finish():
     meta,p,indices=M.load();S.save(D.ROOT/'status.json',dict(stage='auditing',time=time.time()))
     assert all((D.ROOT/'fits'/a/'COMPLETE.json').exists() for a in D.ARMS)
-    audit=audit_models(meta,p,indices)
+    dataset_audit=json.loads((D.ROOT/'dataset_audit.json').read_text());assert dataset_audit['outcome']=='PASS WITH CONDITIONS'
+    audit=audit_models(meta,p,indices);audit['independent_dataset_audit_sha256']=S.sha(D.ROOT/'dataset_audit.json')
     rows=indices['score'];base=p.loc[rows].reset_index(drop=True);names=list(D.ARMS);values=[];hashes={}
     for arm in D.ARMS:
         path=D.ROOT/'fits'/arm/'predictions.parquet';hashes[str(path)]=S.sha(path);f=pd.read_parquet(path)
