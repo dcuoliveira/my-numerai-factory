@@ -4212,6 +4212,14 @@ STUDIES["E230"] = {
  "artifact_root":"results/reports/crypto/e230_momentum_volatility134",
 }
 
+STUDIES["E231"] = {
+ "title": "TabNet per asset and pooled panel on E230 feature134, exhaustive six-model ensembles",
+ "idea": "User requests adding TabNet per asset and pooled panel to E230 four-model table, then ensembles of all6. Reuse frozen E230 dataset,134 columns,226 pretest-eligible assets and exact train/validation/final/query/score keys; target20,35-day walls,no ID inputs or new residualization. Two fresh TabNet portfolios:4 candidates tied decision/attention width8/16 x lambda_sparse0.001/0.1,n_steps3,Adam lr0.01,40 fixed epochs,no eval_set/early stopping,seed231. Train-only scaling and fresh final refit; adaptive batch<=256 asset/1024 panel,virtual<=128; avoid singleton last batches and use drop_last=False so every eligible row is processed every epoch. Same matched37334 asset-dates/297 dates as E230. Freeze4 old ridge/MLP streams, add2 TabNet streams, exhaustive57 equal-weight integer-midrank ensembles of subsets2..6 plus6 standalone controls, rank by mean20d payout, cumulative tables/plots/PDF with E229 winner as frozen context only, not an ensemble member. CPU shards scheduled under30% policy; exact model/scaler, eligible-row, epoch, source-hash and native-scoring audits. OUTSIDE results/metrics: results/reports/crypto/e231_volatility134_tabnet_ensembles. Expanded report preserves original E230 artifacts. Exploratory covered-sample learner/ensemble comparison, no native-feature marginal/full-universe/live claim.",
+ "runner":"experiments/e231_tabnet_ensembles.py", "prefix":"e231_", "scout_prefix":None,
+ "models":["ridge","mlp","tabnet","rank_ensemble"], "expected_arms":63,
+ "artifact_root":"results/reports/crypto/e231_volatility134_tabnet_ensembles",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
