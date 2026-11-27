@@ -1,0 +1,3 @@
+cores=1 ram=8 gpu=1 name=e224_extract_a -- bash -c 'python3 -u experiments/e223_e224_featmean_norms.py extract --model t0 && python3 -u experiments/e223_e224_featmean_norms.py extract --model timestral'
+cores=1 ram=8 gpu=1 name=e224_extract_b -- python3 -u experiments/e223_e224_featmean_norms.py extract --model timestral
+cores=2 ram=16 name=e224_featmean_norms -- python3 -u experiments/e223_e224_featmean_norms.py all --study E224 --workers 3

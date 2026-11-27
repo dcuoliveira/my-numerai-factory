@@ -1,0 +1,1 @@
+cores=9 ram=72 name=e223_featmean_norms -- python3 -u experiments/e223_e224_featmean_norms.py all --study E223 --workers 3
