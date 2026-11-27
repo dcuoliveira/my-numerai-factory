@@ -218,7 +218,7 @@ def score():
             arrays[h][d,:,0]=corr;arrays[h][d,:,1]=mmc
             if d in (0,len(groups)//2,len(groups)-1):
                 for j in range(8):
-                    z=pd.DataFrame({'prediction':candidate[rows[pos],j]});yy=pd.Series(y,name='target');mm=pd.DataFrame({'meta_model':m})
+                    z=pd.DataFrame({'prediction':candidate[rows[pos],j]});yy=pd.Series(y,name='target');mm=pd.Series(m,name='meta_model')
                     nc=numerai_corr(z,yy).iloc[0];nm=correlation_contribution(z,mm,yy).iloc[0]
                     np.testing.assert_allclose([corr[j],mmc[j]],[nc,nm],atol=3e-8,rtol=1e-6)
                 native_checks.append(dict(date=str(date),target=h,columns=8))
