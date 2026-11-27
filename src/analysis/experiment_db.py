@@ -4172,6 +4172,14 @@ STUDIES["E225"] = {
  "artifact_root":"results/reports/crypto/e225_mom3_c2_featmean_norms",
 }
 
+STUDIES["E226"] = {
+ "title": "Volatility99 CS-only and TS+CS per-asset ridge controls for E212",
+ "idea": "User requests adding CS-only bin processing of the selected nine volatility formula groups x11 windows to the TS99 base, packaging both TS99 and CS99 as a separate198-input dataset, tuning ridge20/60, and adding results to E212 PDF. CS ranks use only finite, source-eligible raw D-1 volatility estimates per feature/date, average ties, five bins; no TS transformation before CS. NaNs and all base keys retained. Four fresh per-asset fits (CS99/TS+CS198 x20/60) match E212 common training/evaluation keys, folds,35/91-day walls, train-only scaling and33-alpha search. Existing TS99 forecasts are controls, not refitted; raw/residual strength0.5 D-5 views scored on both targets. OUTSIDE results/metrics: data/crypto/v2.0-e226-ts-cs-volatility198 and results/reports/crypto/e226_volatility_cs_ridge; existing E212 ensemble membership/results remain fixed. Research representation comparison, no native-feature marginal/live claim.",
+ "runner":"experiments/e226_volatility_cs_ridge.py", "prefix":"e226_", "scout_prefix":None,
+ "models":["ridge"], "expected_arms":4,
+ "artifact_root":"results/reports/crypto/e226_volatility_cs_ridge",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
