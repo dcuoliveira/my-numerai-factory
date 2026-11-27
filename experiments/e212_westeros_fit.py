@@ -10,7 +10,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import time
-from experiments.e212_westeros_bridge import remote,save,digest,ROOT,REMOTE
+from experiments.e212_westeros_bridge import remote,save,digest,ROOT,REMOTE,SSH
 
 TASKS=[(m,h) for m in ['feature_ridge','timestral','chronos2','t0'] for h in [20,60]]
 PREFIX='export XDG_RUNTIME_DIR=/run/user/$(id -u); '
@@ -24,15 +24,33 @@ def sync_outputs(model,horizon,done=False):
 p=Path(ROOT)
 for d in sorted((p/'blocks'/NAME).glob('f*')):
  if (d/'COMPLETE.json').exists():
-  for base in [d,p/'cache/blocks'/NAME/d.name]:
-   if base.exists():
-    for f in base.rglob('*'):
-     if f.is_file() and '.tmp' not in f.name and '.partial' not in f.name:print(f.relative_to(p))
+  for f in d.iterdir():
+   if f.is_file() and '.tmp' not in f.name and '.partial' not in f.name:print(f.relative_to(p))
 if (p/'fits'/NAME/'WESTEROS_RETURN_READY.json').exists():
  for f in (p/'fits'/NAME).rglob('*'):
   if f.is_file():print(f.relative_to(p))
 """.replace('ROOT',repr(REMOTE+'/results/reports/crypto/e212_volatility99_tsfm')).replace('NAME',repr(name))
+    archive=None
+    if done:
+        archive_code="""import pathlib,tarfile,json,hashlib
+p=pathlib.Path(ROOT); name=NAME
+out=p/'archives';out.mkdir(exist_ok=True);dest=out/(name+'.tar.gz');receipt=out/(name+'.json')
+if not receipt.exists():
+ tmp=dest.with_suffix('.tmp')
+ with tarfile.open(tmp,'w:gz',compresslevel=1) as tar:
+  for d in [p/'blocks'/name,p/'cache/blocks'/name]:
+   if d.exists():tar.add(d,arcname=str(d.relative_to(p)))
+ tmp.replace(dest)
+ h=hashlib.sha256()
+ with open(dest,'rb') as f:
+  for b in iter(lambda:f.read(4*1024*1024),b''):h.update(b)
+ receipt.write_text(json.dumps(dict(file=str(dest.relative_to(p)),sha256=h.hexdigest(),contains=['blocks/'+name,'cache/blocks/'+name])))
+print(receipt.read_text())
+""".replace('ROOT',repr(REMOTE+'/results/reports/crypto/e212_volatility99_tsfm')).replace('NAME',repr(name))
+        result=subprocess.check_output(SSH+['python3 -c '+shlex.quote(archive_code)],text=True,timeout=600)
+        archive=json.loads(result)
     files=remote('python3 -c '+shlex.quote(code)).splitlines()
+    if archive:files.extend([archive['file'],'archives/'+name+'.json'])
     files=[f for f in files if not (ROOT/f).exists()]
     if not files:return
     staging=ROOT/'westeros_fit_incoming';staging.mkdir(exist_ok=True)
@@ -47,6 +65,10 @@ if (p/'fits'/NAME/'WESTEROS_RETURN_READY.json').exists():
         prediction=fitdir/'predictions.parquet'
         if not prediction.exists():prediction=ROOT/'fits'/name/'predictions.parquet'
         assert digest(prediction)==expected,'Prediction transfer hash mismatch'
+    if archive:
+        target=staging/archive['file']
+        if not target.exists():target=ROOT/archive['file']
+        assert digest(target)==archive['sha256'],'Parameter archive checksum mismatch'
     ordered=sorted(files,key=lambda x:x.endswith('COMPLETE.json'))
     for name in ordered:
         source=staging/name;destination=ROOT/name
