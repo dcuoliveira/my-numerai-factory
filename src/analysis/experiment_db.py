@@ -4220,6 +4220,14 @@ STUDIES["E231"] = {
  "artifact_root":"results/reports/crypto/e231_volatility134_tabnet_ensembles",
 }
 
+STUDIES["E232"] = {
+    "title": "Full-sample expanding walk-forward of the six E231 learners on feature134, all 57 rank ensembles",
+    "idea": "User asks to run walk forward over the full sample for all methods in the E231 final table. Same E230 panel/134 features/target20, same E230 ridge+MLP and E231 TabNet grids, seeds and train-only scaling. Expanding window, 8 blocks of 130 test dates 2022-07-01..2026-02-19; per block validation = last 126 final-fit dates, 35-day label walls, fresh refit, per-block asset eligibility >=60 train/>=20 validation rows. Score on rows where all six predict; 57 equal-weight rank ensembles + 6 standalones. CORR over full window; MMC/payout only from 2024-05-07 (historical meta-model start). Supervisor experiments/e232_walkforward.py supervise. OUTSIDE results/metrics: results/reports/crypto/e232_feature134_walkforward.",
+    "runner": "experiments/e232_walkforward.py", "prefix": "e232_", "scout_prefix": None,
+    "models": ["ridge","mlp","tabnet","rank_ensemble"], "expected_arms": 63,
+    "artifact_root": "results/reports/crypto/e232_feature134_walkforward",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
