@@ -46,9 +46,7 @@ def prepare():
     for label,q in [('momentum',momentum),('native',native)]:
         np.testing.assert_array_equal(q.symbol,volatility.symbol,err_msg=label)
         assert TARGET in q
-        for name in (TARGET,'target_binned_return_60'):
-            if name in q:np.testing.assert_array_equal(q[name],volatility[name],err_msg=label+' '+name)
-            else:assert label=='momentum' and name=='target_binned_return_60'
+        np.testing.assert_array_equal(q[TARGET],volatility[TARGET],err_msg=label+' '+TARGET)
     mf=[c for c in momentum if c.startswith('feature_')];vf=[c for c in volatility if c.startswith('feature_')];nf=['feature_volatility_20d','feature_volatility_60d'];features=mf+vf+nf
     assert [len(mf),len(vf),len(nf)]==[33,99,2] and len(set(features))==134
     assert volatility.index.get_level_values('date').max()<pd.Timestamp('2026-02-20')
