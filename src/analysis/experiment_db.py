@@ -4196,6 +4196,14 @@ STUDIES["E228"] = {
  "artifact_root":"results/reports/crypto/e228_momentum_volatility_correlation",
 }
 
+STUDIES["E229"] = {
+ "title": "Exhaustive rank ensembles of E228 top-five momentum and volatility models",
+ "idea": "User requests ensembles of the ten E228 selected standalone models, cumulative results and table. Freeze E228 selections and common 297-date target20 cohort. Exhaustive equal-weight within-date prediction-rank blends of every subset of size2..10:1013 ensembles (961 mixed,26 momentum-only,26 volatility-only), plus10 standalone controls. Preserve original member residual transforms, no new residualization or fitting. Exact integer midrank accumulation; same permanent keys/labels/meta; native Numerai score parity. Rank by mean20d payout; plot top3 mixed, pure-family winners, all10 blend and best standalone per family, export full ranking/daily scores. Same-history selection exploratory; covered-sample comparison only, no marginal/live claim. OUTSIDE results/metrics: results/reports/crypto/e229_momentum_volatility_ensembles.",
+ "runner":"experiments/e229_momentum_volatility_ensembles.py", "prefix":"e229_", "scout_prefix":None,
+ "models":["rank_ensemble"], "expected_arms":1023,
+ "artifact_root":"results/reports/crypto/e229_momentum_volatility_ensembles",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
