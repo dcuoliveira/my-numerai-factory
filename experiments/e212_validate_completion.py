@@ -81,8 +81,8 @@ def run():
             selection[identity]=prediction
         pred=pd.DataFrame({k:v[evaluation] for k,v in selection.items()},index=evalrows)
         for horizon in [20,60]:
-            target=pd.Series(panel[f'target_binned_return_{horizon}'].to_numpy()[evalrows],index=evalrows)
-            benchmark=pd.Series(panel.meta_model.to_numpy()[evalrows],index=evalrows)
+            target=pd.Series(panel[f'target_binned_return_{horizon}'].to_numpy()[evalrows],index=evalrows,name='target')
+            benchmark=pd.Series(panel.meta_model.to_numpy()[evalrows],index=evalrows,name='meta_model')
             corr=numerai_corr(pred,target).fillna(0.)
             mmc=correlation_contribution(pred,benchmark,target)
             for identity in selection:

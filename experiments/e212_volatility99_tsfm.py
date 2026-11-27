@@ -471,9 +471,13 @@ def report(table,configs,dates,arrays):
     import matplotlib.pyplot as plt
     index={c['id']:i for i,c in enumerate(configs)};body='<h1>E212 — Volatility99 TSFM signal experiment</h1>'
     prepared=json.loads((ROOT/'PREPARED.json').read_text())
+    labels=pd.read_parquet(ROOT/'panel.parquet',columns=['date','target_binned_return_20','target_binned_return_60','meta_model'])
+    base_keys=int((labels.date.isin(dates.date)&np.isfinite(labels.target_binned_return_20)&np.isfinite(labels.target_binned_return_60)&np.isfinite(labels.meta_model)).sum())
     body+=f'<p>Dataset: {html.escape(settings()["dataset"])}. Evaluation covers {len(dates):,} dates, {int(table.assets.iloc[0]):,} distinct assets and {int(dates.assets.sum()):,} scored asset-date observations from {prepared["rows"]:,} original rows. All comparisons use the same common covered keys for both targets.</p>'
+    body+=f'<p>On the evaluated dates, the common predictor cohort covers {int(dates.assets.sum()):,} / {base_keys:,} rows with both labels and the historical meta available ({100*dates.assets.sum()/base_keys:.1f}%). Results describe this covered cohort.</p>'
+    body+='<p>Head inputs: design C concatenates standardized H from each asset in the fixed training universe once, with a separate supervised ridge head for each predicted asset. The feature-only control uses the 99 signals of the predicted asset. Comparisons reflect both the representation and the information set.</p>'
     body+=f'<p>{len(settings()["models"])} frozen foundation models; separate target20/60 contexts and independently fitted per-asset ridge heads. '
-    body+='Recommended H standardization and design C only; matched 99-feature ridge controls. '
+    body+='Recommended H standardization and design C only; 99-feature ridge controls on matched covered training keys. '
     body+='Raw/residual views use strength0.5 and meta snapshots at least5 calendar days old. Every 2–5-member rank blend '
     body+='also receives a separate, single post-residualization pass, including blends with residualized members. '
     body+='Common causal ranks/transforms precede the joint evaluation-label/meta mask. '
@@ -482,6 +486,8 @@ def report(table,configs,dates,arrays):
     body+='Top THREE ensembles are chosen on displayed development history and are exploratory. '
     body+='All trials (including equivalent configurations) are in all_trials.csv/parquet; complete daily CORR/MMC arrays '
     body+='are stored in the shared cache daily_scores directory, indexed by score_dates.parquet and trials.json.</p>'
+    raw_names=[v['members'][0] for v in configs if v['kind']=='standalone' and v['view']=='raw']
+    colors={name:plt.get_cmap('tab10')(i) for i,name in enumerate(raw_names)}
     cols=['id','members','training_targets','evaluation_target','view','standardization','design','assets','assets_mean','dates','corr','mmc','payout','sharpe.p','maxdd.p']
     for h,array in arrays.items():
         section=table[table.evaluation_target==h];stand=section[section.kind=='standalone'];top=section[section.kind=='ensemble'].head(3)
@@ -502,8 +508,13 @@ def report(table,configs,dates,arrays):
             rows=pd.concat([top,stand]) if add_top else stand
             for row in rows.itertuples():
                 y=pay[:,index[row.id]].cumsum();np.testing.assert_allclose(y,plotdata[row.id].cumsum())
+                if row.kind=='ensemble':
+                    place=top.id.tolist().index(row.id)
+                    color=['#111111','#8e44ad','#d99000'][place];style=['-','--',':'][place]
+                else:
+                    color=colors[row.members.removesuffix('_residual')];style='--' if row.view=='residual' else '-'
                 ax.plot(dates.date,y,label=(row.id if row.kind=='ensemble' else row.members)+(' [POST]' if row.post_residualized else ''),
-                        lw=2.4 if row.kind=='ensemble' else .8,alpha=1 if row.kind=='ensemble' else .6)
+                        color=color,ls=style,lw=2.4 if row.kind=='ensemble' else .9,alpha=1 if row.kind=='ensemble' else .7)
             ax.set_title(f'Target{h}: '+('top THREE ensembles + all standalone variants' if add_top else 'all standalone variants'))
             ax.set_ylabel('Cumulative payout score');ax.grid(alpha=.2);ax.legend(fontsize=9,ncol=2)
             name=f'{"top3_plus" if add_top else "all"}_standalones_t{h}.png';fig.savefig(ROOT/name,dpi=150);plt.close(fig)
@@ -513,7 +524,7 @@ def report(table,configs,dates,arrays):
         body+=f'<img style="width:100%" src="top3_plus_standalones_t{h}.png">'
     body+='<h2>Interpretation</h2><p>This is a retrospective development comparison. Volatility features were selected in earlier studies, and the displayed history also selects the top ensembles. Historical vendor vintages and pretrained-model overlap are not independently certified. Payout scores are Numerai metrics, not investment returns.</p>'
     body+='<h2>Audit</h2><p>'+html.escape(json.loads((ROOT/'audit.json').read_text())['outcome'])+'. Full audit, provenance and configuration are retained in separate machine-readable artifacts.</p>'
-    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}img{display:block;margin:8px auto;object-fit:contain}@media print{img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
+    page=ROOT/'E212_volatility99_tsfm.html';page.write_text('<html><head><meta charset="utf-8"><style>body{font:10px Arial}table{border-collapse:collapse;font-size:8px}td,th{border:1px solid #ccc;padding:3px;overflow-wrap:anywhere}pre{white-space:pre-wrap}img{display:block;margin:8px auto;object-fit:contain}@media print{table{break-inside:avoid!important;page-break-inside:avoid!important}td:nth-child(n+8),th:nth-child(n+8){white-space:nowrap;overflow-wrap:normal}img{max-width:100%;max-height:165mm;width:auto!important;break-inside:avoid}}</style></head><body>'+body+'</body></html>')
     command='cd '+shlex.quote(str(REPO))+'\nexec '+shlex.join([PYTHON,'-m','src.analysis.html_pdf',str(page)])
     subprocess.run(['ssh','-o','BatchMode=yes','lovelace','bash','-s'],input=command,text=True,check=True,timeout=300)
     text=subprocess.check_output(['pdftotext',str(page.with_suffix('.pdf')),'-'],text=True)
