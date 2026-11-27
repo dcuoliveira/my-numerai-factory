@@ -27,8 +27,12 @@ def indexed(frame):
 def load():
     hashes={};checks=[];catalog=[];values=[]
     def read(path,columns=None):
-        path=Path(path);before=sha(path);result=pd.read_parquet(path,columns=columns);assert sha(path)==before
-        hashes[str(path)]=before;return result
+        path=Path(path)
+        files=sorted(p for p in path.rglob('*') if p.is_file()) if path.is_dir() else [path]
+        before={str(p):sha(p) for p in files};result=pd.read_parquet(path,columns=columns)
+        assert all(sha(p)==h for p,h in before.items())
+        if path.is_dir():assert [str(p) for p in sorted(p for p in path.rglob('*') if p.is_file())]==list(before)
+        hashes.update(before);return result
     p=indexed(read(S.ROOT/'panel.parquet',columns=['row','ucid','symbol','date','target_binned_return_20','meta_model']))
     cover=indexed(read(S.ROOT/'coverage.parquet'))
     base=p.loc[cover.evaluation_available].copy();keys=base.index
