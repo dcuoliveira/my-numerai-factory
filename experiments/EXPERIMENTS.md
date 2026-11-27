@@ -2614,3 +2614,23 @@ User request: add CS-only processing to the selected volatility inputs, make a d
 Design: retain the frozen TS99 dataset unchanged; reconstruct the same nine formula/calendar/side groups over all11 windows from the registered E209 price snapshot. CS99 independently bins each date/feature's finite source-eligible raw D-1 estimates with average-rank ties and cuts .05/.25/.75/.95; no TS transform before CS, no filling. New dataset198 inputs = TS99 concatenated with CS99, full original panel and per-arm coverage metadata. Four per-asset ridge fits CS99/TS+CS198 x training20/60, exactly E212 common training/evaluation keys and protocol (33 alphas, trailing504, validation63, forecast130,35/91-day walls), raw/residual D-5 views against both targets. Existing TS99 and TSFM results/ensembles remain fixed. Compare on covered research cohort; not a native-v2 marginal or live claim.
 
 Launch: `python3 -m experiments.e226_volatility_cs_ridge run`; host deepfive (CPU only, two pinned cores within30% budget; wait if unavailable). Outputs `data/crypto/v2.0-e226-ts-cs-volatility198/`, `results/reports/crypto/e226_volatility_cs_ridge/`; updated `results/reports/crypto/e212_volatility99_tsfm/E212_volatility99_tsfm.pdf`. Source identities/hashes, prefix replay, missingness, matched-fold and rank-slot audits required before interpretation.
+
+**Completed 2026-11-27 (E226).** Executed on Tolstoi, using four separately pinned one-core ridge workers and a two-core scoring/report/audit worker, within the standing30% resource budget. Dataset `crypto/v2.0-e226-ts-cs-volatility198` contains474,496 unchanged panel rows/targets and198 float32 binned inputs: original TS99 plus independent CS99 from raw completed-bar volatility. CS99 complete coverage is308,710 rows (65.06%) and714/1,256 assets (56.85%); TS99 and TS+CS198 complete coverage is257,067 rows (54.18%) and565 assets (44.98%). All partial NaNs remain; metadata masks are not predictors.
+
+Four fresh ridge fits finished across11 blocks each; horizon20/60 prediction availability exactly matches the stored TS99 controls (127,373 /102,550 rows). Each asset/block uses the original33-alpha past-validation sweep and train-only scaling. Evaluated raw/residual variants on both targets using the exact E212 cohort:468 dates,209 assets,63,251 scored asset-dates. Added16 scored summaries and retained all original E212 forecasts,27,504 trial rows and ensemble memberships unchanged. The extended report comparison contains27,520 rows; no new ensemble search was performed.
+
+Mean raw daily payout on the matched cohort (Numerai score units, not investment returns):
+
+| Inputs | Training target | Evaluation20 | Evaluation60 |
+| --- | ---: | ---: | ---: |
+| TS99 | 20 | 0.008076 | 0.000757 |
+| TS99 | 60 | 0.027820 | 0.024577 |
+| CS99 | 20 | 0.018041 | 0.024817 |
+| CS99 | 60 | 0.004374 | 0.003870 |
+| TS_CS198 | 20 | 0.013036 | 0.012599 |
+| TS_CS198 | 60 | 0.008609 | 0.004707 |
+
+Dataset raw/prefix and CS cut-date replays passed. Independent completion audit: **PASS WITH CONDITIONS**; all44 fold protocols and asset training counts match E212,16 scaler/prediction/33-alpha reconstructions reproduce exactly (maximum prediction error 0.0), native residualization/scoring and full-universe rank-slot routing checks pass. Historical vendor vintages and identity histories remain uncertified; this is a matched representation comparison, not a native-v2 marginal or live claim. E212's original independent audit also passes against the revised report.
+
+Updated `results/reports/crypto/e212_volatility99_tsfm/E212_volatility99_tsfm.pdf`:15 visually checked pages,eight figures,24 standalone variants per evaluation target,12 ridge variants per target, coverage table and explicit TS-only/CS-only/TS+CS labels. Original report versions are archived under its `history/`. PDF SHA256 `3a3b3ac5ab3719eabadcc5b9a7be630d4f5c8a1da53043ffed55a32d0f7fcd55`. Machine-readable added summaries, paired deltas, forecasts, routing and audits are under `results/reports/crypto/e226_volatility_cs_ridge/`; full extended tables are `report_comparison_trials.csv/parquet`. All four heads are indexed under E226. The existing email receipt refers to the earlier E212 PDF; this revised PDF has not been emailed.
+
