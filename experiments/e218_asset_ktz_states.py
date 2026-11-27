@@ -33,6 +33,25 @@ PY = '/home/danielco/miniconda3/bin/python3'
 FAMILIES = list(K.ALIASES)
 save, parquet = E.save, E.parquet
 
+VISION_HOSTS=['hamilton','hopper','lovelace','dostoievski','tolstoi','deepfour','deepfive','deepsix']
+
+
+def placement_probes():
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return hosts.reachable(list(pool.map(lambda name:hosts.probe(name,timeout=6,local_name='__remote_probe__'),VISION_HOSTS)))
+
+
+def log_failure(error):
+    # Diagnostics must survive an unavailable shared report/log directory.
+    import syslog
+    message='E218 supervisor: '+repr(error)+'\n'+traceback.format_exc()
+    syslog.syslog(syslog.LOG_ERR,message)
+    try:
+        with open('/tmp/e218_supervisor_failure.log','a') as handle:handle.write(str(time.time())+' '+message+'\n')
+    except OSError:pass
+
+
 
 def plan():
     return json.loads((ROOT/'plan.json').read_text())
@@ -192,51 +211,61 @@ def supervise():
     save(ROOT/'resource_lease.json',dict(active_share=cpu_share,training_cores=training_cores,default_share=budget.SHARE,status='active',global_default_changed=False))
     try:
         while not (ROOT/'COMPLETE.json').exists():
-            probes=hosts.reachable(hosts.probe_all(timeout=3));snapshots=manager.status(names=[h.name for h in probes],timeout=3)
-            active,_=E.unit_states(snapshots)
-            for unit in list(state['owned']):
-                if unit not in active and state['owned'][unit]['host'] in snapshots:del state['owned'][unit]
-            jobs=[]
-            for c in plan():
-                if not (ROOT/'inputs'/c['id']/'COMPLETE.json').exists():
-                    jobs.append(budget.Job(f'e218_build_{c["id"]}',f'{PY} -u experiments/e218_asset_ktz_states.py build --config {c["id"]}',cores=4,ram_gb=16))
-                else:
-                    for family in FAMILIES:
-                        if not (ROOT/'fits'/f'{c["id"]}_{family}'/'COMPLETE.json').exists():
-                            jobs.append(budget.Job(f'e218_{c["id"]}_{family}',f'{PY} -u experiments/e218_asset_ktz_states.py fit --config {c["id"]} --family {family}',cores=training_cores,ram_gb=24))
-            if not jobs:
-                save(ROOT/'status.json',dict(stage='scoring_and_reporting',time=time.time()));finish();break
-            pending=[]
-            for job in jobs:
-                if 'nmr-'+job.name in active or 'nmr-'+job.name in state['owned']:continue
-                if state['attempts'].get(job.name,0)>=3:raise RuntimeError('Three attempts exhausted: '+job.name)
-                pending.append(job)
-            placements,unplaced=budget.distribute(pending,probes,share=cpu_share)
-            for placement in placements:
-                subprocess.run(['ssh','-o','BatchMode=yes',placement.host,'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user reset-failed '+placement.unit],capture_output=True,timeout=15)
-                ok,message=manager.launch(placement)
-                if ok:
-                    record=dict(unit=placement.unit,host=placement.host,cpus=list(placement.cpus))
-                    state['owned'][placement.unit]=record;state['launches'].append(record)
-                    state['attempts'][placement.job.name]=state['attempts'].get(placement.job.name,0)+1
-                    save(file,state)
-                print('LAUNCH',ok,message,flush=True)
-            state['updated']=time.time();state['waiting']=[dict(name=j.name,reason=why) for j,why in unplaced];save(file,state)
-            save(ROOT/'status.json',dict(stage='building_inputs_and_fitting',prepared_configs=len(list((ROOT/'inputs').glob('*/COMPLETE.json'))),completed_models=len(list((ROOT/'fits').glob('*/COMPLETE.json'))),time=time.time()))
-            if state['launches']:
-                try:email('started')
-                except Exception as error:save(ROOT/'email_start_error.json',dict(error=str(error),time=time.time()))
-            for c in plan():
-                if all((ROOT/'fits'/f'{c["id"]}_{f}'/'COMPLETE.json').exists() for f in FAMILIES):
-                    for cache in (SCR/'inputs'/c['id']).glob('*.npy'):
-                        if cache.name!='common_rows.npy':cache.unlink()
+            try:
+                probes=placement_probes();snapshots=manager.status(names=[h.name for h in probes],timeout=3)
+                active,_=E.unit_states(snapshots)
+                for unit in list(state['owned']):
+                    if unit not in active and state['owned'][unit]['host'] in snapshots:del state['owned'][unit]
+                jobs=[]
+                for c in plan():
+                    if not (ROOT/'inputs'/c['id']/'COMPLETE.json').exists():
+                        jobs.append(budget.Job(f'e218_build_{c["id"]}',f'{PY} -u experiments/e218_asset_ktz_states.py build --config {c["id"]}',cores=4,ram_gb=16))
+                    else:
+                        for family in FAMILIES:
+                            if not (ROOT/'fits'/f'{c["id"]}_{family}'/'COMPLETE.json').exists():
+                                jobs.append(budget.Job(f'e218_{c["id"]}_{family}',f'{PY} -u experiments/e218_asset_ktz_states.py fit --config {c["id"]} --family {family}',cores=training_cores,ram_gb=24))
+                if not jobs:
+                    save(ROOT/'status.json',dict(stage='scoring_and_reporting',time=time.time()));finish();break
+                pending=[]
+                for job in jobs:
+                    if 'nmr-'+job.name in active or 'nmr-'+job.name in state['owned']:continue
+                    if state['attempts'].get(job.name,0)>=3:raise RuntimeError('Three attempts exhausted: '+job.name)
+                    pending.append(job)
+                placements,unplaced=budget.distribute(pending,probes,share=cpu_share)
+                for placement in placements:
+                    subprocess.run(['ssh','-o','BatchMode=yes',placement.host,'XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user reset-failed '+placement.unit],capture_output=True,timeout=15)
+                    ok,message=manager.launch(placement)
+                    if ok:
+                        record=dict(unit=placement.unit,host=placement.host,cpus=list(placement.cpus))
+                        state['owned'][placement.unit]=record;state['launches'].append(record)
+                        state['attempts'][placement.job.name]=state['attempts'].get(placement.job.name,0)+1
+                        save(file,state)
+                    print('LAUNCH',ok,message,flush=True)
+                state['updated']=time.time();state['waiting']=[dict(name=j.name,reason=why) for j,why in unplaced];save(file,state)
+                save(ROOT/'status.json',dict(stage='building_inputs_and_fitting',prepared_configs=len(list((ROOT/'inputs').glob('*/COMPLETE.json'))),completed_models=len(list((ROOT/'fits').glob('*/COMPLETE.json'))),time=time.time()))
+                if state['launches']:
+                    try:email('started')
+                    except Exception as error:save(ROOT/'email_start_error.json',dict(error=str(error),time=time.time()))
+                for c in plan():
+                    if all((ROOT/'fits'/f'{c["id"]}_{f}'/'COMPLETE.json').exists() for f in FAMILIES):
+                        for cache in (SCR/'inputs'/c['id']).glob('*.npy'):
+                            if cache.name!='common_rows.npy':cache.unlink()
+            except (OSError,subprocess.TimeoutExpired) as error:
+                log_failure(error)
+                try:print('TRANSIENT_ERROR',repr(error),flush=True)
+                except OSError:pass
+                # Keep existing workers; the next cycle retries discovery/state IO.
             time.sleep(30)
     except Exception as error:
-        save(ROOT/'FAILED.json',dict(error=str(error),traceback=traceback.format_exc(),time=time.time()));raise
+        log_failure(error)
+        try:save(ROOT/'FAILED.json',dict(error=str(error),traceback=traceback.format_exc(),time=time.time()))
+        except OSError:pass
+        raise
     finally:
-        for host in {v['host'] for v in state['launches']}:
+        for host in {v['host'] for v in state['launches']} & set(VISION_HOSTS):
             manager.stop(host,list({v['unit'] for v in state['launches'] if v['host']==host}),timeout=20)
-        save(ROOT/'resource_lease.json',dict(active_share=budget.SHARE,default_share=budget.SHARE,status='restored',global_default_changed=False))
+        try:save(ROOT/'resource_lease.json',dict(active_share=budget.SHARE,default_share=budget.SHARE,status='restored',global_default_changed=False))
+        except OSError as error:log_failure(error)
 
 
 if __name__=='__main__':
