@@ -257,7 +257,8 @@ def ensembles(tsfm, r, days):
                         dict(pick='best single cell on H1', chosen=f'{tags[js][0]}/{tags[js][1]}', H1_payout=single[h1, js].mean(), H2_payout=single[h2, js].mean()),
                         dict(pick='H2: blend - single', chosen=f'NW t {t:+.2f}', H1_payout=np.nan, H2_payout=d)])
     rk = np.mean([np.corrcoef(R, rowvar=False) for R, _, _ in days], axis=0)
-    return dict(ens_fixed=fixed_t, ens_top=top_t, ens_oos=oos, ens_best=bname, ens_split=(str(r['dates'][h-1])[:10], str(r['dates'][h])[:10]),
+    return dict(ens_curve=(name(combos[order[0]]), pay[:, order[0]], bname, single[:, best], h),
+                ens_fixed=fixed_t, ens_top=top_t, ens_oos=oos, ens_best=bname, ens_split=(str(r['dates'][h-1])[:10], str(r['dates'][h])[:10]),
                 pred_corr=pd.DataFrame(rk, index=[f'{a}/{b}' for a, b in tags], columns=[f'{a}/{b}' for a, b in tags]))
 
 
@@ -313,6 +314,16 @@ def report():
                  f'and scores from {a1}.</p>')
         body += '<h4>Pre-specified blends</h4>' + r['ens_fixed'].drop(columns='kind').sort_values('payout', ascending=False).to_html(index=False, float_format=fmt)
         body += '<h4>Top 10 of the 2-3 member screen (in-sample)</h4>' + r['ens_top'].drop(columns='kind').sort_values('payout', ascending=False).to_html(index=False, float_format=fmt)
+        en, ep, sn, sp, h = r['ens_curve']
+        fig, ax = plt.subplots(figsize=(12, 4.5))
+        ax.plot(r['dates'], ep.cumsum(), lw=2, label=f'best ensemble (in-sample): {en}  [mean {ep.mean():.4f}]')
+        ax.plot(r['dates'], sp.cumsum(), lw=2, label=f'best standalone: {sn}  [mean {sp.mean():.4f}]')
+        ax.axvline(r['dates'][h], color='grey', ls='--', lw=1); ax.text(r['dates'][h], ax.get_ylim()[1]*.95, ' split-half boundary', fontsize=8, color='grey')
+        ax.set_title(f'{tsfm}: cumulative payout, best ensemble vs best standalone cell'); ax.grid(alpha=.2); ax.legend(fontsize=8, loc='upper left')
+        fig.tight_layout(); png = REPORT/f'ens_vs_single_{tsfm}.png'; fig.savefig(png, dpi=100); plt.close(fig)
+        body += (f'<h4>Cumulative payout: best ensemble vs best standalone</h4><p>The ensemble is the top row of the screen, '
+                 f'chosen on this same window (upper bound); the standalone is the top row of the first table.</p>'
+                 f'<img style="width:100%" src="{png.name}">')
         body += '<h4>Split-half check</h4>' + r['ens_oos'].sort_values('H2_payout', ascending=False).to_html(index=False, float_format=fmt, na_rep='')
         fig, ax = plt.subplots(figsize=(8, 7)); pc = r['pred_corr']
         im = ax.imshow(pc.to_numpy(), vmin=pc.to_numpy().min(), vmax=1, cmap='viridis')
