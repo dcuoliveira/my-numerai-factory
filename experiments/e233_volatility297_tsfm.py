@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -190,7 +191,10 @@ def supervise():
         return budget.Job(f'e233_head_{m}_{n}',shlex.join([PY,'-u','-m','experiments.e233_volatility297_tsfm','fit','--model',m,'--norm',n]),cores=4,ram_gb=40)
     try:
         while True:
-            probes=[h for h in hosts.reachable(hosts.probe_all(timeout=4)) if h.name not in {'westeros','imeusp'}]
+            # Probe every host over ssh, including this one: a local child inherits this process's
+            # CPU affinity and under-reports cores (same fix as e231_supervisor_cpu).
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                probes=hosts.reachable(list(pool.map(lambda n:hosts.probe(n,8,local_name='__remote_probe__'),[n for n in hosts.roster() if n not in {'westeros','imeusp'}])))
             statuses=manager.status(names=[h.name for h in probes],timeout=4);active={r['unit'].removesuffix('.service') for st in statuses.values() for r in st if r['state'].startswith('active')}
             for u in list(owned):
                 if 'nmr-'+u not in active and u not in active:owned.pop(u)
@@ -200,10 +204,10 @@ def supervise():
             jobs=[];stage='gpu_smokes'
             if not (ROOT/'EMBEDDINGS_READY.json').exists():
                 smokes=[m for m in TSFMS if not (S.extraction_dir(HORIZON,m)/'SMOKE_COMPLETE.json').exists()]
-                if smokes:jobs=[budget.Job(f'e233_gpu_smoke_{m}',S.worker_command(m,HORIZON,True),cores=2,ram_gb=16,gpus=1) for m in smokes]
+                if smokes:jobs=[budget.Job(f'e233_gpu_smoke_{m}',S.worker_command(m,HORIZON,True),cores=1,ram_gb=16,gpus=1) for m in smokes]
                 else:
                     stage='gpu_extracting';todo=[m for m in TSFMS if not S.extraction_complete(p,HORIZON,m)]
-                    if todo:jobs=[budget.Job(f'e233_gpu_extract_{m}',S.worker_command(m,HORIZON,False),cores=2,ram_gb=24,gpus=1) for m in todo]
+                    if todo:jobs=[budget.Job(f'e233_gpu_extract_{m}',S.worker_command(m,HORIZON,False),cores=1,ram_gb=24,gpus=1) for m in todo]
                     else:S.collect();stage='collected'
             else:
                 stage='fitting_heads'
