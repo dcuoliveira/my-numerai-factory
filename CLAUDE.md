@@ -597,6 +597,16 @@ raw/residual standalone and ensemble forecasts, common-asset payout reports and
 top-three ensemble plots. It generalizes the E206–E211 workflow; do not substitute
 momentum-specific paths, features or dates for the supplied dataset.
 
+## TSFM covariate-row states and standardization ensembles
+
+When asked to use the hidden states of a TSFM's feature/covariate series, to
+compare target-row vs covariate-row states, to sweep H standardizations on the
+same states, or to ensemble those cells (the E222–E224 workflow), use
+[`/tsfm-covariate-row-states`](.claude/skills/tsfm-covariate-row-states/SKILL.md).
+It covers the one-pass read-out per model, the T/F/TF × standardization grid on
+one common sample, rank-average ensembles with a split-half check, and reports
+with every table sorted by payout descending.
+
 ## Adding a model to the stake book
 
 When the user passes a newly added model and asks to add it to the allocation /

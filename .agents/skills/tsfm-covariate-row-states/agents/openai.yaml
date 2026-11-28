@@ -1,0 +1,4 @@
+interface:
+  display_name: "TSFM Covariate-Row States"
+  short_description: "Target vs covariate-row TSFM states, H standardizations and ensembles"
+  default_prompt: "Use $tsfm-covariate-row-states to compare target-row, covariate-row-mean and concatenated TSFM states across H standardizations, ensemble the cells and report sorted by payout."

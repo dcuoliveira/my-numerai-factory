@@ -290,13 +290,13 @@ def report():
         t = r['table']
         best = t.sort_values('payout', ascending=False).iloc[0]
         summary.append(dict(tsfm=tsfm, fits=len(t), best=f"{best.norm} / {best.arm}", best_payout=float(best.payout)))
-    body += '<h2>Summary</h2>' + pd.DataFrame(summary).to_html(index=False, float_format=fmt)
+    body += '<h2>Summary</h2>' + pd.DataFrame(summary).sort_values('best_payout', ascending=False).to_html(index=False, float_format=fmt)
     for tsfm, r in have.items():
         parity = '' if tsfm == 'chronos2' else ''
         body += (f'<h2>{tsfm}</h2><p>{len(r["dates"])} test dates, {r["keys"]:,} asset/date rows, identical across the '
                  f'{len(r["tags"])} fits below.</p>')
         body += r['table'].sort_values('payout', ascending=False)[cols].to_html(index=False, float_format=fmt)
-        body += '<h3>Paired differences (Newey-West lag 20)</h3>' + r['deltas'].drop(columns='tsfm').to_html(index=False, float_format=fmt)
+        body += '<h3>Paired differences (Newey-West lag 20), by payout difference</h3>' + r['deltas'].drop(columns='tsfm').sort_values('d_payout', ascending=False).to_html(index=False, float_format=fmt)
         fig, axes = plt.subplots(1, 3, figsize=(16, 4.5), sharey=True)
         for ax, a in zip(axes, ARMS):
             for j, (n, aa) in enumerate(r['tags']):
@@ -311,9 +311,9 @@ def report():
                  f'The 2-3 member screen covers every combination of the {len(r["tags"])} cells; its top rows are picked on the '
                  f'very window they are scored on, so read them as an upper bound. The split check picks on dates up to {a0} '
                  f'and scores from {a1}.</p>')
-        body += '<h4>Pre-specified blends</h4>' + r['ens_fixed'].drop(columns='kind').to_html(index=False, float_format=fmt)
-        body += '<h4>Top 10 of the 2-3 member screen (in-sample)</h4>' + r['ens_top'].drop(columns='kind').to_html(index=False, float_format=fmt)
-        body += '<h4>Split-half check</h4>' + r['ens_oos'].to_html(index=False, float_format=fmt, na_rep='')
+        body += '<h4>Pre-specified blends</h4>' + r['ens_fixed'].drop(columns='kind').sort_values('payout', ascending=False).to_html(index=False, float_format=fmt)
+        body += '<h4>Top 10 of the 2-3 member screen (in-sample)</h4>' + r['ens_top'].drop(columns='kind').sort_values('payout', ascending=False).to_html(index=False, float_format=fmt)
+        body += '<h4>Split-half check</h4>' + r['ens_oos'].sort_values('H2_payout', ascending=False).to_html(index=False, float_format=fmt, na_rep='')
         fig, ax = plt.subplots(figsize=(8, 7)); pc = r['pred_corr']
         im = ax.imshow(pc.to_numpy(), vmin=pc.to_numpy().min(), vmax=1, cmap='viridis')
         ax.set_xticks(range(len(pc)), pc.columns, rotation=90, fontsize=7); ax.set_yticks(range(len(pc)), pc.index, fontsize=7)
