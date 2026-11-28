@@ -3,7 +3,7 @@
 Reads results/reports/crypto/e206_momentum3_tsfm/scores/*_common.parquet (72 TSFM configurations +
 the momentum feature-ridge baseline, all on E206's common test sample), rebuilds payout per date as
 0.1*corr + mmc, summarises once, and adds a paired Newey-West (lag 20) payout delta against the
-momentum baseline. Writes E206_summary.{html,pdf} beside the study's other reports.
+momentum baseline. Writes momentum_new_tsfm_hs_summary.{html,pdf} beside the study's other reports.
 
     python3 experiments/e206_summary_report.py
 """
@@ -81,7 +81,7 @@ def main():
     body += '<h2>All configurations, sorted by payout</h2>' + show.to_html(index=False, float_format=fmt)
     body += ('<h2>Limitations</h2><ul><li>Development history; 72 configurations compared, t-statistics unadjusted for the search.</li>'
              '<li>Pretrained checkpoints may overlap the test period.</li><li>MMC is against the historical meta-model proxy.</li></ul>')
-    page = ROOT/'E206_summary.html'
+    page = ROOT/'momentum_new_tsfm_hs_summary.html'
     page.write_text('<html><head><meta charset="utf-8"><style>body{font:11px Arial}table{font-size:8.5px;border-collapse:collapse}'
                     'td,th{border:1px solid #ccc;padding:2px 4px}</style></head><body>' + body + '</body></html>')
     to_pdf(str(page), 'lovelace')
