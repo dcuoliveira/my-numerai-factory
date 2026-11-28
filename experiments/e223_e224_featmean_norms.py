@@ -184,13 +184,15 @@ def score_tsfm(tsfm):
     raw = np.column_stack([pd.read_parquet(fit_dir(tsfm, n, a)/'predictions.parquet').set_index('row').prediction
                            .reindex(test.row).to_numpy(float) for n, a in tags])
     ok = np.isfinite(raw).all(1) & np.isfinite(test[TARGET]).to_numpy() & np.isfinite(test.meta_model).to_numpy()
-    dates, scores, counts = [], [], []
+    dates, scores, counts, days = [], [], [], []
     for date, idx in test.groupby('date', sort=True).indices.items():
         rows = idx[ok[idx]]
         if len(rows) < 10:
             continue
-        c, m = matrix_scores(raw[rows], test.loc[rows, TARGET].to_numpy(), test.loc[rows, 'meta_model'].to_numpy())
+        y, mm = test.loc[rows, TARGET].to_numpy(), test.loc[rows, 'meta_model'].to_numpy()
+        c, m = matrix_scores(raw[rows], y, mm)
         dates.append(date); scores.append(np.column_stack([c, m])); counts.append(len(rows))
+        days.append((pd.DataFrame(raw[rows]).rank(pct=True).to_numpy(), y, mm))
     scores = np.stack(scores)
     info = [json.loads((fit_dir(tsfm, n, a)/'COMPLETE.json').read_text()) for n, a in tags]
     table = pd.DataFrame(dict(tsfm=tsfm, norm=[n for n, _ in tags], arm=[LABEL[a] for _, a in tags],
@@ -211,7 +213,52 @@ def score_tsfm(tsfm):
                 for k, s in [('corr', scores[:, ia, 0]-scores[:, ib, 0]), ('mmc', scores[:, ia, 1]-scores[:, ib, 1]), ('payout', pay[:, ia]-pay[:, ib])]:
                     row[f'd_{k}'], row[f't_{k}'] = newey_west(s, 20)
                 deltas.append(row)
-    return dict(table=table, deltas=pd.DataFrame(deltas), dates=np.asarray(dates), pay=pay, tags=tags, keys=int(ok.sum()))
+    r = dict(table=table, deltas=pd.DataFrame(deltas), dates=np.asarray(dates), pay=pay, tags=tags, keys=int(ok.sum()),
+             scores=scores)
+    r.update(ensembles(tsfm, r, days))
+    return r
+
+
+def ensembles(tsfm, r, days):
+    """Equal-weight per-date rank averages of the finished cells of one TSFM, on the same common sample.
+
+    fixed: pre-specified families (all T / all F / all TF / all cells, per-standardization T+F rank blend
+    against TF feature concatenation). screen: every 2- and 3-member blend, ranked on the full window
+    (in-sample) and, for honesty, chosen on the first half of dates and scored on the second."""
+    from itertools import combinations
+    tags, k = r['tags'], len(r['tags'])
+    name = lambda c: ' + '.join(f'{tags[i][0]}/{tags[i][1]}' for i in c)
+    fixed = {f'all {a}': [i for i, t in enumerate(tags) if t[1] == a] for a in ARMS}
+    fixed[f'all {k} cells'] = list(range(k))
+    for n in NORMS:
+        if (n, 'T') in tags and (n, 'F') in tags:
+            fixed[f'{n}: T+F rank blend'] = [tags.index((n, 'T')), tags.index((n, 'F'))]
+    fixed = {kk: v for kk, v in fixed.items() if len(v) >= 2}
+    screen = [c for m in (2, 3) for c in combinations(range(k), m)]
+    combos = [tuple(v) for v in fixed.values()] + screen
+    W = np.zeros((k, len(combos)))
+    for j, c in enumerate(combos):
+        W[list(c), j] = 1/len(c)
+    sc = np.stack([np.column_stack(matrix_scores(R @ W, y, mm)) for R, y, mm in days])
+    pay = .1*sc[:, :, 0]+sc[:, :, 1]; nf = len(fixed)
+    single = r['pay']; best = int(single.mean(0).argmax()); bname = f'{tags[best][0]}/{tags[best][1]}'
+    def rows(ix, labels, kind):
+        mt = metrics(sc[:, ix]); out = pd.DataFrame(dict(kind=kind, ensemble=labels, members=[len(combos[j]) for j in ix], **mt))
+        dt = [newey_west(pay[:, j]-single[:, best], 20) for j in ix]
+        out['d_pay vs best single'] = [d for d, _ in dt]; out['t'] = [t for _, t in dt]
+        return out
+    fixed_t = rows(list(range(nf)), list(fixed), 'fixed')
+    order = nf + np.argsort(-pay[:, nf:].mean(0))[:10]
+    top_t = rows(list(order), [name(combos[j]) for j in order], 'screen (in-sample)')
+    h = len(r['dates'])//2; h1, h2 = slice(0, h), slice(h, None)
+    je = nf + int(pay[h1, nf:].mean(0).argmax()); js = int(single[h1].mean(0).argmax())
+    d, t = newey_west(pay[h2, je]-single[h2, js], 20)
+    oos = pd.DataFrame([dict(pick='best 2-3 blend on H1', chosen=name(combos[je]), H1_payout=pay[h1, je].mean(), H2_payout=pay[h2, je].mean()),
+                        dict(pick='best single cell on H1', chosen=f'{tags[js][0]}/{tags[js][1]}', H1_payout=single[h1, js].mean(), H2_payout=single[h2, js].mean()),
+                        dict(pick='H2: blend - single', chosen=f'NW t {t:+.2f}', H1_payout=np.nan, H2_payout=d)])
+    rk = np.mean([np.corrcoef(R, rowvar=False) for R, _, _ in days], axis=0)
+    return dict(ens_fixed=fixed_t, ens_top=top_t, ens_oos=oos, ens_best=bname, ens_split=(str(r['dates'][h-1])[:10], str(r['dates'][h])[:10]),
+                pred_corr=pd.DataFrame(rk, index=[f'{a}/{b}' for a, b in tags], columns=[f'{a}/{b}' for a, b in tags]))
 
 
 def report():
@@ -258,6 +305,21 @@ def report():
             ax.set_title(f'{tsfm} {LABEL[a]}'); ax.grid(alpha=.2); ax.legend(fontsize=7)
         fig.tight_layout(); png = REPORT/f'cumulative_{tsfm}.png'; fig.savefig(png, dpi=100); plt.close(fig)
         body += f'<h3>Cumulative payout by standardization</h3><img style="width:100%" src="{png.name}">'
+        a0, a1 = r['ens_split']
+        body += (f'<h3>Ensembles</h3><p>Equal-weight average of per-date ranks, scored on the same {len(r["dates"])} dates. '
+                 f'Deltas are paired Newey-West (lag 20) against the best single cell, <b>{r["ens_best"]}</b>. '
+                 f'The 2-3 member screen covers every combination of the {len(r["tags"])} cells; its top rows are picked on the '
+                 f'very window they are scored on, so read them as an upper bound. The split check picks on dates up to {a0} '
+                 f'and scores from {a1}.</p>')
+        body += '<h4>Pre-specified blends</h4>' + r['ens_fixed'].drop(columns='kind').to_html(index=False, float_format=fmt)
+        body += '<h4>Top 10 of the 2-3 member screen (in-sample)</h4>' + r['ens_top'].drop(columns='kind').to_html(index=False, float_format=fmt)
+        body += '<h4>Split-half check</h4>' + r['ens_oos'].to_html(index=False, float_format=fmt, na_rep='')
+        fig, ax = plt.subplots(figsize=(8, 7)); pc = r['pred_corr']
+        im = ax.imshow(pc.to_numpy(), vmin=pc.to_numpy().min(), vmax=1, cmap='viridis')
+        ax.set_xticks(range(len(pc)), pc.columns, rotation=90, fontsize=7); ax.set_yticks(range(len(pc)), pc.index, fontsize=7)
+        fig.colorbar(im, ax=ax, shrink=.8); ax.set_title(f'{tsfm}: mean per-date rank correlation of predictions')
+        fig.tight_layout(); png = REPORT/f'predcorr_{tsfm}.png'; fig.savefig(png, dpi=100); plt.close(fig)
+        body += f'<h4>Prediction correlation</h4><img style="width:70%" src="{png.name}">'
     body += ('<h2>Limitations</h2><ul><li>Development history; ridge only; many comparisons, t-statistics unadjusted.</li>'
              '<li>TF shares one ridge penalty across both blocks.</li>'
              '<li>Pretrained checkpoints may overlap the test period; no live path.</li></ul>')
@@ -267,6 +329,8 @@ def report():
     to_pdf(str(page), 'lovelace')
     for tsfm, r in have.items():
         r['table'].to_csv(REPORT/f'table_{tsfm}.csv', index=False); r['deltas'].to_csv(REPORT/f'deltas_{tsfm}.csv', index=False)
+        pd.concat([r['ens_fixed'], r['ens_top']]).to_csv(REPORT/f'ensembles_{tsfm}.csv', index=False)
+        r['ens_oos'].to_csv(REPORT/f'ensembles_split_{tsfm}.csv', index=False); r['pred_corr'].to_csv(REPORT/f'predcorr_{tsfm}.csv')
     return page.with_suffix('.pdf')
 
 
