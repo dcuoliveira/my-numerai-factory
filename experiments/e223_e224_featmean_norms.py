@@ -318,11 +318,27 @@ def report():
         fig, ax = plt.subplots(figsize=(12, 4.5))
         ax.plot(r['dates'], ep.cumsum(), lw=2, label=f'best ensemble (in-sample): {en}  [mean {ep.mean():.4f}]')
         ax.plot(r['dates'], sp.cumsum(), lw=2, label=f'best standalone: {sn}  [mean {sp.mean():.4f}]')
+        from src.analysis import slots as SL
+        from src.live import stake as ST
+        staked_note = []
+        for name in ST.STAKED:      # staked slots' stored backtest series, on this figure's dates
+            ss = SL.slot_series(name)
+            if ss is None:
+                continue
+            sp_ = ss.payout.copy(); sp_.index = pd.to_datetime(sp_.index)
+            v = sp_.reindex(pd.to_datetime(r['dates']))
+            cover = int(v.notna().sum())
+            ax.plot(r['dates'], v.fillna(0).cumsum(), lw=1.2, ls=':', label=f'staked {name} ({ss.model}/{ss.run})  [mean {v.mean():.4f}, {cover}/{len(v)} dates]')
+            staked_note.append(f'{name} {cover}/{len(v)}')
         ax.axvline(r['dates'][h], color='grey', ls='--', lw=1); ax.text(r['dates'][h], ax.get_ylim()[1]*.95, ' split-half boundary', fontsize=8, color='grey')
         ax.set_title(f'{tsfm}: cumulative payout, best ensemble vs best standalone cell'); ax.grid(alpha=.2); ax.legend(fontsize=8, loc='upper left')
         fig.tight_layout(); png = REPORT/f'ens_vs_single_{tsfm}.png'; fig.savefig(png, dpi=100); plt.close(fig)
         body += (f'<h4>Cumulative payout: best ensemble vs best standalone</h4><p>The ensemble is the top row of the screen, '
-                 f'chosen on this same window (upper bound); the standalone is the top row of the first table.</p>'
+                 f'chosen on this same window (upper bound); the standalone is the top row of the first table. Dotted: the staked '
+                 f'slots (src.live.stake.STAKED), from their stored backtest per-period payout on the same dates '
+                 f'(dates covered: {", ".join(staked_note)}). Their series are scored on the full Numerai universe with '
+                 f'the official MMC, not on this study\'s ~{r["table"].mean_assets.iloc[0]:.0f}-asset common sample, so the '
+                 f'comparison is indicative, not paired. Real live round scores do not reach back into this window.</p>'
                  f'<img style="width:100%" src="{png.name}">')
         body += '<h4>Split-half check</h4>' + r['ens_oos'].sort_values('H2_payout', ascending=False).to_html(index=False, float_format=fmt, na_rep='')
         fig, ax = plt.subplots(figsize=(8, 7)); pc = r['pred_corr']
