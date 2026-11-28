@@ -4228,6 +4228,14 @@ STUDIES["E232"] = {
     "artifact_root": "results/reports/crypto/e232_feature134_walkforward",
 }
 
+STUDIES["E233"] = {
+    "title": "TSFM hidden states on volatility297 (TS + TS->CS + CS bins), all six H standardizations, vs E212",
+    "idea": "User asks for a dataset adding TS->CS and CS bin processing to crypto/v2.0-e209-ts-volatility99, then Chronos-2/t0/Timestral states one asset at a time, then per-asset design-C ridge tuned from scratch under every H standardization (pooled, asset, cross_section, rolling, robust, l2), portfolios, table and cumulative payout plots including E212 hidden-state results. Dataset data/crypto/v2.0-e233-ts-tscs-cs-volatility297 = E209 TS99 + TS99 re-ranked across assets per date (TSCS99) + E226 CS99; covered = all 297 finite (same 228,730 origins as E212). Target20 only (training and evaluation). Frozen E212 extractor, fold schedule, 33-alpha grid, rolling 63/126/252. Raw predictions, no residualization or ensembles. Comparison rows: E212 chronos2/t0/timestral (recommended norm) and feature ridge TS99, E226 CS99 and TS_CS198 ridges, re-scored on the common sample. OUTSIDE results/metrics: results/reports/crypto/e233_volatility297_tsfm.",
+    "runner": "experiments/e233_volatility297_tsfm.py", "prefix": "e233_", "scout_prefix": None,
+    "models": ["chronos2","t0","timestral","ridge"], "expected_arms": 19,
+    "artifact_root": "results/reports/crypto/e233_volatility297_tsfm",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
