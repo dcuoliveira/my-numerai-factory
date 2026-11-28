@@ -36,7 +36,8 @@ SETS = [  # (input, head, fits folder, how to name a fit folder)
     (FEATURE_SET, 'pooled', CRYPTO/'e235_mom3_featstats_hs'/'pooled'/'fits', lambda n: n),
 ]
 REF = (TARGET_SET, 'per-asset', BASE)
-SHORT = {(TARGET_SET, 'per-asset'): 'T/asset', (TARGET_SET, 'pooled'): 'T/pooled',
+MEAN_ONLY = ('no features', 'per-asset', 'asset_mean_target')
+SHORT = {('no features', 'per-asset'): 'asset mean', (TARGET_SET, 'per-asset'): 'T/asset', (TARGET_SET, 'pooled'): 'T/pooled',
          (FEATURE_SET, 'per-asset'): 'F/asset', (FEATURE_SET, 'pooled'): 'F/pooled'}
 
 
@@ -44,6 +45,11 @@ def predictions():
     out = {}
     base = pd.read_parquet(ROOT/'momentum_baseline.parquet')
     out[REF] = base[['row', 'prediction']]
+    # Control: each asset's mean final-fit target, no features (the per-asset heads' intercept alone).
+    import e234_e206_pooled_ridge as P
+    p = P.panel(); fit = np.load(P.E206_SCR/'common_rows.npy') & p.final_fit.to_numpy() & np.isfinite(p[P.TARGET])
+    mean = p.loc[fit].groupby('ucid')[P.TARGET].mean()
+    out[MEAN_ONLY] = base[['row']].assign(prediction=base.ucid.map(mean).to_numpy())
     for inp, head, folder, rename in SETS:
         if not folder.exists():
             continue
@@ -78,6 +84,8 @@ def payout(d):
 def parts(name):
     if name == BASE:
         return 'momentum', 'feature ridge', '-'
+    if name == 'asset_mean_target':
+        return 'asset mean', 'historical target', '-'
     model, rest = name.split('_', 1); norm, design = rest.rsplit('_', 1)
     return model, norm, design
 
@@ -108,10 +116,10 @@ def plot(series, dates, keys, title, path):
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(12, 5.5))
     for k in keys:
-        pay = payout(series[k]).cumsum(); is_base = k[2] == BASE
-        label = (f'{SHORT[k[:2]]} momentum feature ridge' if is_base else f'{SHORT[k[:2]]}: {k[2]}') + f'  {pay.iloc[-1]/len(pay):.4f}'
+        pay = payout(series[k]).cumsum(); is_base = k[2] in (BASE, 'asset_mean_target')
+        label = ('asset mean target (no features)' if k == MEAN_ONLY else f'{SHORT[k[:2]]} momentum feature ridge' if is_base else f'{SHORT[k[:2]]}: {k[2]}') + f'  {pay.iloc[-1]/len(pay):.4f}'
         ax.plot(dates, pay, lw=2.4 if is_base else 1.3, ls=('--' if k == REF else ':') if is_base else '-',
-                color='k' if is_base else None, label=label)
+                color=('tab:gray' if k == MEAN_ONLY else 'k') if is_base else None, label=label)
     ax.set_title(title); ax.grid(alpha=.25); ax.legend(fontsize=8, title='mean payout per date', title_fontsize=8)
     fig.autofmt_xdate(); fig.tight_layout(); fig.savefig(path, dpi=110); plt.close(fig)
 
@@ -123,6 +131,7 @@ def main():
     preds, base = predictions(); series, dates, n_rows = scores(preds, base); t = table(series)
     t.drop(columns='key').to_csv(ROOT/'momentum_new_tsfm_hs_summary_table.csv', index=False)
     present = [s[:2] for s in SETS if any(k[:2] == s[:2] and k[2] != BASE for k in series)]
+    tsfm_only = ~t.model.isin(['momentum', 'asset mean'])
     fmt = lambda v: f'{v:.5f}' if isinstance(v, float) else v
     body = ('<h1>Momentum3 TSFM hidden states: target-row state vs feature-row statistics, per-asset vs pooled heads</h1>'
             '<p>Pretrained Chronos-2, t0, Timestral and TabPFN-TS read <b>crypto/v2.0-e205-ts-momentum3</b> (target20 plus 33 time-series '
@@ -140,19 +149,21 @@ def main():
             f'All {len(t)} rows are re-scored on one common sample: {len(dates)} dates, {dates.min():%Y-%m-%d} to {dates.max():%Y-%m-%d}, '
             f'{n_rows:,} asset-dates (E206\'s common test rows that every forecast covers). Payout = 0.1 CORR + MMC (historical-meta proxy), '
             'rebuilt per date; <b>dpay / t</b> = paired payout difference against the per-asset momentum feature ridge, Newey-West lag 20. '
-            f'Sets present: {", ".join(SHORT[s] for s in present)} (T = target state, F = feature stats).</p>')
+            f'Sets present: {", ".join(SHORT[s] for s in present)} (T = target state, F = feature stats).</p>'
+            '<p><b>Control: asset mean target.</b> Each asset\'s mean 20-day target over the final training window, no features at all: '
+            'the intercept a per-asset head gets for free and a pooled head (no asset ID) cannot have. Shown as a row and dotted in the plots.</p>')
     best_keys = []
     for s in present:
-        sub = t[(t.input == s[0]) & (t['head'] == s[1]) & (t.model != 'momentum')]
+        sub = t[(t.input == s[0]) & (t['head'] == s[1]) & tsfm_only]
         keys = list(dict.fromkeys(sub.head(5).key.tolist() + sub.groupby('model').head(1).key.tolist()))
-        keys += [k for k in [(*s, BASE), REF] if k in series and k not in keys]
+        keys += [k for k in [(*s, BASE), REF, MEAN_ONLY] if k in series and k not in keys]
         fname = f'summary_cum_{SHORT[s].replace("/", "_")}.png'
         plot(series, dates, keys, f'{s[0]}, {s[1]} ridge: cumulative payout', ROOT/fname)
         body += f'<h2>Cumulative payout: {s[0]}, {s[1]}</h2><p>Top five, best of each model, momentum ridge.</p><img style="width:100%" src="{fname}">'
         best_keys.append(sub.key.iloc[0])
-    plot(series, dates, best_keys + [k for k in [REF, (TARGET_SET, 'pooled', BASE)] if k in series], 'Best configuration of each set', ROOT/'summary_cum_best_by_set.png')
+    plot(series, dates, best_keys + [k for k in [REF, (TARGET_SET, 'pooled', BASE), MEAN_ONLY] if k in series], 'Best configuration of each set', ROOT/'summary_cum_best_by_set.png')
     body += '<h2>Best configuration of each set</h2><img style="width:100%" src="summary_cum_best_by_set.png">'
-    best = t[t.model != 'momentum'].groupby(['input', 'head']).head(1).drop(columns='key')
+    best = t[tsfm_only].groupby(['input', 'head']).head(1).drop(columns='key')
     body += '<h2>Best of each set</h2>' + best.to_html(index=False, float_format=fmt)
     show = t.drop(columns='key').copy()
     show['t'] = show['t'].map(lambda v: '' if pd.isna(v) else f'{v:+.2f}'); show['dpay'] = show['dpay'].map(lambda v: '' if pd.isna(v) else f'{v:+.5f}')
