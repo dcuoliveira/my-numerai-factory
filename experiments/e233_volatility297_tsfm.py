@@ -197,7 +197,20 @@ def supervise():
                 probes=hosts.reachable(list(pool.map(lambda n:hosts.probe(n,8,local_name='__remote_probe__'),[n for n in hosts.roster() if n not in {'westeros','imeusp'}])))
             statuses=manager.status(names=[h.name for h in probes],timeout=4);active={r['unit'].removesuffix('.service') for st in statuses.values() for r in st if r['state'].startswith('active')}
             for u in list(owned):
-                if 'nmr-'+u not in active and u not in active:owned.pop(u)
+                if 'nmr-'+u in active:continue
+                # A missing status reply is not proof a unit stopped: only forget it when the host confirms.
+                if S.confirm_unit(owned[u]['host'],'nmr-'+u) is False:owned.pop(u)
+                else:active.add('nmr-'+u)
+            # Adopt live units of this study that a previous supervisor launched.
+            for h,st in statuses.items():
+                for r in st:
+                    unit=r['unit'].removesuffix('.service')
+                    if unit.startswith('nmr-e233_') and r['state'].startswith('active') and unit[4:] not in owned:owned[unit[4:]]=dict(host=h,unit=unit,gpus=[])
+            for h in {'deepfour','deepfive'}:
+                for m in TSFMS:
+                    for kind in ('extract','smoke'):
+                        u=f'e233_gpu_{kind}_{m}'
+                        if u not in owned and S.confirm_unit(h,'nmr-'+u) is True:owned[u]=dict(host=h,unit='nmr-'+u,gpus=[]);active.add('nmr-'+u)
             snapshots={}
             for h in [h for h in probes if h.gpus]:
                 name,blocked,readings,seen=S.gpu_snapshot(h.name);snapshots[name]=(blocked,readings,seen)
