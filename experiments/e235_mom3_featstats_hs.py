@@ -210,20 +210,28 @@ def job(args):
     return f'{model}_{norm}'
 
 
-def run_all(workers):
+def run_all(workers, shard=0, shards=1):
+    """Shard 0 collects and prepares; every shard fits jobs[shard::shards]; the last to finish writes COMPLETE.json."""
     ROOT.mkdir(parents=True, exist_ok=True); p = panel()
     while not all(extraction_complete(p, m) for m in MODELS):
         save(ROOT/'status.json', dict(stage='waiting_for_extraction', assets={m: len(list((SCR/'raw'/'embeddings'/m).glob('asset_*.npz')))
                                                                               for m in MODELS}, time=time.time()))
         time.sleep(300)
-    for m in MODELS:
-        save(ROOT/'status.json', dict(stage='collect', model=m, time=time.time())); collect(m, p)
-    if not (ROOT/'EMBEDDINGS_READY.json').exists():
-        prepare_common(p)
-    jobs = [(m, n) for m in MODELS for n in N.NORMS]
+    if shard == 0:
+        for m in MODELS:
+            save(ROOT/'status.json', dict(stage='collect', model=m, time=time.time())); collect(m, p)
+        if not (ROOT/'EMBEDDINGS_READY.json').exists():
+            prepare_common(p)
+    while not (ROOT/'EMBEDDINGS_READY.json').exists():
+        time.sleep(60)
+    jobs = [(m, n) for m in MODELS for n in N.NORMS][shard::shards]
+    status = ROOT/(f'status_shard{shard}.json' if shards > 1 else 'status.json')
     with ProcessPoolExecutor(workers) as pool:
         for i, tag in enumerate(pool.map(job, jobs), 1):
-            save(ROOT/'status.json', dict(stage='fitting', done=i, expected=len(jobs), last=tag, time=time.time()))
+            save(status, dict(stage='fitting', shard=shard, shards=shards, done=i, expected=len(jobs), last=tag, time=time.time()))
+    n_pa = len(list((ROOT/'per_asset'/'fits').glob('*/COMPLETE.json'))); n_po = len(list((ROOT/'pooled'/'fits').glob('*/COMPLETE.json')))
+    if n_pa < 3*len(MODELS)*len(N.NORMS) or n_po < 2*len(MODELS)*len(N.NORMS):
+        return
     save(ROOT/'COMPLETE.json', dict(experiment='E235', per_asset=len(list((ROOT/'per_asset'/'fits').glob('*/COMPLETE.json'))),
                                     pooled=len(list((ROOT/'pooled'/'fits').glob('*/COMPLETE.json'))), time=time.time()))
 
@@ -231,8 +239,9 @@ def run_all(workers):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(); ap.add_argument('stage', choices=['extract', 'all'])
     ap.add_argument('--model', choices=MODELS); ap.add_argument('--smoke', action='store_true')
-    ap.add_argument('--workers', type=int, default=2); a = ap.parse_args()
+    ap.add_argument('--workers', type=int, default=2); ap.add_argument('--shard', type=int, default=0)
+    ap.add_argument('--shards', type=int, default=1); a = ap.parse_args()
     if a.stage == 'extract':
         extract(a.model, a.smoke)
     else:
-        run_all(a.workers)
+        run_all(a.workers, a.shard, a.shards)
