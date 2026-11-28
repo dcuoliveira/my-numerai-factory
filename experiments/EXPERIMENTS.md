@@ -2776,3 +2776,13 @@ Launch: `python3 -m experiments.e233_volatility297_tsfm supervise` as systemd-ru
 **Launch.** `python3 -m src.cluster run --jobs experiments/e234_e206_pooled_ridge.jobs` (8 cores, 2 workers).
 
 **Outputs.** `results/reports/crypto/e234_e206_pooled_ridge/` (fits, scores); rows added to `results/reports/crypto/e206_momentum3_tsfm/momentum_new_tsfm_hs_summary.pdf` via `experiments/e206_summary_report.py`.
+
+### E235: Momentum3 TSFM rows on feature-row state statistics, per-asset and pooled (registered 2026-11-28)
+
+**Request.** "We will have two sets of results: one for asset by asset prediction models and prediction models on panel of assets. Add two other sets of experiments analogously where we add means, std, and skew of the cross-section of hidden states of the FEATURES themselves, not the one we have being used which references the hidden state of the target variable. Run this and then add all results together." Clarified: statistics across the 33 feature rows (per asset-date, per hidden dimension), replacing the target-row state.
+
+**Design.** One new forward pass per TSFM with `src/data_mani/e235_featstats_embeddings.py` (unchanged E212 extractor protocol, 35-day wall) on E206's frozen momentum3 panel; read-out [target | mean | std | skew] over the 33 covariate rows, models use S = [mean | std | skew] (3d). Chronos-2, t0, Timestral; TabPFN-TS has no per-feature rows. Parity: target block vs E225 (Chronos-2) and E206 caches (t0, Timestral), feature mean vs E225's F. Per-asset head = E206's own fit_group (dual ridge per asset, designs A/B/C, 6 standardizations, alpha 1e-4..1e4 and rolling window by validation MSE, fresh final fit): 54 fits. Pooled head = E234's fit_config (one primal ridge over all asset-date rows, designs A/B, alpha 1e-4..1e8): 36 fits. Design B's LOO distribution block is held compactly in float16 on valid rows. Training rows = E206 common causal rows with S for all three models.
+
+**Launch.** `python3 -m src.cluster run --jobs experiments/e235_mom3_featstats_hs.jobs --gpu-slots 1`: GPU worker Chronos-2 then t0, GPU worker Timestral, CPU orchestrator (8 cores, 2 workers) that waits for extraction, collects and fits.
+
+**Outputs.** `results/reports/crypto/e235_mom3_featstats_hs/{per_asset,pooled}/fits/`; cache `/scratch/danielco/e235_mom3_featstats_hs/`. The combined report (E206 per-asset, E234 pooled, E235 per-asset, E235 pooled on one common sample) is `results/reports/crypto/e206_momentum3_tsfm/momentum_new_tsfm_hs_summary.pdf` via `experiments/e206_summary_report.py`.

@@ -4244,6 +4244,14 @@ STUDIES["E234"] = {
  "artifact_root":"results/reports/crypto/e234_e206_pooled_ridge",
 }
 
+STUDIES["E235"] = {
+ "title": "Momentum3 TSFM rows on feature-row state statistics (mean/std/skew over the 33 feature rows), per-asset and pooled",
+ "idea": "User asks for two more sets analogous to E206 (per-asset) and E234 (pooled panel) where the input is the mean, std and skew of the hidden states of the FEATURES (the 33 momentum covariate rows) instead of the target-row state; user chose statistics across the 33 feature rows, replacing the target state. New one-pass extractor src/data_mani/e235_featstats_embeddings.py (unchanged E212 protocol, 35-day wall) on E206's frozen momentum3 panel for Chronos-2, t0, Timestral (TabPFN-TS has no feature rows). S=[mean|std|skew] width 3d. Per-asset: E206 fit_group (designs A/B/C x 6 standardizations, 54 fits); pooled: E234 fit_config (designs A/B, 36 fits). Training rows = E206 common rows with S for all three models. OUTSIDE results/metrics: results/reports/crypto/e235_mom3_featstats_hs/{per_asset,pooled}/; cache /scratch/danielco/e235_mom3_featstats_hs/; all four sets combined in results/reports/crypto/e206_momentum3_tsfm/momentum_new_tsfm_hs_summary.pdf.",
+ "runner":"experiments/e235_mom3_featstats_hs.py", "prefix":"e235_", "scout_prefix":None,
+ "models":["chronos2","t0","timestral","ridge"], "expected_arms":90,
+ "artifact_root":"results/reports/crypto/e235_mom3_featstats_hs",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 
