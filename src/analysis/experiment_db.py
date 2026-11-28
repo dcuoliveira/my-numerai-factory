@@ -4236,6 +4236,14 @@ STUDIES["E233"] = {
     "artifact_root": "results/reports/crypto/e233_volatility297_tsfm",
 }
 
+STUDIES["E234"] = {
+ "title": "E206 rows with one pooled panel ridge instead of per-asset ridge",
+ "idea": "User asks to add to the momentum3 TSFM summary report (E206) the same rows (prediction model and features) fitted on the panel of assets in a single batch instead of one model per asset. E206's frozen momentum3 panel, splits, common causal rows and normalized H (Chronos-2, t0, Timestral, TabPFN-TS); one primal ridge over all asset-date rows, no asset ID, alpha logspace(-4,8,49) by pooled validation MSE, rolling window by validation MSE, fresh final fit. Designs A and B x 6 standardizations x 4 models = 48 fits + pooled momentum feature ridge; design C has no pooled analogue (identical input for every asset on a date). Scored on E206's 40,652 common test rows with E206's scorer (parity-checked). OUTSIDE results/metrics: results/reports/crypto/e234_e206_pooled_ridge/; cache /scratch/danielco/e234_e206_pooled_ridge/; report rows added to results/reports/crypto/e206_momentum3_tsfm/momentum_new_tsfm_hs_summary.pdf.",
+ "runner":"experiments/e234_e206_pooled_ridge.py", "prefix":"e234_", "scout_prefix":None,
+ "models":["chronos2","t0","timestral","tabpfnts","ridge"], "expected_arms":49,
+ "artifact_root":"results/reports/crypto/e234_e206_pooled_ridge",
+}
+
 if __name__ == "__main__":
     raise SystemExit(main())
 

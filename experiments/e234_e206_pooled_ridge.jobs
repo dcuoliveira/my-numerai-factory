@@ -1,0 +1,1 @@
+cores=8 ram=72 name=e234_pooled -- python3 -u experiments/e234_e206_pooled_ridge.py all --workers 2

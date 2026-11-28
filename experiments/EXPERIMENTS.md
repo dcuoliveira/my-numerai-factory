@@ -2766,3 +2766,13 @@ Dataset `crypto/v2.0-e233-ts-tscs-cs-volatility297`, 297 features. TS99 is the u
 Design. Uses the frozen E212 extractor (context 256, minimum 32 resolved labels, 35-day wall) and target20 only. Heads: per asset, design C over a fixed training vocabulary, 33 alphas by validation MSE, and rolling window 63/126/252 for the rolling norm. The E212 block schedule is 504 history / 63 validation / 130 forecast dates from step 200. Norms are pooled, asset, cross_section, rolling, robust and l2, giving 18 streams plus a 297-feature ridge control. Raw predictions only; no residualization or ensembles. Comparison rows are the E212 chronos2/t0/timestral (recommended norm) and feature-ridge TS99, plus the E226 CS99 and TS_CS198 ridges, all re-scored on one common sample. GPU extraction runs under the 30% share with one card per job. Expect about 3x E212's ~7-11 GPU-hours per model.
 
 Launch: `python3 -m experiments.e233_volatility297_tsfm supervise` as systemd-run --user unit nmr-e233_supervisor on deepfour. Output: results/reports/crypto/e233_volatility297_tsfm/ (PDF E233_volatility297_tsfm.pdf).
+
+### E234: E206 rows with one pooled panel ridge instead of per-asset ridge (registered 2026-11-28)
+
+**Request.** "Add to this report the same rows (prediction model and features) but instead of single asset use panel of assets as input in a single batch. If this is not available, run it."
+
+**Design.** E206's frozen inputs unchanged (crypto/v2.0-e205-ts-momentum3 panel, target20 splits, 35-day wall, common causal rows, normalized H for Chronos-2, t0, Timestral, TabPFN-TS). Instead of one dual ridge per asset, one primal ridge is fitted over every asset-date training row at once (no asset ID). Alpha from logspace(-4, 8, 49) by pooled validation MSE (grid widened above E206's 1e4 because the pooled Gram is far larger; boundary hits recorded), rolling window 63/126/252 by validation MSE, fresh final fit. Rows: designs A and B x 6 standardizations x 4 models = 48, plus the 33-feature momentum ridge pooled. Design C has no pooled analogue: its concatenated all-asset input is identical for every asset on a date, so one pooled model cannot rank assets; those 24 rows are reported as not applicable. Scored on E206's 40,652 common test rows with E206's own scorer (parity-checked against E206's stored per-asset scores).
+
+**Launch.** `python3 -m src.cluster run --jobs experiments/e234_e206_pooled_ridge.jobs` (8 cores, 2 workers).
+
+**Outputs.** `results/reports/crypto/e234_e206_pooled_ridge/` (fits, scores); rows added to `results/reports/crypto/e206_momentum3_tsfm/momentum_new_tsfm_hs_summary.pdf` via `experiments/e206_summary_report.py`.
